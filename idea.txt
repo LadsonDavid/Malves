@@ -1,0 +1,13 @@
+Who can be power users of it – early stage startup teams
+pain-points and what they actually needed:
+
+1. lead generation tool: they can't afford the min $50 per month
+2. can't bring the desktop everywhere to do the implementation and other operations
+3. remote desktop isn't user friendly, can't handle mobile display cursor control on a small screen is not a nice way to handle the desktop from there
+4. remote handling of coding platforms only works in claude and codex, not in antigravity or cursor there's no cross-platform implementation that can handle this across tools
+5. browser automation for task completion needs a Claude or Comet subscription
+6. credits drained immediately
+7. budget is low
+
+proposed solution:
+mobile application which can run agents on the desktop i've already developed the lead generation tool, we just need to integrate it with ours. The agent runs the prompts on the AI coding platform, and asks questions on mobile if the coding platform asks anything. Use a freellmapi for the agent's knowledge. Build a browser extension that can handle browser tasks, like the Claude browser extension.
