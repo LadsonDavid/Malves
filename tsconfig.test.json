@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@malves/protocol": ["./packages/protocol/src/index.ts"],
+      "@malves/core": ["./packages/core/src/index.ts"]
+    },
+    "allowImportingTsExtensions": true
+  },
+  "include": ["packages/*/test", "packages/*/src", "vitest.config.ts"]
+}
