@@ -186,3 +186,48 @@ describe("tasks", () => {
     expect(restarted.workspaces.list()).toEqual([c.ws]);
   });
 });
+
+describe("tasks with several open questions", () => {
+  it("waits until the last one is answered", async () => {
+    const c = setup();
+    const ws = c.workspaces.register("site", "/home/me/site");
+    c.host.script = async ({ callbacks }) => {
+      const first = callbacks.decide({ kind: "permission", text: "A?", choices, risk: "low" });
+      await first;
+      return "completed";
+    };
+    const id = c.tasks.create({ workspaceId: ws.id, agent: "demo", prompt: "x" });
+    await flush();
+    const second = c.tasks.ask(id, { kind: "browser_action", text: "B?", choices, risk: "high" });
+    await flush();
+    const [qa, qb] = c.questions.pending();
+    c.questions.answer({ questionId: qb!.question_id, choiceId: "allow", commandId: "b" });
+    await expect(second).resolves.toBe("allow");
+    expect(c.tasks.get(id)?.state).toBe("waiting");
+    c.questions.answer({ questionId: qa!.question_id, choiceId: "allow", commandId: "a" });
+    expect((await c.tasks.whenFinished(id)).state).toBe("done");
+  });
+
+  it("a timeout on either question stops the task and answers the other with null", async () => {
+    const c = setup();
+    const ws = c.workspaces.register("site", "/home/me/site");
+    let agentAnswer: string | null | undefined;
+    c.host.script = async ({ callbacks }) => {
+      agentAnswer = await callbacks.decide({
+        kind: "permission",
+        text: "A?",
+        choices,
+        risk: "low",
+      });
+      return "cancelled";
+    };
+    const id = c.tasks.create({ workspaceId: ws.id, agent: "demo", prompt: "x" });
+    await flush();
+    const gate = c.tasks.ask(id, { kind: "browser_action", text: "B?", choices, risk: "high" });
+    c.clock.advance(TIMEOUT);
+    await expect(gate).resolves.toBeNull();
+    await flush();
+    expect(agentAnswer).toBeNull();
+    expect(c.tasks.get(id)).toMatchObject({ state: "stopped", reason: STOPPED_WAITING });
+  });
+});

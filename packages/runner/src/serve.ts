@@ -1,5 +1,6 @@
 import type { AgentRun } from "@malves/core";
 import type { RunExtras } from "./adapters/acp/host.js";
+import { GateBroker } from "./adapters/browser_gate/broker.js";
 import { startLinkServer } from "./adapters/link/server.js";
 import { tailscaleAddress } from "./adapters/link/tailscale.js";
 import { loadVapid, type Vapid, WebPushNotifier } from "./adapters/push/webpush.js";
@@ -20,6 +21,12 @@ export type ServeOptions = {
   secrets?: Secrets;
   /** Send questions as Web Push to paired phones (default on). */
   push?: boolean;
+  /** Browser gate options (§5). */
+  browser?: {
+    executable?: string;
+    noSandbox?: boolean;
+    gateCommand?: { command: string; args: string[] };
+  };
 };
 
 export type Served = { runner: Runner; linkUrl: string; stop(): Promise<void> };
@@ -55,6 +62,16 @@ export async function serve(o: ServeOptions): Promise<Served> {
   });
   const cleanups: Array<() => unknown> = [];
   try {
+    const broker = new GateBroker({
+      core: () => runner,
+      ...(o.browser?.executable ? { browserExecutable: o.browser.executable } : {}),
+      ...(o.browser?.noSandbox ? { noSandbox: true } : {}),
+      ...(o.browser?.gateCommand ? { gateCommand: o.browser.gateCommand } : {}),
+    });
+    await broker.start();
+    cleanups.push(() => broker.close());
+    extras.push((run) => broker.extrasFor(run));
+
     // Clear a question's notification once it's answered, times out or is cancelled.
     const push = pusher;
     if (push) {

@@ -1,0 +1,7 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - textbox [ref=e3]
+    - textbox "Password" [ref=e4]
+    - button "Go" [ref=e5]
+  - link "link" [ref=e6] [cursor=pointer]:
+    - /url: https://example.com

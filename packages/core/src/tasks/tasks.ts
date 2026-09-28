@@ -2,7 +2,7 @@ import { type TaskState, TERMINAL_STATES } from "@malves/protocol";
 import type { Command } from "../command.js";
 import type { EventLog } from "../events/log.js";
 import type { AgentEnd, AgentHost, AgentSession, Decision, Ids } from "../ports.js";
-import type { Questions } from "../questions/questions.js";
+import type { Answer, Questions } from "../questions/questions.js";
 import { confine, type Workspaces } from "../workspaces/workspaces.js";
 
 export type Task = {
@@ -56,6 +56,7 @@ export class Tasks {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly finished = new Map<string, Array<(task: Task) => void>>();
   private readonly byCommand = new Map<string, string>();
+  private readonly waiting = new Map<string, number>();
 
   constructor(private readonly o: TasksOptions) {
     o.log.subscribe((event) => {
@@ -189,16 +190,35 @@ export class Tasks {
     }
   }
 
+  /**
+   * Asks a person on behalf of a running task — for tools outside the agent
+   * protocol, like the browser gate. Same rules: silence stops the task.
+   */
+  ask(taskId: string, decision: Decision): Promise<string | null> {
+    return this.decide(taskId, decision);
+  }
+
   private async decide(taskId: string, decision: Decision): Promise<string | null> {
     if (!this.isActive(taskId)) return null;
-    this.transition(taskId, "waiting");
-    const answer = await this.o.questions.ask({
-      ...decision,
-      taskId,
-      timeoutMs: this.o.questionTimeoutMs,
-    });
+    // Several questions can be open at once (the agent and the browser gate);
+    // the task waits until the last one is answered.
+    const open = (this.waiting.get(taskId) ?? 0) + 1;
+    this.waiting.set(taskId, open);
+    if (open === 1) this.transition(taskId, "waiting");
+    let answer: Answer;
+    try {
+      answer = await this.o.questions.ask({
+        ...decision,
+        taskId,
+        timeoutMs: this.o.questionTimeoutMs,
+      });
+    } finally {
+      const left = (this.waiting.get(taskId) ?? 1) - 1;
+      if (left === 0) this.waiting.delete(taskId);
+      else this.waiting.set(taskId, left);
+    }
     if (answer.outcome === "answered" && this.isActive(taskId)) {
-      this.transition(taskId, "running");
+      if (!this.waiting.has(taskId)) this.transition(taskId, "running");
       return answer.choiceId;
     }
     // Silence never means yes (R3): the agent is stopped before it hears back.

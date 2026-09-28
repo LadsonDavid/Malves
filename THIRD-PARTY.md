@@ -39,3 +39,5 @@ Used unmodified as npm dependencies, not copied into this repository:
   copyleft; no MPL files are modified or included here.
 - `tweetnacl` (Unlicense / public domain), `ws` (MIT), `better-sqlite3` (MIT),
   `zod` (MIT), `expo-unified-push` (MIT).
+- `@playwright/mcp` (Apache-2.0) and `@modelcontextprotocol/sdk` (MIT) — the
+  browser gate runs Playwright MCP as a child process and proxies its tools.

@@ -115,6 +115,13 @@ async function serveForever(
     questionTimeoutMs,
     terminal: true,
     ...(listen ? { listen } : {}),
+    browser: {
+      ...(process.env.MALVES_BROWSER_EXECUTABLE
+        ? { executable: process.env.MALVES_BROWSER_EXECUTABLE }
+        : {}),
+      // Only for containers running as root, where Chromium's sandbox can't start.
+      ...(process.env.MALVES_BROWSER_NO_SANDBOX === "1" ? { noSandbox: true } : {}),
+    },
   });
   console.log(`malves is running on ${served.runner.name}, reachable at ${served.linkUrl}`);
   console.log("Pair a phone with `malves pair` in another terminal. Ctrl-C stops everything.");
