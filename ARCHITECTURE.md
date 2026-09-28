@@ -306,7 +306,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 |---|---|
 | 1 | Single-process microkernel runner, not services |
 | 2 | ACP between runner and agents; our own small protocol between phone and runner |
-| 3 | TypeScript runner and React Native (Expo) Android app, to reuse Happy, the ACP TypeScript library, Playwright and freellmapi. signalstack stays in Python behind HTTP. **To confirm** — Runmote's Python daemon is the alternative base |
+| 3 | **Decided:** TypeScript runner, relay and Expo Android app; signalstack stays in Python behind HTTP. ACP's only official SDK is TypeScript, Happy is a TypeScript/Expo monorepo, and one language lets phone and runner share protocol and encryption code. See §15 |
 | 4 | SQLite append-only event log |
 | 5 | End-to-end encryption with libsodium, adapted from Happy |
 | 6 | Push through UnifiedPush and ntfy, encrypted payloads; push is only a hint |
@@ -377,3 +377,69 @@ Each step ends in something demoable:
   with action buttons. Test on a real phone.
 - **Topology A needs Tailscale switched on** on the phone — a setup step that
   counts against R10.
+
+---
+
+## 15. Tech stack
+
+TypeScript everywhere except signalstack (Python). Two languages in total.
+
+### Repo layout — pnpm monorepo
+
+```
+packages/
+  protocol/   message schemas, envelope encryption, versions   ← shared by all
+  core/       tasks · questions · budget · workspaces · events ← depends only on protocol
+  runner/     adapters + wiring (ACP, Playwright, budget proxy, link, push, SQLite)
+  relay/      blind WebSocket forwarder, topology B only
+  app/        Expo Android app                                  ← depends on protocol
+```
+
+- `core` as its own package means the package manager enforces the Dependency
+  Rule: it cannot import ACP or Playwright because they aren't its dependencies.
+- `protocol` is shared, so phone and runner use the same message definitions and
+  encryption code.
+
+### By layer
+
+| Layer | Choice | Why |
+|---|---|---|
+| Language | TypeScript on Node.js (current LTS) | Official ACP SDK; reuse Happy; one language across runner, relay, app |
+| Agents | `@agentclientprotocol/sdk` | Official, includes the client side |
+| Message validation | `zod`, in `protocol` | Everything from the phone is checked at the trust boundary |
+| Encryption | `tweetnacl`, in `protocol` | Same as Happy; pure JS; runs on desktop and phone |
+| Storage | SQLite via `better-sqlite3` | Proven, synchronous, single file — fits an append-only log |
+| Processes | Node `child_process.spawn` with argument arrays | No library; never builds commands from strings |
+| Secrets | OS keychain via `@napi-rs/keyring` | Keys never stored in files |
+| Browser | `playwright` (MCP server included) | The browser gate proxies in front of it |
+| Browser gate | `@modelcontextprotocol/sdk` | Official MCP SDK for the approval proxy |
+| Budget guard | Node built-in `http` + `fetch` | Two routes; no framework |
+| Phone link | `ws` | Used for both Tailscale and relay links |
+| Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |
+| Push | ntfy (ntfy.sh in A, self-hosted in B) + `expo-unified-push` | Self-hostable; payload encrypted |
+| App | Expo (React Native) + TypeScript | Reuse Happy's app; shares `protocol` |
+| App modules | `expo-notifications`, `expo-camera`, `expo-secure-store` | Action buttons, QR scanning, Android Keystore |
+| Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
+| Models | freellmapi | OpenAI-compatible, your own keys |
+| Leads | signalstack, unchanged | Add a notifier to its scheduler |
+| Remote access (A) | Tailscale (free personal plan) | Handles NAT; nothing to host |
+| Testing | Vitest | Core tests run on fake ports |
+| Lint/format | Biome | One tool |
+| CI | GitHub Actions | Type-check, test, build APK; free for public repos |
+
+**Total cost: $0.**
+
+### Left out of v1
+
+- **Desktop tray app** — "stop everything" is `malves stop` in the terminal.
+- **App state library** — React's own state is enough.
+- **Runner web framework** — two local routes don't need one.
+
+### Check before committing
+
+- `expo-unified-push` maintenance — check the latest release. Fallback: the
+  embedded FCM distributor or a small native module.
+- UnifiedPush needs native code, so use an Expo **development build**, not Expo
+  Go. Local APK builds are free.
+- `tweetnacl` needs a secure random source on React Native (`expo-crypto` or
+  `react-native-get-random-values`). Wire it up on day one.
