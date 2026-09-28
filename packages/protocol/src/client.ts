@@ -136,6 +136,7 @@ export class LinkClient {
   private lastSeen: number | undefined;
   private readonly pending = new Map<string, Pending>();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private dropCurrent: () => void = () => {};
   private silenceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly o: LinkClientOptions) {
@@ -155,7 +156,7 @@ export class LinkClient {
     this.closed = true;
     clearTimeout(this.retryTimer);
     clearTimeout(this.silenceTimer);
-    this.socket?.close();
+    this.dropCurrent();
     for (const p of this.pending.values()) p.reject(new Error("Link stopped"));
     this.pending.clear();
   }
@@ -177,6 +178,25 @@ export class LinkClient {
     this.channel = channel;
     this.ready = false;
     let challenged = false;
+
+    // Every way a connection can end goes through here, once. Implementations
+    // differ on whether "close" follows "error" (and on firing "error" again
+    // from close()), so never rely on the socket's events alone.
+    let ended = false;
+    const drop = () => {
+      if (ended) return;
+      ended = true;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      try {
+        socket.close();
+      } catch {
+        // already closed
+      }
+      if (socket === this.socket) this.dropped();
+    };
+    this.dropCurrent = drop;
     this.watchSilence();
 
     socket.onmessage = ({ data }) => {
@@ -203,13 +223,11 @@ export class LinkClient {
         }
         this.handle(channel.open(parseFrame(text)) as Reply);
       } catch {
-        socket.close();
+        drop();
       }
     };
-    socket.onclose = () => {
-      if (socket === this.socket) this.dropped();
-    };
-    socket.onerror = () => socket.close();
+    socket.onclose = drop;
+    socket.onerror = drop;
   }
 
   private handle(reply: Reply): void {
@@ -257,7 +275,7 @@ export class LinkClient {
     try {
       if (this.channel) this.socket?.send(this.channel.seal(command));
     } catch {
-      this.socket?.close();
+      this.dropCurrent();
     }
   }
 
@@ -268,7 +286,7 @@ export class LinkClient {
 
   private watchSilence(): void {
     clearTimeout(this.silenceTimer);
-    this.silenceTimer = setTimeout(() => this.socket?.close(), this.o.silenceMs ?? 75_000);
+    this.silenceTimer = setTimeout(() => this.dropCurrent(), this.o.silenceMs ?? 75_000);
   }
 
   private dropped(): void {

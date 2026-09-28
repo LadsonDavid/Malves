@@ -2,7 +2,9 @@ import type { AgentRun } from "@malves/core";
 import type { RunExtras } from "./adapters/acp/host.js";
 import { GateBroker } from "./adapters/browser_gate/broker.js";
 import { BudgetGuard } from "./adapters/budget_proxy/guard.js";
+import { connectRelay } from "./adapters/link/relay_link.js";
 import { startLinkServer } from "./adapters/link/server.js";
+import type { SessionContext } from "./adapters/link/session.js";
 import { tailscaleAddress } from "./adapters/link/tailscale.js";
 import { loadVapid, type Vapid, WebPushNotifier } from "./adapters/push/webpush.js";
 import type { Secrets } from "./adapters/secrets/secrets.js";
@@ -17,8 +19,10 @@ import { openRunner, type Runner } from "./wire.js";
 export type ServeOptions = {
   dir: string;
   questionTimeoutMs: number;
-  /** "host:port". Defaults to this machine's Tailscale address, port 7420. */
+  /** "host:port". Defaults to this machine's Tailscale address, port 7420 (topology A). */
   listen?: string;
+  /** Topology B: dial out to the owner's relay. Defaults to config.json + keychain token. */
+  relay?: { url: string; token: string };
   /** Show events and accept answers in this terminal too. */
   terminal?: boolean;
   agents?: AgentSpec[];
@@ -35,16 +39,23 @@ export type ServeOptions = {
   };
 };
 
-export type Served = { runner: Runner; linkUrl: string; stop(): Promise<void> };
+export type Served = {
+  runner: Runner;
+  /** The address that goes into the pairing QR code. */
+  linkUrl: string;
+  stop(): Promise<void>;
+};
 
 export const DEFAULT_PORT = 7420;
 
 /** Runs the runner as a long-lived process: the phone link plus local control. */
 export async function serve(o: ServeOptions): Promise<Served> {
-  const listen = await resolveListen(o.listen);
   const extras: Array<(run: AgentRun) => RunExtras | Promise<RunExtras>> = [];
   const config = loadConfig(o.dir);
   const secrets = o.secrets ?? secretsFor(o.dir);
+  const relay = o.relay ?? relayFromConfig(config, secrets);
+  // Topology A listens on the tailnet; B only dials out, unless --listen asks for both.
+  const listen = o.listen || !relay ? await resolveListen(o.listen) : undefined;
   const agents = o.agents ?? [...agentCatalog(), ...userAgents(config)];
   const styles = new Map(agents.map((a) => [a.name, a.budget]));
   let vapid: Vapid | undefined;
@@ -99,20 +110,27 @@ export async function serve(o: ServeOptions): Promise<Served> {
         }),
       );
     }
-    const link = await startLinkServer(
-      {
-        core: runner,
-        keyPair: runner.identity.keyPair,
-        runnerId: runner.identity.runnerId,
-        name: runner.name,
-        agents: () => runner.agentInfo(),
-        ...(vapid ? { vapidPublicKey: vapid.publicKey } : {}),
-      },
-      listen,
-    );
-    cleanups.push(() => link.close());
+    const ctx: SessionContext = {
+      core: runner,
+      keyPair: runner.identity.keyPair,
+      runnerId: runner.identity.runnerId,
+      name: runner.name,
+      agents: () => runner.agentInfo(),
+      ...(vapid ? { vapidPublicKey: vapid.publicKey } : {}),
+    };
+    let inviteUrl = "";
+    if (listen) {
+      const link = await startLinkServer(ctx, listen);
+      cleanups.push(() => link.close());
+      inviteUrl = link.url;
+    }
+    if (relay) {
+      const viaRelay = connectRelay(ctx, relay);
+      cleanups.push(() => viaRelay.close());
+      inviteUrl = viaRelay.phoneUrl;
+    }
 
-    const control = await startControlServer(runner, { linkUrl: link.url });
+    const control = await startControlServer(runner, { linkUrl: inviteUrl });
     cleanups.push(() => control.close());
 
     if (o.terminal) {
@@ -122,7 +140,7 @@ export async function serve(o: ServeOptions): Promise<Served> {
 
     return {
       runner,
-      linkUrl: link.url,
+      linkUrl: inviteUrl,
       async stop() {
         await runner.tasks.stopAll("The computer's runner was shut down.");
         for (const cleanup of cleanups.reverse()) await cleanup();
@@ -134,6 +152,21 @@ export async function serve(o: ServeOptions): Promise<Served> {
     runner.close();
     throw error;
   }
+}
+
+function relayFromConfig(
+  config: ReturnType<typeof loadConfig>,
+  secrets: Secrets,
+): { url: string; token: string } | undefined {
+  if (!config.relay) return undefined;
+  const token = secrets.get(config.relay.token);
+  if (!token) {
+    throw new Error(
+      `config.json names a relay, but the keychain has no ${config.relay.token}. ` +
+        `Run \`malves secret set ${config.relay.token}\` with the relay's token.`,
+    );
+  }
+  return { url: config.relay.url, token };
 }
 
 async function resolveListen(listen?: string): Promise<{ host: string; port: number }> {

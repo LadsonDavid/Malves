@@ -73,6 +73,16 @@ importers:
         specifier: ^4.3.0
         version: 4.6.5
 
+  packages/relay:
+    dependencies:
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+
   packages/runner:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -109,6 +119,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@malves/relay':
+        specifier: workspace:*
+        version: link:../relay
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0

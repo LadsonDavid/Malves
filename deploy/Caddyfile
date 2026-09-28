@@ -1,0 +1,8 @@
+# Caddy gets and renews TLS certificates automatically.
+{$RELAY_DOMAIN} {
+	reverse_proxy relay:8080
+}
+
+{$NTFY_DOMAIN} {
+	reverse_proxy ntfy:80
+}

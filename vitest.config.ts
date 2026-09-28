@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       "@malves/protocol": src("protocol"),
       "@malves/core": src("core"),
+      "@malves/relay": fileURLToPath(new URL("./packages/relay/src/relay.ts", import.meta.url)),
     },
   },
   test: {

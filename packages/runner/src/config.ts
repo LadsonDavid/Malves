@@ -52,6 +52,16 @@ export const Config = z.object({
     })
     .default({ floor: [] }),
   agents: z.array(UserAgent).default([]),
+  /** Topology B: the owner's relay (§1). The token is a keychain secret name. */
+  relay: z
+    .object({
+      url: z.url({ protocol: /^wss?$/ }),
+      token: z
+        .string()
+        .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+        .default("RELAY_TOKEN"),
+    })
+    .optional(),
 });
 export type Config = z.infer<typeof Config>;
 

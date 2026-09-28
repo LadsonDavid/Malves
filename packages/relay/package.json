@@ -1,0 +1,25 @@
+{
+  "name": "@malves/relay",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "malves-relay": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/relay.d.ts",
+      "default": "./dist/relay.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
+  }
+}

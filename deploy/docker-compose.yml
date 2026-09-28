@@ -1,0 +1,46 @@
+# Topology B (§1): one small server (~$5/month) running the relay, a private
+# ntfy for push, and Caddy for HTTPS certificates. The desktop only dials out.
+#
+#   cp deploy/server.env.example deploy/.env   # then fill it in
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN}
+      NTFY_DOMAIN: ${NTFY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [relay, ntfy]
+
+  relay:
+    build:
+      context: ..
+      dockerfile: packages/relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      RELAY_TOKEN: ${RELAY_TOKEN}
+    expose: ["8080"]
+
+  # ntfy runs as a separate service; nothing from it is bundled into malves.
+  ntfy:
+    image: binwiederhier/ntfy
+    command: serve
+    restart: unless-stopped
+    environment:
+      NTFY_BASE_URL: https://${NTFY_DOMAIN}
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_CACHE_DURATION: 12h
+    volumes:
+      - ntfy_cache:/var/cache/ntfy
+    expose: ["80"]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  ntfy_cache:
