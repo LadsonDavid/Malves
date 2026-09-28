@@ -14,11 +14,18 @@ export type RunnerOptions = {
   dir: string;
   questionTimeoutMs: number;
   secrets?: Secrets;
-  notifier?: (core: () => Core) => Notifier;
+  notifier?: (ctx: NotifierContext) => Notifier;
   onActivity?: (taskId: string, text: string) => void;
   /** Extra per-run setup (browser gate, budget guard), merged in order. */
   extras?: Array<(run: import("@malves/core").AgentRun) => RunExtras | Promise<RunExtras>>;
   agents?: AgentSpec[];
+};
+
+export type NotifierContext = {
+  core: () => Core;
+  identity: Identity;
+  secrets: Secrets;
+  name: string;
 };
 
 export type Runner = Core & {
@@ -69,7 +76,10 @@ export function openRunner(o: RunnerOptions): Runner {
     });
 
     let core: Core | undefined;
-    const notifier = o.notifier ? o.notifier(() => core as Core) : noPush;
+    const name = hostname();
+    const notifier = o.notifier
+      ? o.notifier({ core: () => core as Core, identity, secrets, name })
+      : noPush;
     core = createCore({
       store,
       clock: systemClock,
@@ -85,7 +95,7 @@ export function openRunner(o: RunnerOptions): Runner {
     return {
       ...core,
       dir: o.dir,
-      name: hostname(),
+      name,
       identity,
       secrets,
       agents,

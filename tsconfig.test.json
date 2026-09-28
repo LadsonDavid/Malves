@@ -12,5 +12,13 @@
     },
     "allowImportingTsExtensions": true
   },
-  "include": ["packages/*/test", "packages/*/src", "vitest.config.ts"]
+  "include": [
+    "packages/protocol/src",
+    "packages/protocol/test",
+    "packages/core/src",
+    "packages/core/test",
+    "packages/runner/src",
+    "packages/runner/test",
+    "vitest.config.ts"
+  ]
 }

@@ -102,7 +102,7 @@ describe("ACP agent, end to end", () => {
       store: c.store,
       clock: systemClock,
       ids: randomIds,
-    random: randomTokens,
+      random: randomTokens,
       notifier: noPush,
       host: new AcpHost(),
       agents: new Map([["missing", command("malves-no-such-program")]]),

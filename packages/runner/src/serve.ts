@@ -2,6 +2,7 @@ import type { AgentRun } from "@malves/core";
 import type { RunExtras } from "./adapters/acp/host.js";
 import { startLinkServer } from "./adapters/link/server.js";
 import { tailscaleAddress } from "./adapters/link/tailscale.js";
+import { loadVapid, type Vapid, WebPushNotifier } from "./adapters/push/webpush.js";
 import type { Secrets } from "./adapters/secrets/secrets.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import type { AgentSpec } from "./agents.js";
@@ -17,6 +18,8 @@ export type ServeOptions = {
   terminal?: boolean;
   agents?: AgentSpec[];
   secrets?: Secrets;
+  /** Send questions as Web Push to paired phones (default on). */
+  push?: boolean;
 };
 
 export type Served = { runner: Runner; linkUrl: string; stop(): Promise<void> };
@@ -27,15 +30,42 @@ export const DEFAULT_PORT = 7420;
 export async function serve(o: ServeOptions): Promise<Served> {
   const listen = await resolveListen(o.listen);
   const extras: Array<(run: AgentRun) => RunExtras | Promise<RunExtras>> = [];
+  let vapid: Vapid | undefined;
+  let pusher: WebPushNotifier | undefined;
   const runner = openRunner({
     dir: o.dir,
     questionTimeoutMs: o.questionTimeoutMs,
     extras,
+    ...(o.push === false
+      ? {}
+      : {
+          notifier: (ctx) => {
+            vapid = loadVapid(ctx.secrets);
+            pusher = new WebPushNotifier({
+              devices: () => ctx.core().devices.list(),
+              runnerId: ctx.identity.runnerId,
+              name: ctx.name,
+              vapid,
+            });
+            return pusher;
+          },
+        }),
     ...(o.agents ? { agents: o.agents } : {}),
     ...(o.secrets ? { secrets: o.secrets } : {}),
   });
   const cleanups: Array<() => unknown> = [];
   try {
+    // Clear a question's notification once it's answered, times out or is cancelled.
+    const push = pusher;
+    if (push) {
+      cleanups.push(
+        runner.log.subscribe((event) => {
+          if (event.type === "question.closed") {
+            push.questionClosed(event.data.question_id).catch(() => {});
+          }
+        }),
+      );
+    }
     const link = await startLinkServer(
       {
         core: runner,
@@ -43,6 +73,7 @@ export async function serve(o: ServeOptions): Promise<Served> {
         runnerId: runner.identity.runnerId,
         name: runner.name,
         agents: () => runner.agentInfo(),
+        ...(vapid ? { vapidPublicKey: vapid.publicKey } : {}),
       },
       listen,
     );

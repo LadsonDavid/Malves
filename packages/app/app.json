@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "malves",
+    "slug": "malves",
+    "scheme": "malves",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "dev.malves.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": ["CAMERA", "POST_NOTIFICATIONS"],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "malves uses the camera once, to scan the pairing code shown on your computer."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-unified-push",
+        {
+          "payloadRendererClass": "dev.malves.notify.QuestionRenderer"
+        }
+      ]
+    ]
+  }
+}
