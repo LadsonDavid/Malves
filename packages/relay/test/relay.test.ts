@@ -103,3 +103,32 @@ describe("relay", () => {
     expect(await res.text()).toBe("ok");
   });
 });
+
+describe("leads route", () => {
+  it("passes GET /leads/api/* to the lead engine with the key, and nothing else", async () => {
+    const { createServer } = await import("node:http");
+    const { leadsRoute } = await import("../src/leads.js");
+    const seen: Array<{ url: string; auth: string | undefined }> = [];
+    const engine = createServer((req, res) => {
+      seen.push({ url: req.url ?? "", auth: req.headers.authorization });
+      res.writeHead(200, { "content-type": "application/json" }).end('{"leads":[]}');
+    });
+    await new Promise<void>((r) => engine.listen(0, "127.0.0.1", r));
+    open.push({ close: () => engine.close() });
+    const port = (engine.address() as { port: number }).port;
+    const r = await relay({ http: leadsRoute(`http://127.0.0.1:${port}`) });
+    const base = r.url.replace("ws://", "http://");
+
+    const ok = await fetch(`${base}/leads/api/leads?limit=5`, {
+      headers: { authorization: "Bearer k" },
+    });
+    expect(await ok.json()).toEqual({ leads: [] });
+    expect(seen).toEqual([{ url: "/api/leads?limit=5", auth: "Bearer k" }]);
+
+    expect((await fetch(`${base}/leads/ops/backup`)).status).toBe(404);
+    expect((await fetch(`${base}/leads/`)).status).toBe(404);
+    expect((await fetch(`${base}/leads/api/../ops/run`)).status).toBe(404);
+    expect((await fetch(`${base}/leads/api/leads`, { method: "POST" })).status).toBe(405);
+    expect(seen).toHaveLength(1);
+  });
+});

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,7 +16,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  */
 
 const gateScript = fileURLToPath(new URL("../src/browser-gate.ts", import.meta.url));
-const chromium = "/opt/pw-browsers/chromium";
+/** A Chromium or Chrome binary: MALVES_TEST_CHROMIUM, or this sandbox's pre-installed one. */
+const chromium =
+  process.env.MALVES_TEST_CHROMIUM ??
+  (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 
 const PAGE = `<!doctype html><title>Shop</title>
 <a href="/next">Next page</a>
@@ -38,6 +41,7 @@ async function listen(server: Server): Promise<string> {
 }
 
 beforeAll(async () => {
+  if (!chromium) return;
   site = createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(req.url === "/next" ? "<title>Next</title><h1>Second page</h1>" : PAGE);
@@ -71,7 +75,7 @@ beforeAll(async () => {
         MALVES_GATE_TOKEN: "test-token",
         MALVES_WORKSPACE: "/home/me/site",
         MALVES_BROWSER_DIR: dir,
-        MALVES_BROWSER_EXECUTABLE: chromium,
+        MALVES_BROWSER_EXECUTABLE: chromium as string,
         // This sandbox runs as root, where Chromium's own sandbox can't start.
         MALVES_BROWSER_NO_SANDBOX: "1",
       },
@@ -99,7 +103,7 @@ async function refOf(label: string): Promise<string> {
   return ref;
 }
 
-describe("browser gate with a real browser", () => {
+describe.skipIf(!chromium)("browser gate with a real browser", () => {
   it("hides page scripts from the agent", async () => {
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names).toContain("browser_navigate");

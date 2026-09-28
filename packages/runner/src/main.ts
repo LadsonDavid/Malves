@@ -4,6 +4,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import type { Workspace } from "@malves/core";
+import { encodeLeadsInvite } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { secretsFor } from "./adapters/secrets/secrets.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -25,6 +26,7 @@ Start here:
   malves workspace add <folder> [--name <name>]   register a project folder
   malves serve [--listen host:port]               run, reachable over Tailscale
   malves pair                                     show a QR code for the phone
+  malves leads-code --url <address>               QR code for the lead engine (signalstack)
 
 While serving:
   malves stop                                     stop every running task
@@ -51,6 +53,7 @@ async function main(argv: string[]): Promise<number> {
       agent: { type: "string", short: "a", default: "demo" },
       timeout: { type: "string", short: "t", default: "10m" },
       listen: { type: "string" },
+      url: { type: "string" },
       since: { type: "string", default: "0" },
       help: { type: "boolean", short: "h" },
     },
@@ -68,6 +71,8 @@ async function main(argv: string[]): Promise<number> {
       return serveForever(dir, questionTimeoutMs, values.listen);
     case "pair":
       return pair(dir);
+    case "leads-code":
+      return leadsCode(dir, values.url);
     case "stop":
       return print(await daemon(dir, { cmd: "stop" }), "Stopped every running task.");
     case "status":
@@ -146,6 +151,29 @@ async function pair(dir: string): Promise<number> {
   qrcode.generate(invite, { small: true });
   const seconds = Math.round((expires_at - Date.now()) / 1000);
   console.log(`Scan this with the malves app within ${seconds} seconds. It works once.`);
+  return 0;
+}
+
+/**
+ * The phone pairs with the lead engine as its own endpoint (§7). This only
+ * shows a code: the runner never talks to signalstack.
+ */
+function leadsCode(dir: string, url: string | undefined): number {
+  if (!url) {
+    console.error(
+      "Usage: malves leads-code --url <address>\n" +
+        "  topology A: http://<this computer's Tailscale IP>:8000\n" +
+        "  topology B: https://<relay domain>/leads",
+    );
+    return 1;
+  }
+  const key = secretsFor(dir).get("LEADS_KEY");
+  if (!key) {
+    console.error("Store signalstack's UI_KEY first: `malves secret set LEADS_KEY`.");
+    return 1;
+  }
+  qrcode.generate(encodeLeadsInvite({ url, key }), { small: true });
+  console.log("Scan this in the malves app (Leads → Scan). It contains the lead engine's key.");
   return 0;
 }
 

@@ -24,6 +24,8 @@ services:
     restart: unless-stopped
     environment:
       RELAY_TOKEN: ${RELAY_TOKEN}
+      # Only GET /leads/api/* is passed on (see packages/relay/src/leads.ts).
+      LEADS_UPSTREAM: ${LEADS_UPSTREAM:-}
     expose: ["8080"]
 
   # ntfy runs as a separate service; nothing from it is bundled into malves.
@@ -40,7 +42,24 @@ services:
       - ntfy_cache:/var/cache/ntfy
     expose: ["80"]
 
+  # Optional lead engine (R7): `docker compose --profile leads up -d`, and set
+  # LEADS_UPSTREAM=http://signalstack:8000 in .env. Needs the signalstack
+  # version with /api/leads (its Dockerfile is in that repository).
+  signalstack:
+    profiles: ["leads"]
+    build: https://github.com/LadsonDavid/signalstack.git
+    restart: unless-stopped
+    environment:
+      UI_KEY: ${LEADS_KEY}
+      DIGEST_URL: ${DIGEST_URL:-}
+      CONFIG_PATH: /app/config.yaml
+    volumes:
+      - ./signalstack.yaml:/app/config.yaml:ro
+      - signalstack_data:/data
+    expose: ["8000"]
+
 volumes:
+  signalstack_data:
   caddy_data:
   caddy_config:
   ntfy_cache:

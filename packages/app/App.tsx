@@ -1,3 +1,4 @@
+import { type Lead, type LeadsInvite, type LeadsPage, researchPrompt } from "@malves/protocol";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -14,14 +15,17 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { fetchLeads, forgetLeadEngine, loadLeadEngine, saveLeadEngine } from "./src/leads-store";
 import { type ComputerView, links, type QuestionView, type TaskView } from "./src/links";
 import { enablePush, listenForRegistrations } from "./src/push";
 
-type Screen = "inbox" | "new" | "computers" | "scan";
+type Screen = "inbox" | "new" | "leads" | "computers" | "scan";
+type Draft = { prompt: string; browser: boolean };
 
 export default function App() {
   const state = useSyncExternalStore(links.subscribe, links.getSnapshot);
   const [screen, setScreen] = useState<Screen>("inbox");
+  const [draft, setDraft] = useState<Draft>({ prompt: "", browser: false });
   const colors = palette(useColorScheme() === "dark");
   const s = styles(colors);
 
@@ -46,6 +50,7 @@ export default function App() {
           [
             ["inbox", `Inbox${state.questions.length ? ` (${state.questions.length})` : ""}`],
             ["new", "New task"],
+            ["leads", "Leads"],
             ["computers", "Computers"],
           ] as const
         ).map(([id, label]) => (
@@ -60,7 +65,26 @@ export default function App() {
       </View>
       {screen === "inbox" && <Inbox s={s} questions={state.questions} tasks={state.tasks} />}
       {screen === "new" && (
-        <NewTask s={s} computers={state.computers} onDone={() => setScreen("inbox")} />
+        <NewTask
+          key={draft.prompt}
+          s={s}
+          draft={draft}
+          computers={state.computers}
+          onDone={() => {
+            setDraft({ prompt: "", browser: false });
+            setScreen("inbox");
+          }}
+        />
+      )}
+      {screen === "leads" && (
+        <Leads
+          s={s}
+          onScan={() => setScreen("scan")}
+          onResearch={(lead) => {
+            setDraft({ prompt: researchPrompt(lead), browser: true });
+            setScreen("new");
+          }}
+        />
       )}
       {screen === "computers" && (
         <Computers s={s} computers={state.computers} onPair={() => setScreen("scan")} />
@@ -172,20 +196,22 @@ function QuestionCard({ s, q, now }: { s: S; q: QuestionView; now: number }) {
 
 function NewTask({
   s,
+  draft,
   computers,
   onDone,
 }: {
   s: S;
+  draft: Draft;
   computers: ComputerView[];
   onDone: () => void;
 }) {
   const online = computers.filter((c) => c.welcome);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(draft.prompt);
   const [runnerId, setRunnerId] = useState(online[0]?.runnerId);
   const computer = online.find((c) => c.runnerId === runnerId) ?? online[0];
   const [workspaceId, setWorkspaceId] = useState<string>();
   const [agent, setAgent] = useState<string>();
-  const [browser, setBrowser] = useState(false);
+  const [browser, setBrowser] = useState(draft.browser);
   const workspaces = computer?.welcome?.workspaces ?? [];
   const agents = (computer?.welcome?.agents ?? []).filter((a) => a.available);
   const ws = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
@@ -341,6 +367,106 @@ function presence(c: ComputerView, now: number): string {
   return minutes < 1 ? "last seen just now" : `last seen ${minutes} min ago`;
 }
 
+// ---- Leads: the lead engine is its own endpoint (§7) ------------------------------
+
+function Leads({
+  s,
+  onScan,
+  onResearch,
+}: {
+  s: S;
+  onScan: () => void;
+  onResearch: (lead: Lead) => void;
+}) {
+  const [engine, setEngine] = useState<LeadsInvite | null | undefined>(undefined);
+  const [page, setPage] = useState<LeadsPage>();
+  const [error, setError] = useState<string>();
+
+  const refresh = async (e: LeadsInvite) => {
+    try {
+      setPage(await fetchLeads(e));
+      setError(undefined);
+    } catch (err) {
+      // Keep showing the last list, marked with its "as of" time (§9).
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    loadLeadEngine().then(async (e) => {
+      setEngine(e ?? null);
+      if (!e) return;
+      try {
+        setPage(await fetchLeads(e));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }, []);
+
+  if (engine === undefined) return null;
+  if (engine === null) {
+    return (
+      <View style={s.body}>
+        <Text style={s.text}>
+          Connect your lead engine (signalstack) to see which companies to contact this week, and
+          why.
+        </Text>
+        <Pressable style={s.primary} onPress={onScan}>
+          <Text style={s.primaryText}>Scan the lead engine code</Text>
+        </Pressable>
+        <Text style={s.muted}>{"On the computer, run `malves leads-code --url <address>`."}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={s.body}>
+      <View style={s.row}>
+        <Pressable style={s.secondary} onPress={() => void refresh(engine)}>
+          <Text style={s.secondaryText}>Refresh</Text>
+        </Pressable>
+        <Pressable
+          style={s.secondary}
+          onPress={() =>
+            void forgetLeadEngine().then(() => {
+              setEngine(null);
+              setPage(undefined);
+            })
+          }
+        >
+          <Text style={s.secondaryText}>Disconnect</Text>
+        </Pressable>
+      </View>
+      {page && <Text style={s.muted}>As of {new Date(page.as_of).toLocaleString()}</Text>}
+      {error && <Text style={s.bad}>{error}</Text>}
+      {page?.leads.length === 0 && (
+        <Text style={s.muted}>No companies yet. The engine is still collecting.</Text>
+      )}
+      {page?.leads.map((lead) => (
+        <View key={lead.domain} style={s.card}>
+          <Text style={s.title}>
+            {lead.name}{" "}
+            <Text style={s.muted}>
+              · {lead.tier} · {lead.domain}
+            </Text>
+          </Text>
+          <Text style={s.text}>{lead.why}</Text>
+          {lead.trigger ? <Text style={s.muted}>Latest: {lead.trigger}</Text> : null}
+          {lead.contact ? (
+            <Text style={s.muted}>
+              {lead.contact.name}, {lead.contact.title}
+            </Text>
+          ) : null}
+          <Pressable style={s.secondary} onPress={() => onResearch(lead)}>
+            <Text style={s.secondaryText}>Research in browser</Text>
+          </Pressable>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 function Scan({ s, onDone }: { s: S; onDone: () => void }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
@@ -369,7 +495,8 @@ function Scan({ s, onDone }: { s: S; onDone: () => void }) {
                 const name = String(
                   (Platform.constants as { Model?: string }).Model ?? "Android phone",
                 );
-                await links.addComputer(data, name);
+                if (data.startsWith("malves://leads?")) await saveLeadEngine(data);
+                else await links.addComputer(data, name);
                 onDone();
               } catch (e) {
                 Alert.alert("Could not pair", e instanceof Error ? e.message : String(e), [
