@@ -130,6 +130,19 @@ const DevicePushRegistered = z.object({
   data: z.object({ device_id: z.string(), subscription: PushSubscription }),
 });
 
+/** One model call through the budget guard (§6, R8): which model really answered. */
+const BudgetUpdated = z.object({
+  type: z.literal("budget.updated"),
+  data: z.object({
+    task_id: z.string(),
+    model: z.string(),
+    requested_model: z.string().optional(),
+    via: z.enum(["free", "own_key"]),
+    input_tokens: z.number().int().min(0),
+    output_tokens: z.number().int().min(0),
+  }),
+});
+
 const ErrorReport = z.object({
   type: z.literal("error"),
   data: z.object({
@@ -151,6 +164,7 @@ export const EventBody = z.discriminatedUnion("type", [
   DevicePaired,
   DeviceRevoked,
   DevicePushRegistered,
+  BudgetUpdated,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;

@@ -26,6 +26,8 @@ export type TaskView = {
   reason?: string;
   result?: string;
   updatedAt: number;
+  /** Models that answered through the budget guard, and how (R8). */
+  models: Array<{ model: string; via: "free" | "own_key"; tokens: number }>;
 };
 
 export type QuestionView = {
@@ -202,7 +204,20 @@ class Links {
           prompt: d.prompt,
           state: "queued",
           updatedAt: event.at,
+          models: [],
         });
+        break;
+      }
+      case "budget.updated": {
+        const task = this.tasks.get(key(event.data.task_id));
+        if (!task) break;
+        const { model, via } = event.data;
+        const tokens = event.data.input_tokens + event.data.output_tokens;
+        const models = [...task.models];
+        const same = models.findIndex((m) => m.model === model && m.via === via);
+        if (same >= 0) models[same] = { model, via, tokens: (models[same]?.tokens ?? 0) + tokens };
+        else models.push({ model, via, tokens });
+        this.tasks.set(key(task.id), { ...task, models });
         break;
       }
       case "task.updated": {

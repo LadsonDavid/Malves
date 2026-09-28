@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,8 +36,9 @@ export function tempDirs() {
   return { dir, site, home };
 }
 
-export async function startServed(options: Partial<ServeOptions> = {}) {
+export async function startServed(options: Partial<ServeOptions> = {}, config?: object) {
   const dirs = tempDirs();
+  if (config) writeFileSync(path.join(dirs.home, "config.json"), JSON.stringify(config));
   const served: Served = await serve({
     dir: dirs.home,
     questionTimeoutMs: 10_000,

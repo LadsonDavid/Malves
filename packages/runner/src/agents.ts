@@ -13,6 +13,8 @@ export type AgentSpec = {
   secretEnv?: string[];
   /** ACP auth method to use when the agent asks for one. */
   authMethod?: string;
+  /** Route this agent's model calls through the budget guard (§6). */
+  budget?: "openai" | "anthropic";
 };
 
 /**

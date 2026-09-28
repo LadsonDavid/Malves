@@ -1,3 +1,4 @@
+import { Budget, type BudgetPolicy } from "./budget/budget.js";
 import type { Command } from "./command.js";
 import { Devices } from "./devices/devices.js";
 import { EventLog } from "./events/log.js";
@@ -6,6 +7,14 @@ import { Questions } from "./questions/questions.js";
 import { Tasks } from "./tasks/tasks.js";
 import { Workspaces } from "./workspaces/workspaces.js";
 
+export {
+  Budget,
+  type BudgetPolicy,
+  type ModelCheck,
+  normalise as normaliseModel,
+  sameModel,
+  type Usage,
+} from "./budget/budget.js";
 export { type Command, command } from "./command.js";
 export { type Device, Devices, PAIRING_TTL_MS, PairingError } from "./devices/devices.js";
 export { EventLog, type Listener } from "./events/log.js";
@@ -41,6 +50,7 @@ export type CoreOptions = {
   host: AgentHost;
   agents: ReadonlyMap<string, Command>;
   questionTimeoutMs: number;
+  budget?: BudgetPolicy;
 };
 
 export type Core = {
@@ -49,6 +59,7 @@ export type Core = {
   questions: Questions;
   tasks: Tasks;
   devices: Devices;
+  budget: Budget;
 };
 
 /** Builds the core, replays the log, and cleans up anything a restart left behind. */
@@ -57,6 +68,7 @@ export function createCore(o: CoreOptions): Core {
   const workspaces = new Workspaces(log, o.ids);
   const questions = new Questions(log, o.clock, o.ids, o.notifier);
   const devices = new Devices(log, o.clock, o.ids, o.random);
+  const budget = new Budget(log, o.budget ?? { floor: [] });
   const tasks = new Tasks({
     log,
     ids: o.ids,
@@ -69,5 +81,5 @@ export function createCore(o: CoreOptions): Core {
   log.load();
   questions.recover();
   tasks.recover();
-  return { log, workspaces, questions, tasks, devices };
+  return { log, workspaces, questions, tasks, devices, budget };
 }

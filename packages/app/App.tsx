@@ -93,6 +93,7 @@ function Inbox({ s, questions, tasks }: { s: S; questions: QuestionView[]; tasks
           <Text style={s.muted}>
             {t.agent} · {t.state === "waiting" ? "waiting for you" : t.state}
           </Text>
+          <Models s={s} task={t} />
           <Pressable
             style={s.secondary}
             onPress={() =>
@@ -112,9 +113,27 @@ function Inbox({ s, questions, tasks }: { s: S; questions: QuestionView[]; tasks
             {t.reason ? ` — ${t.reason}` : ""}
           </Text>
           {t.result ? <Text style={s.text}>{t.result}</Text> : null}
+          <Models s={s} task={t} />
         </View>
       ))}
     </ScrollView>
+  );
+}
+
+/** Which model really answered, and how it was paid for (R8). */
+function Models({ s, task }: { s: S; task: TaskView }) {
+  if (task.models.length === 0) {
+    return <Text style={s.muted}>Model use not metered (the agent's own subscription).</Text>;
+  }
+  return (
+    <Text style={s.muted}>
+      {task.models
+        .map(
+          (m) =>
+            `${m.model} · ${m.via === "free" ? "free" : "your key"} · ${m.tokens.toLocaleString()} tokens`,
+        )
+        .join("\n")}
+    </Text>
   );
 }
 

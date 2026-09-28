@@ -1,12 +1,16 @@
 import type { AgentRun } from "@malves/core";
 import type { RunExtras } from "./adapters/acp/host.js";
 import { GateBroker } from "./adapters/browser_gate/broker.js";
+import { BudgetGuard } from "./adapters/budget_proxy/guard.js";
 import { startLinkServer } from "./adapters/link/server.js";
 import { tailscaleAddress } from "./adapters/link/tailscale.js";
 import { loadVapid, type Vapid, WebPushNotifier } from "./adapters/push/webpush.js";
 import type { Secrets } from "./adapters/secrets/secrets.js";
+import { secretsFor } from "./adapters/secrets/secrets.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import type { AgentSpec } from "./agents.js";
+import { agentCatalog } from "./agents.js";
+import { guardConfig, loadConfig, userAgents } from "./config.js";
 import { startControlServer } from "./control.js";
 import { openRunner, type Runner } from "./wire.js";
 
@@ -21,6 +25,8 @@ export type ServeOptions = {
   secrets?: Secrets;
   /** Send questions as Web Push to paired phones (default on). */
   push?: boolean;
+  /** Budget guard upstreams; defaults to config.json (§6). */
+  guard?: import("./adapters/budget_proxy/guard.js").GuardConfig;
   /** Browser gate options (§5). */
   browser?: {
     executable?: string;
@@ -37,6 +43,10 @@ export const DEFAULT_PORT = 7420;
 export async function serve(o: ServeOptions): Promise<Served> {
   const listen = await resolveListen(o.listen);
   const extras: Array<(run: AgentRun) => RunExtras | Promise<RunExtras>> = [];
+  const config = loadConfig(o.dir);
+  const secrets = o.secrets ?? secretsFor(o.dir);
+  const agents = o.agents ?? [...agentCatalog(), ...userAgents(config)];
+  const styles = new Map(agents.map((a) => [a.name, a.budget]));
   let vapid: Vapid | undefined;
   let pusher: WebPushNotifier | undefined;
   const runner = openRunner({
@@ -57,8 +67,9 @@ export async function serve(o: ServeOptions): Promise<Served> {
             return pusher;
           },
         }),
-    ...(o.agents ? { agents: o.agents } : {}),
-    ...(o.secrets ? { secrets: o.secrets } : {}),
+    agents,
+    secrets,
+    budget: { floor: config.budget.floor },
   });
   const cleanups: Array<() => unknown> = [];
   try {
@@ -71,6 +82,11 @@ export async function serve(o: ServeOptions): Promise<Served> {
     await broker.start();
     cleanups.push(() => broker.close());
     extras.push((run) => broker.extrasFor(run));
+
+    const guard = new BudgetGuard(() => runner, o.guard ?? guardConfig(config, secrets));
+    await guard.start();
+    cleanups.push(() => guard.close());
+    extras.push((run) => guard.extrasFor(run, styles.get(run.agent)));
 
     // Clear a question's notification once it's answered, times out or is cancelled.
     const push = pusher;

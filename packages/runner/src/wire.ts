@@ -19,6 +19,7 @@ export type RunnerOptions = {
   /** Extra per-run setup (browser gate, budget guard), merged in order. */
   extras?: Array<(run: import("@malves/core").AgentRun) => RunExtras | Promise<RunExtras>>;
   agents?: AgentSpec[];
+  budget?: import("@malves/core").BudgetPolicy;
 };
 
 export type NotifierContext = {
@@ -89,6 +90,7 @@ export function openRunner(o: RunnerOptions): Runner {
       host,
       agents: commandMap(agents),
       questionTimeoutMs: o.questionTimeoutMs,
+      ...(o.budget ? { budget: o.budget } : {}),
     });
 
     const opened = store;

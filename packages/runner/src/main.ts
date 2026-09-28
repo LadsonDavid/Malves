@@ -8,6 +8,7 @@ import qrcode from "qrcode-terminal";
 import { secretsFor } from "./adapters/secrets/secrets.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { agentCatalog, onPath } from "./agents.js";
+import { loadConfig, userAgents } from "./config.js";
 import {
   type ControlRequest,
   type ControlResponse,
@@ -72,7 +73,7 @@ async function main(argv: string[]): Promise<number> {
     case "status":
       return print(await daemon(dir, { cmd: "status" }));
     case "agents":
-      for (const a of agentCatalog()) {
+      for (const a of [...agentCatalog(), ...userAgents(loadConfig(dir))]) {
         const mark = onPath(a.requires) ? "✓" : "✗ (not installed)";
         console.log(`${a.name.padEnd(12)} ${mark}  ${a.label}`);
       }
@@ -89,7 +90,11 @@ async function main(argv: string[]): Promise<number> {
       break;
     case "log":
     case "run": {
-      const runner = openRunner({ dir, questionTimeoutMs });
+      const runner = openRunner({
+        dir,
+        questionTimeoutMs,
+        agents: [...agentCatalog(), ...userAgents(loadConfig(dir))],
+      });
       try {
         if (cmd === "log") {
           for (const e of runner.log.since(Number(values.since))) console.log(JSON.stringify(e));
