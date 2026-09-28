@@ -8,8 +8,9 @@ these are non-negotiable; solve them differently if needed, but never drop one.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth: requirements R1–R10,
   design, security, ADRs, tech stack (§15), build order (§13).
-- **Status:** build order step 1 done (protocol, core, runner with SQLite + ACP +
-  terminal questions). Next step is build order step 2.
+- **Status:** all eight build steps implemented (see ARCHITECTURE.md §16 for what
+  changed and what is still unverified). Next: run it on a real phone and real
+  agents; merge the signalstack `/api/leads` change in that repo.
 
 ## How the owner wants to work
 

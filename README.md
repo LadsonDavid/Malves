@@ -73,31 +73,82 @@ public issue before it's decided, not after.
 
 ## Where it stands
 
-- **lead engine** — working, separate repo, Apache-2.0
-- **desktop runner** — build step 1 done: runs an ACP agent locally, questions answered in the terminal
-- **Android app** — designed, not built
-- **browser automation** — designed, not built
+All eight build steps in [ARCHITECTURE.md §13](ARCHITECTURE.md#13-build-order) are
+implemented. What has and hasn't been verified is listed honestly in
+[ARCHITECTURE.md §16](ARCHITECTURE.md#16-what-the-build-changed-and-what-is-verified).
+In short: the desktop runner, relay, browser gate, budget guard and push are
+tested end to end; the Android app bundles and type-checks but **has not yet
+run on a phone**, and its notification module has not been compiled.
 
-The full design — requirements, architecture, security model and tech stack — is
-in [ARCHITECTURE.md](ARCHITECTURE.md).
+- **lead engine** — separate repo ([signalstack](https://github.com/LadsonDavid/signalstack)); needs its `/api/leads` change
+- **desktop runner** — `packages/runner`
+- **Android app** — `packages/app` (Expo, development build)
+- **relay** (optional server) — `packages/relay`, `deploy/`
 
-### Trying the runner (build step 1)
+## Setting it up
 
-Needs Node.js 22.12+ and pnpm.
+Needs Node.js 22.12+, pnpm, and on the desktop an OS keychain (macOS Keychain,
+Windows Credential Manager, or a Secret Service keyring on Linux). Keys are
+never written to files.
 
 ```sh
 pnpm install && pnpm build
-node packages/runner/dist/main.js workspace add ~/code/my-site
-node packages/runner/dist/main.js run -w my-site "add a demo file"   # demo agent, no API key
-node packages/runner/dist/main.js run -w my-site -a claude "fix the footer"
+alias malves="node $PWD/packages/runner/dist/main.js"
+
+malves workspace add ~/code/my-site      # folders the phone may start tasks in
+malves agents                            # which agents are installed
+malves serve                             # keep this running
+malves pair                              # in another terminal: scan with the app
 ```
 
-Questions appear in the terminal; answer with a number. If nobody answers before
-`--timeout` (default 10m), the task stops. `pnpm test` runs the test suite.
+**Topology A (free):** install Tailscale on the desktop and the phone. `malves serve`
+listens on the desktop's Tailscale address only. Push goes through ntfy.sh as
+encrypted Web Push; install the ntfy app on the phone, then tap *Notifications*
+on the computer in the malves app.
+
+**Topology B (own server, ~$5/month):** on the server,
+`cp deploy/server.env.example deploy/.env`, fill it in, and
+`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`. On
+the desktop, `malves secret set RELAY_TOKEN` and add to `~/.malves/config.json`:
+
+```json
+{ "relay": { "url": "wss://relay.example.com" } }
+```
+
+**Agents:** `claude`, `codex`, `cursor` and `antigravity` are built in; each uses
+its own login or API key (`malves secret set CURSOR_API_KEY`, `GEMINI_API_KEY`).
+Add others, e.g. a cheap agent on free models, in `config.json`:
+
+```json
+{
+  "budget": {
+    "free": { "url": "http://127.0.0.1:3001/v1" },
+    "own": { "url": "https://openrouter.ai/api/v1", "key": "OWN_API_KEY" },
+    "floor": ["claude-*", "gpt-5*", "qwen3-coder*"]
+  },
+  "agents": [
+    { "name": "cheap", "label": "OpenCode on free models",
+      "program": "opencode", "args": ["acp"], "budget": "openai" }
+  ]
+}
+```
+
+Agents with `"budget"` go through the budget guard, which records which model
+really answered and asks before any weaker one takes over.
+
+**Leads:** run signalstack with a `UI_KEY`, then `malves secret set LEADS_KEY`
+(same value) and `malves leads-code --url <address>`; scan it in the app's Leads tab.
+
+**Without a phone:** `malves run -w my-site "add a demo file"` runs one task
+with the built-in demo agent and asks its question in the terminal.
+
+`pnpm test` runs the test suite (the browser gate test needs Chromium; set
+`MALVES_TEST_CHROMIUM` to its path).
 
 ## Contributing
 
-Not open for contributions yet; the project is still at the design stage. The
+Not open for contributions yet; the project is a final-year university project
+and is still being evaluated. The
 security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
 before anything else — a phone that makes your desktop run code is remote code
 execution as a feature, and that deserves a threat model before it deserves a

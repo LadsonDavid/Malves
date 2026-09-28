@@ -443,3 +443,43 @@ packages/
   Go. Local APK builds are free.
 - `tweetnacl` needs a secure random source on React Native (`expo-crypto` or
   `react-native-get-random-values`). Wire it up on day one.
+
+---
+
+## 16. What the build changed, and what is verified
+
+### Changes from the design above
+
+| Area | Design said | Built | Why |
+|---|---|---|---|
+| Cursor (R5) | A wrapper, possibly "run, then approve" | Cursor's own `agent acp`, with `authenticate` (`cursor_login`) | Cursor's CLI now speaks ACP and sends `session/request_permission`, which settles the §14 question |
+| Antigravity (R5) | ACP server, API key | Community adapter `google-antigravity-acp`, pinned, run with `--no-skip-permissions` | No official ACP server found. Without that flag the adapter approves every tool call itself and nothing reaches the phone |
+| Push payload | libsodium `box` | Web Push encryption (RFC 8291, aes128gcm, VAPID keys in the keychain) | `expo-unified-push` decrypts Web Push natively, even when the app is killed. ntfy still sees only ciphertext |
+| Answer buttons (R1) | Notification buttons | A local Expo module (Kotlin) renders them; a tap runs a headless JS task that answers over the link | `expo-unified-push` notifications have no buttons. Buttons on high-risk questions require unlocking the phone, so a lost, locked phone can't approve them |
+| Phone link | `box` per message | `box` plus a per-connection challenge and message counters | Stops a recorded frame being replayed into this or a later connection |
+| `result.approve` | Its own message | No separate message: approving anything is a question answered with `answer` | One Questions module (§3). The `commit_approval` kind exists; no feature asks it yet |
+| Budget guard (R8) | Ask when the floor would be broken | Also asks when a *different* model answered than was requested, and when the free tier runs out. "Pause" stops the task | freellmapi's router picks the model itself. There is no paused task state; stopped is honest |
+| Browser tasks | A cheap ACP agent via the budget guard | Any agent that accepts ACP `mcpServers`; a cheap one is added in `config.json` with `"budget": "openai"` | No built-in free agent; the choice is the user's |
+| Browser gate (R6) | Rules for submit, forms, uploads, passwords, payments | Same, plus: page scripts refused, uploads only from the workspace, pages on this computer or home network need a yes, unknown tools refused | Closing gaps the agent could use to route around the rules |
+| Snapshots | Written to disk | Playwright MCP now does this itself; the gate reads them to the agent in pages | Less code |
+| Lead engine (R7) | signalstack unchanged plus a notifier | signalstack gains `GET /api/leads`, `GET /api/stats`, bearer auth and the digest (a separate change in that repository) | Its web UI was HTML only. The relay passes on only `GET /leads/api/*` |
+| Relay auth | — | The runner presents a shared token; phones are authenticated by the runner, not the relay | One owner per relay |
+| Secrets | OS keychain | OS keychain; `MALVES_SECRETS=memory` keeps them in memory only, for demos on machines without one | Still never in files |
+| Task questions | One at a time | A task can have several open questions (agent and browser gate); it waits until the last is answered, and a timeout on any stops it | Found while building the gate |
+
+### Verified in this repository's tests or by hand
+
+- **R3:** an unanswered question stops the task and the agent takes no further action (fake agent and a real ACP process); the same for questions from the browser gate and the budget guard.
+- **R6:** a real headless Chromium behind the gate: links are followed, typing and submitting ask, password fields are refused without asking, and page scripts are hidden.
+- **R8:** the budget guard against a fake OpenAI-compatible gateway: records the answering model and tokens, holds switched or below-floor answers, handles streams, falls back to your own key, and pauses.
+- **Link and pairing:** pairing, one-time secrets, replay, revocation, resume by sequence number, re-sent commands applied once, over a real WebSocket, both directly and through the relay (including a relay restart).
+- **Push:** Web Push encrypted to a phone's keys and decrypted by a test "phone"; the push service sees only ciphertext.
+- **Relay and deployment:** the relay image builds, runs, and carries pairing and commands; the signalstack image builds, and leads pass through the relay with the key, but its UI and admin routes don't.
+- **App:** type-checks, bundles to Hermes bytecode, `expo prebuild` applies the plugins, autolinking finds the notification module.
+
+### Not yet verified — needs real devices or accounts
+
+- The app on a real Android phone: the Kotlin module compiling, UnifiedPush delivery under Doze, lock-screen buttons (**R1**), and delivery time over mobile data (**R2**).
+- Real agents: Claude Code, Codex, Cursor and Antigravity have not been run (they need their logins). **R5** is implemented, not demonstrated.
+- Windows (starting agents through `npx` needs `.cmd` handling) and the macOS and Windows keychains.
+- A real tailnet, Caddy's certificates on a real domain, **R10** (≤ 10 minutes to set up), and the running cost claims in **R7** and **R9**.
