@@ -12,6 +12,8 @@ export interface Store {
   append(body: EventBody, at: number): LoggedEvent;
   /** Events with `seq` greater than `after`, oldest first, at most `limit`. */
   since(after: number, limit: number): LoggedEvent[];
+  /** Events with `seq` less than `before`, newest first, at most `limit`. */
+  before(before: number, limit: number): LoggedEvent[];
 }
 
 export interface Clock {
@@ -22,6 +24,12 @@ export interface Clock {
 
 export interface Ids {
   next(prefix: string): string;
+}
+
+/** Cryptographically secure randomness. */
+export interface Random {
+  /** `bytes` random bytes, base64url-encoded. */
+  token(bytes: number): string;
 }
 
 /**
@@ -42,10 +50,14 @@ export type Decision = {
 
 export type AgentRun = {
   taskId: string;
+  /** The agent's name in the runner's catalogue. */
+  agent: string;
   command: Command;
   /** The registered workspace root. The agent's cwd, and the limit of its file access. */
   workspaceRoot: string;
   prompt: string;
+  /** Give the agent the gated browser tools (§5). */
+  browser: boolean;
 };
 
 export type AgentCallbacks = {

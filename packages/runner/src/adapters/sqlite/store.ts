@@ -9,6 +9,7 @@ export class SqliteStore implements Store {
   private readonly db: Database.Database;
   private readonly insert: Database.Statement<[string, number, string]>;
   private readonly select: Database.Statement<[number, number], Row>;
+  private readonly selectBefore: Database.Statement<[number, number], Row>;
 
   constructor(file: string) {
     this.db = new Database(file);
@@ -30,6 +31,9 @@ export class SqliteStore implements Store {
     this.select = this.db.prepare(
       "SELECT seq, at, type, data FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
     );
+    this.selectBefore = this.db.prepare(
+      "SELECT seq, at, type, data FROM events WHERE seq < ? ORDER BY seq DESC LIMIT ?",
+    );
   }
 
   append(body: EventBody, at: number): LoggedEvent {
@@ -38,13 +42,19 @@ export class SqliteStore implements Store {
   }
 
   since(after: number, limit: number): LoggedEvent[] {
-    return this.select.all(after, limit).map((row) => {
-      const body = EventBody.parse({ type: row.type, data: JSON.parse(row.data) });
-      return { ...body, seq: row.seq, at: row.at };
-    });
+    return this.select.all(after, limit).map(toEvent);
+  }
+
+  before(before: number, limit: number): LoggedEvent[] {
+    return this.selectBefore.all(before, limit).map(toEvent);
   }
 
   close(): void {
     this.db.close();
   }
+}
+
+function toEvent(row: Row): LoggedEvent {
+  const body = EventBody.parse({ type: row.type, data: JSON.parse(row.data) });
+  return { ...body, seq: row.seq, at: row.at };
 }

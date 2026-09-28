@@ -11,6 +11,7 @@ import {
   type Ids,
   type Notifier,
   type OpenQuestion,
+  type Random,
   type Store,
 } from "@malves/core";
 import type { EventBody, LoggedEvent } from "@malves/protocol";
@@ -24,6 +25,12 @@ export class MemoryStore implements Store {
   }
   since(after: number, limit: number): LoggedEvent[] {
     return this.events.filter((e) => e.seq > after).slice(0, limit);
+  }
+  before(before: number, limit: number): LoggedEvent[] {
+    return this.events
+      .filter((e) => e.seq < before)
+      .reverse()
+      .slice(0, limit);
   }
 }
 
@@ -54,6 +61,14 @@ export class CounterIds implements Ids {
   next(prefix: string): string {
     this.n += 1;
     return `${prefix}${this.n}`;
+  }
+}
+
+export class CounterRandom implements Random {
+  private n = 0;
+  token(bytes: number): string {
+    this.n += 1;
+    return `secret${this.n}`.padEnd(bytes, "x");
   }
 }
 
@@ -105,12 +120,14 @@ export function setup(overrides: Partial<CoreOptions> = {}) {
   const store = new MemoryStore();
   const clock = new FakeClock();
   const ids = new CounterIds();
+  const random = new CounterRandom();
   const notifier = new RecordingNotifier();
   const host = new ScriptedHost();
   const options: CoreOptions = {
     store,
     clock,
     ids,
+    random,
     notifier,
     host,
     agents: new Map([["demo", command("demo-agent")]]),

@@ -6,7 +6,7 @@ import { command, createCore, type Notifier, STOPPED_WAITING } from "@malves/cor
 import { afterEach, describe, expect, it } from "vitest";
 import { AcpHost } from "../src/adapters/acp/host.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
-import { randomIds, systemClock } from "../src/system.js";
+import { randomIds, randomTokens, systemClock } from "../src/system.js";
 
 /**
  * End to end over real ACP: the demo agent runs as a child process, speaking
@@ -34,6 +34,7 @@ function setup(questionTimeoutMs = 10_000) {
     store,
     clock: systemClock,
     ids: randomIds,
+    random: randomTokens,
     notifier: noPush,
     host,
     agents: new Map([["demo", command(process.execPath, [demoAgent])]]),
@@ -101,6 +102,7 @@ describe("ACP agent, end to end", () => {
       store: c.store,
       clock: systemClock,
       ids: randomIds,
+    random: randomTokens,
       notifier: noPush,
       host: new AcpHost(),
       agents: new Map([["missing", command("malves-no-such-program")]]),

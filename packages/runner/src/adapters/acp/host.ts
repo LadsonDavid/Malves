@@ -12,9 +12,20 @@ import type {
   Decision,
 } from "@malves/core";
 
+/** What the runner adds to one agent run: keys, an auth method, extra MCP servers. */
+export type RunExtras = {
+  env?: Record<string, string>;
+  authMethod?: string;
+  mcpServers?: acp.McpServer[];
+};
+
 export type AcpHostOptions = {
   /** Progress the agent reports (tool calls), for display only. Not logged. */
   onActivity?: (taskId: string, text: string) => void;
+  /** Called before each run to add environment, auth and MCP servers. */
+  prepare?: (run: AgentRun) => RunExtras | Promise<RunExtras>;
+  /** Called when the run ends, to release anything `prepare` set up. */
+  release?: (run: AgentRun) => void;
 };
 
 const STDERR_TAIL = 4000;
@@ -30,47 +41,26 @@ export class AcpHost implements AgentHost {
   constructor(private readonly options: AcpHostOptions = {}) {}
 
   start(run: AgentRun, callbacks: AgentCallbacks): AgentSession {
-    const child = spawn(run.command.program, [...run.command.args], {
-      cwd: run.workspaceRoot,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: false,
-      detached: process.platform !== "win32",
-      windowsHide: true,
-    });
-    this.live.add(child);
-
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_TAIL);
-    });
-
     let stopped = false;
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-    const ended = new Promise<never>((_, reject) => {
-      child.once("error", (error) =>
-        reject(new Error(`Could not start the agent: ${error.message}`)),
-      );
-      child.once("exit", (code, signal) => {
-        if (stopped) return;
-        const tail = stderr.trim().split("\n").slice(-5).join("\n");
-        reject(
-          new Error(`The agent exited (${signal ?? `code ${code}`})${tail ? `: ${tail}` : ""}`),
-        );
-      });
+    let child: ChildProcess | undefined;
+    const finished = (async () => {
+      const extras = (await this.options.prepare?.(run)) ?? {};
+      if (stopped) return "cancelled" as const;
+      child = this.spawn(run, extras);
+      return this.supervise(run, callbacks, child, extras, () => stopped);
+    })().finally(() => {
+      this.options.release?.(run);
+      void stop();
     });
-    ended.catch(() => {});
 
     const stop = async () => {
       stopped = true;
-      kill(child);
-      await Promise.race([exited, delay(3000)]);
-      this.live.delete(child);
+      if (!child) return;
+      const c = child;
+      kill(c);
+      await Promise.race([exitOf(c), delay(3000)]);
+      this.live.delete(c);
     };
-
-    const finished = Promise.race([
-      this.converse(run, callbacks, child, () => stopped),
-      ended,
-    ]).finally(() => void stop());
 
     return { finished, cancel: stop };
   }
@@ -80,10 +70,52 @@ export class AcpHost implements AgentHost {
     for (const child of this.live) kill(child);
   }
 
+  private spawn(run: AgentRun, extras: RunExtras): ChildProcess {
+    const child = spawn(run.command.program, [...run.command.args], {
+      cwd: run.workspaceRoot,
+      env: { ...process.env, ...extras.env },
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      detached: process.platform !== "win32",
+      windowsHide: true,
+    });
+    this.live.add(child);
+    return child;
+  }
+
+  private supervise(
+    run: AgentRun,
+    callbacks: AgentCallbacks,
+    child: ChildProcess,
+    extras: RunExtras,
+    isStopped: () => boolean,
+  ): Promise<AgentEnd> {
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_TAIL);
+    });
+
+    const ended = new Promise<never>((_, reject) => {
+      child.once("error", (error) =>
+        reject(new Error(`Could not start the agent: ${error.message}`)),
+      );
+      child.once("exit", (code, signal) => {
+        if (isStopped()) return;
+        const tail = stderr.trim().split("\n").slice(-5).join("\n");
+        reject(
+          new Error(`The agent exited (${signal ?? `code ${code}`})${tail ? `: ${tail}` : ""}`),
+        );
+      });
+    });
+    ended.catch(() => {});
+    return Promise.race([this.converse(run, callbacks, child, extras, isStopped), ended]);
+  }
+
   private converse(
     run: AgentRun,
     callbacks: AgentCallbacks,
     child: ChildProcess,
+    extras: RunExtras,
     isStopped: () => boolean,
   ): Promise<AgentEnd> {
     if (!child.stdin || !child.stdout) throw new Error("agent stdio is not piped");
@@ -106,6 +138,14 @@ export class AcpHost implements AgentHost {
         if (choice === null || isStopped()) return { outcome: { outcome: "cancelled" } };
         return { outcome: { outcome: "selected", optionId: choice } };
       })
+      .onRequest(acp.methods.client.elicitation.create, async ({ params }) => {
+        if (isStopped()) return { action: "cancel" };
+        const question = choiceQuestion(params);
+        if (!question) return { action: "decline" };
+        const choice = await callbacks.decide(question.decision);
+        if (choice === null || isStopped()) return { action: "cancel" };
+        return { action: "accept", content: { [question.field]: question.value(choice) } };
+      })
       .onRequest(acp.methods.client.fs.readTextFile, async ({ params }) => {
         refuseIfStopped();
         const content = await readFile(await inWorkspace(params.path), "utf8");
@@ -119,11 +159,19 @@ export class AcpHost implements AgentHost {
         return {};
       })
       .connectWith(stream, async (ctx) => {
-        await ctx.request(acp.methods.agent.initialize, {
+        const init = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
-          clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: true },
+            elicitation: { form: {} },
+          },
         });
-        return ctx.buildSession(run.workspaceRoot).withSession(async (session) => {
+        const method = extras.authMethod;
+        if (method && init.authMethods?.some((m) => m.id === method)) {
+          await ctx.request(acp.methods.agent.authenticate, { methodId: method });
+        }
+        const request = { cwd: run.workspaceRoot, mcpServers: extras.mcpServers ?? [] };
+        return ctx.buildSession(request).withSession(async (session) => {
           const turn = session.prompt(run.prompt);
           const failed = turn.then(() => new Promise<never>(() => {}));
           for (;;) {
@@ -151,6 +199,56 @@ function permissionDecision(params: acp.RequestPermissionRequest): Decision {
     choices: params.options.map((o) => ({ id: o.optionId, label: o.name })),
     risk: riskOf(call.kind ?? undefined),
   };
+}
+
+/**
+ * An agent's question, if it can be answered by tapping a choice: a form with
+ * one single-select or yes/no field. Anything needing typed input is declined
+ * for now (the phone has buttons, not a keyboard, in v1).
+ */
+function choiceQuestion(
+  params: acp.CreateElicitationRequest,
+):
+  | { decision: Decision; field: string; value: (choiceId: string) => string | boolean }
+  | undefined {
+  if (params.mode !== "form" || !("requestedSchema" in params)) return undefined;
+  const schema0 = params.requestedSchema as acp.ElicitationSchema;
+  const fields = Object.entries(schema0.properties ?? {});
+  if (fields.length !== 1) return undefined;
+  const [field, schema] = fields[0] as [string, acp.ElicitationPropertySchema];
+  const text = [params.message, schema.title, schema.description].filter(Boolean).join("\n");
+
+  if (schema.type === "boolean") {
+    return {
+      decision: {
+        kind: "agent_question",
+        text,
+        choices: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+        risk: "medium",
+      },
+      field,
+      value: (id) => id === "yes",
+    };
+  }
+  if (schema.type === "string") {
+    const s = schema as {
+      enum?: string[] | null;
+      oneOf?: Array<{ const: string; title: string }> | null;
+    };
+    const options =
+      s.oneOf?.map((o) => ({ id: o.const, label: o.title })) ??
+      s.enum?.map((v) => ({ id: v, label: v }));
+    if (!options || options.length === 0) return undefined;
+    return {
+      decision: { kind: "agent_question", text, choices: options, risk: "medium" },
+      field,
+      value: (id) => id,
+    };
+  }
+  return undefined;
 }
 
 function riskOf(kind: acp.ToolKind | undefined): Decision["risk"] {
@@ -226,6 +324,11 @@ function kill(child: ChildProcess): void {
   } catch {
     child.kill("SIGKILL");
   }
+}
+
+function exitOf(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once("exit", () => resolve()));
 }
 
 function delay(ms: number): Promise<void> {

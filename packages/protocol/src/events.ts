@@ -54,6 +54,10 @@ const TaskCreated = z.object({
     workspace_id: z.string(),
     agent: z.string(),
     prompt: z.string(),
+    /** The phone's command id, so a re-sent command never starts a second task. */
+    command_id: z.string().optional(),
+    /** The agent was given the gated browser tools (§5). */
+    browser: z.boolean().optional(),
   }),
 });
 
@@ -98,6 +102,34 @@ const QuestionClosed = z.object({
   }),
 });
 
+const DevicePaired = z.object({
+  type: z.literal("device.paired"),
+  data: z.object({
+    device_id: z.string(),
+    name: z.string(),
+    /** The phone's X25519 public key, base64. */
+    public_key: z.string(),
+  }),
+});
+
+const DeviceRevoked = z.object({
+  type: z.literal("device.revoked"),
+  data: z.object({ device_id: z.string() }),
+});
+
+/** A Web Push subscription (UnifiedPush endpoint and the phone's keys for it). */
+export const PushSubscription = z.object({
+  endpoint: z.url({ protocol: /^https?$/ }),
+  p256dh: z.string().min(1),
+  auth: z.string().min(1),
+});
+export type PushSubscription = z.infer<typeof PushSubscription>;
+
+const DevicePushRegistered = z.object({
+  type: z.literal("device.push_registered"),
+  data: z.object({ device_id: z.string(), subscription: PushSubscription }),
+});
+
 const ErrorReport = z.object({
   type: z.literal("error"),
   data: z.object({
@@ -116,6 +148,9 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskResult,
   QuestionOpened,
   QuestionClosed,
+  DevicePaired,
+  DeviceRevoked,
+  DevicePushRegistered,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;

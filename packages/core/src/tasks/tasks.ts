@@ -10,9 +10,20 @@ export type Task = {
   workspaceId: string;
   agent: string;
   prompt: string;
+  browser: boolean;
   state: TaskState;
   reason?: string;
   result?: string;
+};
+
+export type NewTask = {
+  workspaceId: string;
+  agent: string;
+  prompt: string;
+  /** Give the agent the gated browser tools (§5). */
+  browser?: boolean;
+  /** The phone's command id. The same id never starts a second task. */
+  commandId?: string;
 };
 
 export const STOPPED_WAITING = "Stopped waiting. Nothing changed after the question.";
@@ -44,13 +55,16 @@ export class Tasks {
   private readonly tasks = new Map<string, Task>();
   private readonly sessions = new Map<string, AgentSession>();
   private readonly finished = new Map<string, Array<(task: Task) => void>>();
+  private readonly byCommand = new Map<string, string>();
 
   constructor(private readonly o: TasksOptions) {
     o.log.subscribe((event) => {
       switch (event.type) {
         case "task.created": {
           const { task_id: id, workspace_id: workspaceId, agent, prompt } = event.data;
-          this.tasks.set(id, { id, workspaceId, agent, prompt, state: "queued" });
+          const browser = event.data.browser ?? false;
+          this.tasks.set(id, { id, workspaceId, agent, prompt, browser, state: "queued" });
+          if (event.data.command_id) this.byCommand.set(event.data.command_id, id);
           break;
         }
         case "task.updated": {
@@ -75,7 +89,9 @@ export class Tasks {
   }
 
   /** Starts a task in a registered workspace, with a known agent. Returns its id. */
-  create(input: { workspaceId: string; agent: string; prompt: string }): string {
+  create(input: NewTask): string {
+    const earlier = input.commandId && this.byCommand.get(input.commandId);
+    if (earlier) return earlier;
     const workspace = this.o.workspaces.get(input.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${input.workspaceId}`);
     const agentCommand = this.o.agents.get(input.agent);
@@ -85,7 +101,14 @@ export class Tasks {
     const id = this.o.ids.next("t");
     this.o.log.append({
       type: "task.created",
-      data: { task_id: id, workspace_id: workspace.id, agent: input.agent, prompt: input.prompt },
+      data: {
+        task_id: id,
+        workspace_id: workspace.id,
+        agent: input.agent,
+        prompt: input.prompt,
+        ...(input.browser ? { browser: true } : {}),
+        ...(input.commandId ? { command_id: input.commandId } : {}),
+      },
     });
     void this.run(id, agentCommand, workspace.path);
     return id;
@@ -136,14 +159,17 @@ export class Tasks {
 
   private async run(taskId: string, agentCommand: Command, root: string): Promise<void> {
     const output: string[] = [];
+    const task = this.tasks.get(taskId) as Task;
     try {
       this.transition(taskId, "running");
       const session = this.o.host.start(
         {
           taskId,
+          agent: task.agent,
           command: agentCommand,
           workspaceRoot: root,
-          prompt: this.tasks.get(taskId)?.prompt ?? "",
+          prompt: task.prompt,
+          browser: task.browser,
         },
         {
           decide: (decision) => this.decide(taskId, decision),

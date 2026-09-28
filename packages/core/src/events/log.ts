@@ -44,6 +44,11 @@ export class EventLog {
     return this.store.since(seq, limit);
   }
 
+  /** Events before `seq`, newest first, for paging back through history. */
+  before(seq: number, limit = PAGE): LoggedEvent[] {
+    return this.store.before(seq, limit);
+  }
+
   get lastSeq(): number {
     return this.last;
   }

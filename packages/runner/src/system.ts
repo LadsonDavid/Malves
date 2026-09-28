@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { Clock, Ids } from "@malves/core";
+import type { Clock, Ids, Random } from "@malves/core";
 
 export const systemClock: Clock = {
   now: () => Date.now(),
@@ -14,6 +14,10 @@ export const systemClock: Clock = {
 
 export const randomIds: Ids = {
   next: (prefix) => `${prefix}_${randomUUID().slice(0, 8)}`,
+};
+
+export const randomTokens: Random = {
+  token: (bytes) => randomBytes(bytes).toString("base64url"),
 };
 
 export function dataDir(): string {

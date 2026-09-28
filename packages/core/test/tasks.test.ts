@@ -117,6 +117,17 @@ describe("tasks", () => {
     expect((await c.tasks.whenFinished(id)).state).toBe("failed");
   });
 
+  it("a re-sent command never starts a second task, even after a restart", async () => {
+    const c = withWorkspace();
+    const input = { workspaceId: c.ws.id, agent: "demo", prompt: "x", commandId: "phone-7" };
+    const id = c.tasks.create(input);
+    expect(c.tasks.create(input)).toBe(id);
+    await c.tasks.whenFinished(id);
+    const restarted = createCore({ ...c.options, store: c.store });
+    expect(restarted.tasks.create(input)).toBe(id);
+    expect(c.host.runs).toHaveLength(1);
+  });
+
   it("only starts tasks in registered workspaces, with known agents", () => {
     const c = withWorkspace();
     expect(() => c.tasks.create({ workspaceId: "ws-unknown", agent: "demo", prompt: "x" })).toThrow(
