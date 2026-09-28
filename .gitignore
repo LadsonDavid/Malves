@@ -1,1 +1,8 @@
 .malveon
+node_modules/
+dist/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+coverage/

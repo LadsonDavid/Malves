@@ -74,12 +74,26 @@ public issue before it's decided, not after.
 ## Where it stands
 
 - **lead engine** — working, separate repo, Apache-2.0
-- **desktop runner** — designed, not built
+- **desktop runner** — build step 1 done: runs an ACP agent locally, questions answered in the terminal
 - **Android app** — designed, not built
 - **browser automation** — designed, not built
 
 The full design — requirements, architecture, security model and tech stack — is
 in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### Trying the runner (build step 1)
+
+Needs Node.js 22.12+ and pnpm.
+
+```sh
+pnpm install && pnpm build
+node packages/runner/dist/main.js workspace add ~/code/my-site
+node packages/runner/dist/main.js run -w my-site "add a demo file"   # demo agent, no API key
+node packages/runner/dist/main.js run -w my-site -a claude "fix the footer"
+```
+
+Questions appear in the terminal; answer with a number. If nobody answers before
+`--timeout` (default 10m), the task stops. `pnpm test` runs the test suite.
 
 ## Contributing
 

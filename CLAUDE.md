@@ -8,7 +8,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth: requirements R1–R10,
   design, security, ADRs, tech stack (§15), build order (§13).
-- **Status:** design complete, no code yet. Next step is build order step 1.
+- **Status:** build order step 1 done (protocol, core, runner with SQLite + ACP +
+  terminal questions). Next step is build order step 2.
 
 ## How the owner wants to work
 
