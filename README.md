@@ -28,15 +28,16 @@ your own hardware already has.
 
 **A self-hosted operations stack for teams with no budget.** Your desktop keeps
 the compute and the subscriptions you already pay for. Your phone becomes the
-control surface. Nothing runs on anyone else's server and there is no per-seat bill.
+control surface. Your code never passes through anyone else's server in readable
+form, and there is no per-seat bill.
 
 | Answers | Piece | What it does |
 |---|---|---|
 | 1, 6, 7 | **lead engine** | Scrapes public buying signals, scores accounts, self-hosted. Already exists: [signalstack](https://github.com/LadsonDavid/signalstack) |
-| 2, 3 | **mobile client** | Task-level control of your desktop. Not a screen. Not a cursor |
-| 4 | **desktop runner** | Drives whichever AI coding tool you use, via one adapter per tool |
-| 5 | **browser extension** | Browser tasks without a second subscription |
-| 6, 7 | **BYO / free model keys** | Pluggable provider. Your keys, your quota, no metered middleman |
+| 2, 3 | **Android app** | Task-level control of your desktop. Not a screen. Not a cursor |
+| 4 | **desktop runner** | Drives your AI coding tool through the [Agent Client Protocol](https://agentclientprotocol.com) (Claude Code, Codex, Antigravity and ~50 more), plus a wrapper for Cursor |
+| 5 | **browser automation** | Playwright on your desktop, behind a phone-approval gate. No subscription |
+| 6, 7 | **your own model keys** | [freellmapi](https://github.com/tashfeenahmed/freellmapi) or any OpenAI-compatible endpoint, with a budget guard that never silently downgrades |
 
 ### Point 3 is the one that matters
 
@@ -49,7 +50,7 @@ That reframing is what makes points 2 and 4 solvable at all. A phone is a bad
 monitor and an excellent decision device.
 
 ```
- phone ──▶ runner ──▶ adapter ──▶ your coding agent
+ phone ──▶ runner ──▶   ACP   ──▶ your coding agent
    ▲         │                    (cursor, claude, codex, antigravity...)
    └─────────┘
    only questions come back
@@ -59,9 +60,9 @@ monitor and an excellent decision device.
 
 Two reasons, both structural rather than idealistic.
 
-**Nobody can maintain adapters for six editors they don't pay for.** I can't, and
-no company will — Anthropic is never going to ship a Cursor adapter. The people
-who can are the people already using those tools.
+**The people who can keep a tool working are the people who use it.** Editors that
+don't speak ACP need wrappers, and those break whenever the editor changes. Users
+of those editors are the ones who notice first.
 
 **The whole premise is "don't pay rent for this."** A paid tier would contradict
 point 7, which is the point of the project.
@@ -73,13 +74,17 @@ public issue before it's decided, not after.
 ## Where it stands
 
 - **lead engine** — working, separate repo, Apache-2.0
-- **desktop runner + adapters** — designed, not built
-- **mobile client** — not started
-- **browser extension** — not started
+- **desktop runner** — designed, not built
+- **Android app** — designed, not built
+- **browser automation** — designed, not built
+
+The full design — requirements, architecture, security model and tech stack — is
+in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Read [SECURITY.md](SECURITY.md) first if
-you're touching the runner — a phone that makes your desktop run code is remote
-code execution as a feature, and that deserves a threat model before it deserves
-a demo.
+Not open for contributions yet; the project is still at the design stage. The
+security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
+before anything else — a phone that makes your desktop run code is remote code
+execution as a feature, and that deserves a threat model before it deserves a
+demo.
