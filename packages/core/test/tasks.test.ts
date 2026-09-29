@@ -1,4 +1,11 @@
-import { createCore, RUNNER_RESTARTED, STOPPED_BY_USER, STOPPED_WAITING } from "@malves/core";
+import path from "node:path";
+import {
+  createCore,
+  MAX_RESULT_CHARS,
+  RUNNER_RESTARTED,
+  STOPPED_BY_USER,
+  STOPPED_WAITING,
+} from "@malves/core";
 import { describe, expect, it } from "vitest";
 import { flush, setup, TIMEOUT } from "./fakes.js";
 
@@ -9,7 +16,7 @@ const choices = [
 
 function withWorkspace() {
   const c = setup();
-  const ws = c.workspaces.register("site", "/home/me/site");
+  const ws = c.workspaces.register("site", path.resolve("/home/me/site"));
   return { ...c, ws };
 }
 
@@ -25,7 +32,7 @@ describe("tasks", () => {
     const task = await c.tasks.whenFinished(id);
     expect(task).toMatchObject({ state: "done", result: "All done." });
     expect(c.host.runs[0]).toMatchObject({
-      workspaceRoot: "/home/me/site",
+      workspaceRoot: c.ws.path,
       prompt: "fix the footer",
     });
     const states = c.store.events.flatMap((e) => (e.type === "task.updated" ? [e.data.state] : []));
@@ -51,6 +58,47 @@ describe("tasks", () => {
     c.questions.answer({ questionId: q.question_id, choiceId: "allow", commandId: "c1" });
     expect((await c.tasks.whenFinished(id)).state).toBe("done");
     expect(c.host.actions).toEqual(["edit"]);
+  });
+
+  it("two questions at once both reach the user, and the task waits until both are answered", async () => {
+    const c = withWorkspace();
+    c.host.script = async ({ callbacks, act }) => {
+      const ask = (text: string) =>
+        callbacks.decide({ kind: "permission", text, choices, risk: "medium" });
+      const [first, second] = await Promise.all([ask("Edit a?"), ask("Edit b?")]);
+      if (first === "allow") act("edit a");
+      if (second === "allow") act("edit b");
+      return "completed";
+    };
+    const id = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    await flush();
+
+    const [qa, qb] = c.questions.pending();
+    expect([qa?.text, qb?.text]).toEqual(["Edit a?", "Edit b?"]);
+    expect(c.tasks.get(id)?.state).toBe("waiting");
+
+    c.questions.answer({ questionId: qa!.question_id, choiceId: "allow", commandId: "c1" });
+    await flush();
+    expect(c.tasks.get(id)?.state).toBe("waiting");
+
+    c.questions.answer({ questionId: qb!.question_id, choiceId: "allow", commandId: "c2" });
+    expect((await c.tasks.whenFinished(id)).state).toBe("done");
+    expect(c.host.actions).toEqual(["edit a", "edit b"]);
+  });
+
+  it("keeps only the end of a very long result", async () => {
+    const c = withWorkspace();
+    c.host.script = async ({ callbacks }) => {
+      callbacks.output("x".repeat(MAX_RESULT_CHARS));
+      callbacks.output("THE END");
+      return "completed";
+    };
+    const task = await c.tasks.whenFinished(
+      c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" }),
+    );
+    expect(task.result?.length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+    expect(task.result?.endsWith("THE END")).toBe(true);
+    expect(task.result?.startsWith("…")).toBe(true);
   });
 
   it("R3: a timed-out question stops the task, and the agent takes no further action", async () => {
@@ -145,7 +193,7 @@ describe("tasks", () => {
     await c.tasks.whenFinished(
       c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" }),
     );
-    expect(inside).toBe("/home/me/site/src/index.html");
+    expect(inside).toBe(path.join(c.ws.path, "src", "index.html"));
     expect(outside).toBeInstanceOf(Error);
     expect(c.store.events.filter((e) => e.type === "error").map((e) => e.data)).toEqual([
       expect.objectContaining({ code: "outside_workspace", message: "Refused: ../../etc/passwd" }),

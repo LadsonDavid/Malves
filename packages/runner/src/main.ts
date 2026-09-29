@@ -2,7 +2,7 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import type { Workspace } from "@malves/core";
+import { samePath, type Workspace } from "@malves/core";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
 import { dataDir, parseDuration } from "./system.js";
@@ -49,9 +49,15 @@ async function main(argv: string[]): Promise<number> {
     switch (cmd) {
       case "workspace":
         return workspace(runner, sub, rest, values.name);
-      case "log":
-        for (const e of runner.log.since(Number(values.since))) console.log(JSON.stringify(e));
+      case "log": {
+        const since = Number(values.since);
+        if (!Number.isInteger(since) || since < 0) {
+          console.error(`--since must be a whole number, not "${values.since}"`);
+          return 1;
+        }
+        for (const e of runner.log.since(since)) console.log(JSON.stringify(e));
         return 0;
+      }
       case "run":
         return await run(runner, [sub, ...rest].filter((s) => s !== undefined).join(" "), values);
       default:
@@ -114,7 +120,7 @@ function pickWorkspace(list: Workspace[], wanted?: string): Workspace {
     return ws;
   }
   const cwd = realpathSync(process.cwd());
-  const here = list.find((w) => w.path === cwd);
+  const here = list.find((w) => samePath(w.path, cwd));
   if (here) return here;
   if (list.length === 1 && list[0]) return list[0];
   throw new Error("Choose a workspace with --workspace (see `malves workspace list`).");

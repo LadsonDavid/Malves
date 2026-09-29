@@ -36,7 +36,7 @@ export class Workspaces {
   register(name: string, root: string): Workspace {
     if (!path.isAbsolute(root)) throw new Error(`Workspace path must be absolute: ${root}`);
     const normalized = path.resolve(root);
-    const existing = this.list().find((w) => w.path === normalized);
+    const existing = this.list().find((w) => samePath(w.path, normalized));
     if (existing) return existing;
     const id = this.ids.next("ws");
     this.log.append({
@@ -59,6 +59,11 @@ export class Workspaces {
   list(): Workspace[] {
     return [...this.byId.values()];
   }
+}
+
+/** Whether two resolved paths name the same folder. Windows paths ignore case. */
+export function samePath(a: string, b: string): boolean {
+  return path.sep === "\\" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 /**

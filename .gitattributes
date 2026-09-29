@@ -1,0 +1,4 @@
+# Every text file is stored and checked out with LF, on every OS.
+# Without this, Windows git (core.autocrlf=true) checks files out as CRLF
+# and Biome fails every file.
+* text=auto eol=lf
