@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 function setup(questionTimeoutMs = 10_000) {
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "malves-acp-")));
+  const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-acp-")));
   const site = path.join(dir, "site");
   const store = new SqliteStore(path.join(dir, "malves.db"));
   const host = new AcpHost();
