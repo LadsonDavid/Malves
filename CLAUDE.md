@@ -2,7 +2,7 @@
 
 ## What this is
 
-A **final year university project**, released as open source (Apache-2.0, no paid
+A **final year university project**, released as open source (MIT, no paid
 tier, ever). It must satisfy all seven pain points in [idea.txt](idea.txt) —
 these are non-negotiable; solve them differently if needed, but never drop one.
 

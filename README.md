@@ -67,7 +67,7 @@ of those editors are the ones who notice first.
 **The whole premise is "don't pay rent for this."** A paid tier would contradict
 point 7, which is the point of the project.
 
-So: **Apache-2.0, no paid tier, no CLA, no hosted relay.** You keep copyright on
+So: **MIT, no paid tier, no CLA, no hosted relay.** You keep copyright on
 what you write. If any of that ever comes up for discussion it happens in a
 public issue before it's decided, not after.
 
