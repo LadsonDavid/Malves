@@ -57,6 +57,15 @@ Set these locally in every new environment. Never commit here as
 | Free LLM tiers as the foundation | Tiers are shrinking and some train on prompts. freellmapi with the user's own keys; never silently downgrade |
 | iOS in v1, shared team accounts, code editing on the phone, screen mirroring | Out of scope — see ARCHITECTURE.md §0 |
 
+## Windows traps — the owner develops on Windows
+
+Step 1 passed on Linux and broke on Windows. Don't reintroduce these:
+
+- Never spawn `npx` or any `.cmd` shim — start `node <script>` instead.
+- Don't upgrade `better-sqlite3` past 12.11.1 until the new version ships Windows builds.
+- Build paths with `node:path` and `fileURLToPath`, never string concatenation or `.pathname`.
+- `.gitattributes` keeps LF everywhere; CI runs on Windows too — keep it green there.
+
 ## Academic integrity — required
 
 - Every piece of code borrowed from Happy, Runmote or elsewhere goes in

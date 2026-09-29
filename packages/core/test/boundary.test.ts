@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -18,7 +19,8 @@ function sources(dir: string): string[] {
 }
 
 describe("core boundary", () => {
-  const root = new URL("../src", import.meta.url).pathname;
+  // fileURLToPath, not `.pathname`: on Windows `.pathname` gives "/D:/…".
+  const root = fileURLToPath(new URL("../src", import.meta.url));
   const imports = sources(root).flatMap((file) =>
     [...readFileSync(file, "utf8").matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)].map(
       (m) => ({

@@ -406,9 +406,10 @@ packages/
 |---|---|---|
 | Language | TypeScript on Node.js (current LTS) | Official ACP SDK; reuse Happy; one language across runner, relay, app |
 | Agents | `@agentclientprotocol/sdk` | Official, includes the client side |
+| Agent adapters | `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp` as pinned dependencies | Started as `node <their script>`, never `npx` — on Windows `npx` is `npx.cmd`, which can't start without a shell |
 | Message validation | `zod`, in `protocol` | Everything from the phone is checked at the trust boundary |
 | Encryption | `tweetnacl`, in `protocol` | Same as Happy; pure JS; runs on desktop and phone |
-| Storage | SQLite via `better-sqlite3` | Proven, synchronous, single file — fits an append-only log |
+| Storage | SQLite via `better-sqlite3`, **pinned to 12.11.1** | Proven, synchronous, single file — fits an append-only log. 13.x ships no Windows builds; check before upgrading |
 | Processes | Node `child_process.spawn` with argument arrays | No library; never builds commands from strings |
 | Secrets | OS keychain via `@napi-rs/keyring` | Keys never stored in files |
 | Browser | `playwright` (MCP server included) | The browser gate proxies in front of it |
@@ -425,7 +426,7 @@ packages/
 | Remote access (A) | Tailscale (free personal plan) | Handles NAT; nothing to host |
 | Testing | Vitest | Core tests run on fake ports |
 | Lint/format | Biome | One tool |
-| CI | GitHub Actions | Type-check, test, build APK; free for public repos |
+| CI | GitHub Actions, Ubuntu **and Windows** × Node 22 and 24 | Type-check, lint, test (APK build later); free for public repos |
 
 **Total cost: $0.**
 

@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
@@ -18,6 +18,8 @@ export type AcpHostOptions = {
 };
 
 const STDERR_TAIL = 4000;
+/** Larger files are refused rather than loaded into memory. */
+const MAX_READ_BYTES = 10 * 1024 * 1024;
 
 /**
  * Runs one ACP agent per task over stdio (§2). The agent is started from an
@@ -102,13 +104,19 @@ export class AcpHost implements AgentHost {
       .client({ name: "malves" })
       .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
         if (isStopped()) return { outcome: { outcome: "cancelled" } };
-        const choice = await callbacks.decide(permissionDecision(params));
+        const decision = permissionDecision(params);
+        // Only "allow always" was offered: refuse rather than hand out a blanket yes.
+        if (decision.choices.length === 0) return { outcome: { outcome: "cancelled" } };
+        const choice = await callbacks.decide(decision);
         if (choice === null || isStopped()) return { outcome: { outcome: "cancelled" } };
         return { outcome: { outcome: "selected", optionId: choice } };
       })
       .onRequest(acp.methods.client.fs.readTextFile, async ({ params }) => {
         refuseIfStopped();
-        const content = await readFile(await inWorkspace(params.path), "utf8");
+        const file = await inWorkspace(params.path);
+        const { size } = await stat(file);
+        if (size > MAX_READ_BYTES) throw new Error(`File is too large to read (${size} bytes)`);
+        const content = await readFile(file, "utf8");
         return { content: sliceLines(content, params.line, params.limit) };
       })
       .onRequest(acp.methods.client.fs.writeTextFile, async ({ params }) => {
@@ -141,14 +149,20 @@ export class AcpHost implements AgentHost {
   }
 }
 
-function permissionDecision(params: acp.RequestPermissionRequest): Decision {
+/**
+ * "Allow always" is never offered: one tap on it would stop the agent asking
+ * for that tool again, and every decision must come back to the user (§5).
+ */
+export function permissionDecision(params: acp.RequestPermissionRequest): Decision {
   const call = params.toolCall;
   const where = (call.locations ?? []).map((l) => l.path).join(", ");
   const title = call.title ?? "The agent wants to use a tool";
   return {
     kind: "permission",
     text: where ? `${title}\n${where}` : title,
-    choices: params.options.map((o) => ({ id: o.optionId, label: o.name })),
+    choices: params.options
+      .filter((o) => o.kind !== "allow_always")
+      .map((o) => ({ id: o.optionId, label: o.name })),
     risk: riskOf(call.kind ?? undefined),
   };
 }

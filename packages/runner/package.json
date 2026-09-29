@@ -11,10 +11,12 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.82.0",
+    "@agentclientprotocol/codex-acp": "2.0.0",
     "@agentclientprotocol/sdk": "1.5.1",
     "@malves/core": "workspace:*",
     "@malves/protocol": "workspace:*",
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "12.11.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0"

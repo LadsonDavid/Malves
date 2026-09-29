@@ -2,7 +2,7 @@ import { type TaskState, TERMINAL_STATES } from "@malves/protocol";
 import type { Command } from "../command.js";
 import type { EventLog } from "../events/log.js";
 import type { AgentEnd, AgentHost, AgentSession, Decision, Ids } from "../ports.js";
-import type { Questions } from "../questions/questions.js";
+import type { Answer, Questions } from "../questions/questions.js";
 import { confine, type Workspaces } from "../workspaces/workspaces.js";
 
 export type Task = {
@@ -14,6 +14,9 @@ export type Task = {
   reason?: string;
   result?: string;
 };
+
+/** The result keeps at most this much of the agent's text: the end, where the summary is. */
+export const MAX_RESULT_CHARS = 100_000;
 
 export const STOPPED_WAITING = "Stopped waiting. Nothing changed after the question.";
 export const STOPPED_BY_USER = "Stopped by you.";
@@ -44,6 +47,8 @@ export class Tasks {
   private readonly tasks = new Map<string, Task>();
   private readonly sessions = new Map<string, AgentSession>();
   private readonly finished = new Map<string, Array<(task: Task) => void>>();
+  /** Questions each task is waiting on. An agent may ask several at once. */
+  private readonly asking = new Map<string, number>();
 
   constructor(private readonly o: TasksOptions) {
     o.log.subscribe((event) => {
@@ -135,7 +140,7 @@ export class Tasks {
   }
 
   private async run(taskId: string, agentCommand: Command, root: string): Promise<void> {
-    const output: string[] = [];
+    let output = "";
     try {
       this.transition(taskId, "running");
       const session = this.o.host.start(
@@ -147,13 +152,16 @@ export class Tasks {
         },
         {
           decide: (decision) => this.decide(taskId, decision),
-          output: (text) => output.push(text),
+          output: (text) => {
+            output += text;
+            if (output.length > 2 * MAX_RESULT_CHARS) output = output.slice(-MAX_RESULT_CHARS);
+          },
           confine: (path) => this.confine(taskId, root, path),
         },
       );
       this.sessions.set(taskId, session);
       const end = await session.finished;
-      if (this.isActive(taskId)) this.finish(taskId, end, output.join(""));
+      if (this.isActive(taskId)) this.finish(taskId, end, output);
     } catch (error) {
       if (this.isActive(taskId)) {
         this.transition(taskId, "failed", error instanceof Error ? error.message : String(error));
@@ -163,16 +171,32 @@ export class Tasks {
     }
   }
 
+  /**
+   * An agent may ask several questions at once. The task is `waiting` while any
+   * of them is open, and goes back to `running` only when the last one closes.
+   */
   private async decide(taskId: string, decision: Decision): Promise<string | null> {
     if (!this.isActive(taskId)) return null;
-    this.transition(taskId, "waiting");
-    const answer = await this.o.questions.ask({
-      ...decision,
-      taskId,
-      timeoutMs: this.o.questionTimeoutMs,
-    });
+    const open = (this.asking.get(taskId) ?? 0) + 1;
+    this.asking.set(taskId, open);
+    if (open === 1) this.transition(taskId, "waiting");
+
+    let answer: Answer;
+    let stillOpen: number;
+    try {
+      answer = await this.o.questions.ask({
+        ...decision,
+        taskId,
+        timeoutMs: this.o.questionTimeoutMs,
+      });
+    } finally {
+      stillOpen = (this.asking.get(taskId) ?? 1) - 1;
+      if (stillOpen > 0) this.asking.set(taskId, stillOpen);
+      else this.asking.delete(taskId);
+    }
+
     if (answer.outcome === "answered" && this.isActive(taskId)) {
-      this.transition(taskId, "running");
+      if (stillOpen === 0) this.transition(taskId, "running");
       return answer.choiceId;
     }
     // Silence never means yes (R3): the agent is stopped before it hears back.
@@ -193,7 +217,9 @@ export class Tasks {
     }
   }
 
-  private finish(taskId: string, end: AgentEnd, text: string): void {
+  private finish(taskId: string, end: AgentEnd, output: string): void {
+    const text =
+      output.length > MAX_RESULT_CHARS ? `…${output.slice(-(MAX_RESULT_CHARS - 1))}` : output;
     if (text !== "") this.o.log.append({ type: "task.result", data: { task_id: taskId, text } });
     switch (end) {
       case "completed":

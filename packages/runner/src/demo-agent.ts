@@ -4,6 +4,7 @@
  * permission to write one file, then writes it through the client's (confined)
  * file access. Set MALVES_DEMO_FILE to choose the path it asks to write.
  */
+import { isAbsolute, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 
@@ -24,7 +25,7 @@ acp
         update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
       });
     const prompt = params.prompt.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(" ");
-    const path = target.startsWith("/") ? target : `${cwd}/${target}`;
+    const path = isAbsolute(target) ? target : join(cwd, target);
 
     await client.notify(acp.methods.client.session.update, {
       sessionId,

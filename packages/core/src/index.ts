@@ -16,6 +16,7 @@ export {
   Questions,
 } from "./questions/questions.js";
 export {
+  MAX_RESULT_CHARS,
   RUNNER_RESTARTED,
   STOPPED_BY_USER,
   STOPPED_WAITING,
@@ -25,6 +26,7 @@ export {
 export {
   confine,
   OutsideWorkspaceError,
+  samePath,
   type Workspace,
   Workspaces,
 } from "./workspaces/workspaces.js";
