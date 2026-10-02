@@ -8,8 +8,12 @@ these are non-negotiable; solve them differently if needed, but never drop one.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth: requirements R1–R10,
   design, security, ADRs, tech stack (§15), build order (§13).
-- **Status:** build order step 1 done (protocol, core, runner with SQLite + ACP +
-  terminal questions). Next step is build order step 2.
+- **Status:** build steps 1 and 2 built. Step 2 = `malves serve` (link server,
+  QR pairing, revocation, resume) + Expo app in `packages/app`. Step 2 still
+  needs a test on a real phone; then step 3 (push).
+- **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
+  `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before
+  writing Expo code — don't rely on memory.
 
 ## How the owner wants to work
 

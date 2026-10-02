@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { samePath, type Workspace } from "@malves/core";
+import { DEFAULT_PORT } from "@malves/protocol";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
-import { dataDir, parseDuration } from "./system.js";
+import { serve } from "./serve.js";
+import { dataDir, parseDuration, resolveFolder } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
 
 const USAGE = `malves — run coding agents and answer their questions
 
+  malves serve [--host <ip>] [--port ${DEFAULT_PORT}] [--timeout 10m]   phone link + terminal
   malves workspace add <folder> [--name <name>]
   malves workspace list
   malves workspace remove <id>
@@ -29,6 +31,8 @@ async function main(argv: string[]): Promise<number> {
       agent: { type: "string", short: "a", default: "demo" },
       timeout: { type: "string", short: "t", default: "10m" },
       since: { type: "string", default: "0" },
+      host: { type: "string" },
+      port: { type: "string", default: String(DEFAULT_PORT) },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -44,9 +48,12 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const runner = openRunner({ dir: dataDir(), questionTimeoutMs: parseDuration(values.timeout) });
+  const dir = dataDir();
+  const runner = openRunner({ dir, questionTimeoutMs: parseDuration(values.timeout) });
   try {
     switch (cmd) {
+      case "serve":
+        return await serve(runner, dir, values);
       case "workspace":
         return workspace(runner, sub, rest, values.name);
       case "log": {
@@ -71,7 +78,7 @@ async function main(argv: string[]): Promise<number> {
 
 function workspace(runner: Runner, sub: string | undefined, rest: string[], name?: string): number {
   if (sub === "add" && rest[0]) {
-    const folder = realpathSync(path.resolve(rest[0]));
+    const folder = resolveFolder(rest[0]);
     const ws = runner.workspaces.register(name ?? path.basename(folder), folder);
     console.log(`${ws.id}  ${ws.name}  ${ws.path}`);
     return 0;
@@ -119,7 +126,7 @@ function pickWorkspace(list: Workspace[], wanted?: string): Workspace {
       throw new Error(`No registered workspace called ${wanted}. See \`malves workspace list\`.`);
     return ws;
   }
-  const cwd = realpathSync(process.cwd());
+  const cwd = resolveFolder(process.cwd());
   const here = list.find((w) => samePath(w.path, cwd));
   if (here) return here;
   if (list.length === 1 && list[0]) return list[0];

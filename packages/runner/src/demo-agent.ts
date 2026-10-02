@@ -2,7 +2,8 @@
 /**
  * A tiny ACP agent for demos and tests, with no model and no API key. It asks
  * permission to write one file, then writes it through the client's (confined)
- * file access. Set MALVES_DEMO_FILE to choose the path it asks to write.
+ * file access. Set MALVES_DEMO_FILE to choose the path it asks to write, and
+ * MALVES_DEMO_AUTH=required to make it act like an agent that isn't signed in.
  */
 import { isAbsolute, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -16,7 +17,11 @@ acp
     protocolVersion: acp.PROTOCOL_VERSION,
     agentCapabilities: { loadSession: false },
   }))
-  .onRequest(acp.methods.agent.session.new, () => ({ sessionId: crypto.randomUUID() }))
+  .onRequest(acp.methods.agent.session.new, () => {
+    // For tests: behave like an agent that isn't signed in (e.g. Claude before /login).
+    if (process.env.MALVES_DEMO_AUTH === "required") throw acp.RequestError.authRequired();
+    return { sessionId: crypto.randomUUID() };
+  })
   .onRequest(acp.methods.agent.session.prompt, async ({ params, client }) => {
     const { sessionId, cwd } = { sessionId: params.sessionId, cwd: process.cwd() };
     const say = (text: string) =>

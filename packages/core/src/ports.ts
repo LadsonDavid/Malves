@@ -42,6 +42,8 @@ export type Decision = {
 
 export type AgentRun = {
   taskId: string;
+  /** The agent's name, e.g. "claude" — for messages the user sees. */
+  agent: string;
   command: Command;
   /** The registered workspace root. The agent's cwd, and the limit of its file access. */
   workspaceRoot: string;

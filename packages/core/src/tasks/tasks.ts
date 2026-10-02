@@ -146,6 +146,7 @@ export class Tasks {
       const session = this.o.host.start(
         {
           taskId,
+          agent: this.tasks.get(taskId)?.agent ?? "",
           command: agentCommand,
           workspaceRoot: root,
           prompt: this.tasks.get(taskId)?.prompt ?? "",

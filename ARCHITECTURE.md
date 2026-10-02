@@ -165,10 +165,18 @@ signalstack. It gives:
 
 ```
 phone → runner   hello{v, since_seq, wish}   task.create   answer{question_id, choice}
-                 task.stop   result.approve   computer.status
-runner → phone   event{seq, …}: task.updated · question.opened · question.closed
+                 task.stop   agents.check   result.approve   computer.status
+runner → phone   welcome{workspaces, agents}   agents{…}   ack{command_id}
+                 event{seq, …}: task.updated · question.opened · question.closed
                  task.result · budget.updated · error
 ```
+
+**Agent readiness.** At startup and on `agents.check`, the runner starts each
+agent, opens a session with no work, and stops it — labelling it `ready`,
+`needs_sign_in` (ACP `auth_required`) or `unavailable`. Real tasks keep the
+labels current. The phone only offers ready agents, so a task never fails just
+because nobody signed in; when one still does, the reason is a plain sentence
+("Claude isn't signed in on your computer…"), not "Authentication required".
 
 Each envelope is encrypted end to end, **inside** the TLS or WireGuard
 connection, so the relay and the push service cannot read anything.
@@ -356,7 +364,8 @@ Each step ends in something demoable:
 1. Core + fake ports + SQLite log, driving one ACP agent locally, questions in
    the terminal. Proves the questions module.
 2. Tailscale link, pairing, encryption, minimal app with inbox and answer
-   buttons.
+   buttons. **Built:** `malves serve`, link protocol, QR pairing, revocation,
+   resume, Expo app (pair / home / new task). Awaiting a test on a real phone.
 3. Push through ntfy. R1 and R2 become measurable.
 4. Cursor wrapper and Antigravity. R5.
 5. Browser gate. R6.
@@ -377,6 +386,10 @@ Each step ends in something demoable:
   with action buttons. Test on a real phone.
 - **Topology A needs Tailscale switched on** on the phone — a setup step that
   counts against R10.
+- **Android blocks plain `ws://` outside Expo Go.** Expo Go allows it, so step 2
+  works there. The step 3 development build must allow cleartext to the runner
+  (or use `wss://`). Payloads are end-to-end encrypted either way, so this is a
+  platform rule, not a security gap.
 
 ---
 
@@ -408,18 +421,18 @@ packages/
 | Agents | `@agentclientprotocol/sdk` | Official, includes the client side |
 | Agent adapters | `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp` as pinned dependencies | Started as `node <their script>`, never `npx` — on Windows `npx` is `npx.cmd`, which can't start without a shell |
 | Message validation | `zod`, in `protocol` | Everything from the phone is checked at the trust boundary |
-| Encryption | `tweetnacl`, in `protocol` | Same as Happy; pure JS; runs on desktop and phone |
+| Encryption | `tweetnacl` + `tweetnacl-util`, in `protocol` | NaCl `box`, same design as Happy (our own code); pure JS, runs on desktop and phone. The app supplies randomness via `setRandomSource` + `expo-crypto` |
 | Storage | SQLite via `better-sqlite3`, **pinned to 12.11.1** | Proven, synchronous, single file — fits an append-only log. 13.x ships no Windows builds; check before upgrading |
 | Processes | Node `child_process.spawn` with argument arrays | No library; never builds commands from strings |
-| Secrets | OS keychain via `@napi-rs/keyring` | Keys never stored in files |
+| Secrets | Phone: `expo-secure-store` (Android Keystore). Runner: `runner-key.json` in the data folder, owner-only | **Deviation:** the OS keychain needs native modules and a desktop session CI can't provide. A process that can read the file can already run the agents directly. Revisit if the local threat model grows |
 | Browser | `playwright` (MCP server included) | The browser gate proxies in front of it |
 | Browser gate | `@modelcontextprotocol/sdk` | Official MCP SDK for the approval proxy |
 | Budget guard | Node built-in `http` + `fetch` | Two routes; no framework |
-| Phone link | `ws` | Used for both Tailscale and relay links |
+| Phone link | `ws` 8.22 (server); the standard `WebSocket` API in the shared `LinkClient` | One client for the app and the tests. Default port 7717; the runner listens on its Tailscale address if it has one |
 | Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |
 | Push | ntfy (ntfy.sh in A, self-hosted in B) + `expo-unified-push` | Self-hostable; payload encrypted |
-| App | Expo (React Native) + TypeScript | Reuse Happy's app; shares `protocol` |
-| App modules | `expo-notifications`, `expo-camera`, `expo-secure-store` | Action buttons, QR scanning, Android Keystore |
+| App | Expo **SDK 57** (React Native 0.86) + TypeScript | Shares `protocol` (via its built `dist`); state is a pure reducer over the event stream |
+| App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`; `expo-notifications` in step 3 | QR scanning, Android Keystore, secure random — all in Expo Go |
 | Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
 | Models | freellmapi | OpenAI-compatible, your own keys |
 | Leads | signalstack, unchanged | Add a notifier to its scheduler |
@@ -434,6 +447,7 @@ packages/
 
 - **Desktop tray app** — "stop everything" is `malves stop` in the terminal.
 - **App state library** — React's own state is enough.
+- **Navigation library (Expo Router)** — three screens switch on one piece of state.
 - **Runner web framework** — two local routes don't need one.
 
 ### Check before committing
@@ -442,5 +456,5 @@ packages/
   embedded FCM distributor or a small native module.
 - UnifiedPush needs native code, so use an Expo **development build**, not Expo
   Go. Local APK builds are free.
-- `tweetnacl` needs a secure random source on React Native (`expo-crypto` or
-  `react-native-get-random-values`). Wire it up on day one.
+- ~~`tweetnacl` needs a secure random source on React Native.~~ Done: `index.ts`
+  calls `setRandomSource` with `expo-crypto` before anything else.
