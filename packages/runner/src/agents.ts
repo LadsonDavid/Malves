@@ -25,6 +25,27 @@ export function knownAgents(): Map<string, Command> {
   ]);
 }
 
+const LABELS: Record<string, string> = { demo: "Demo", claude: "Claude", codex: "Codex" };
+
+const SIGN_IN: Record<string, string> = {
+  claude: "On the computer, run `claude` in a terminal and type /login.",
+  codex: "On the computer, sign in to Codex (run `codex login`).",
+};
+
+/** The name people see, e.g. "Claude". */
+export function agentLabel(name: string): string {
+  return LABELS[name] ?? name;
+}
+
+/** What to do when an agent needs signing in, in plain words. */
+export function signInHint(name: string): string {
+  return SIGN_IN[name] ?? `On the computer, open ${agentLabel(name)} and sign in.`;
+}
+
+export function signInMessage(name: string): string {
+  return `${agentLabel(name)} isn't signed in on your computer. ${signInHint(name)} Then try again.`;
+}
+
 function node(script: string): Command {
   return command(process.execPath, [script]);
 }

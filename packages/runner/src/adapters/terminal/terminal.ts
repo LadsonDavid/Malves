@@ -11,6 +11,8 @@ import type { LoggedEvent } from "@malves/protocol";
 export function attachTerminal(
   core: Core,
   io: { input: NodeJS.ReadableStream; output: NodeJS.WritableStream },
+  /** Extra commands by first word, e.g. `pair`, `revoke <id>`. */
+  commands: Record<string, (args: string[]) => void> = {},
 ): { close(): void } {
   const print = (line: string) => io.output.write(`${line}\n`);
   const unsubscribe = core.log.subscribe((event) => {
@@ -24,6 +26,12 @@ export function attachTerminal(
     if (line === "") return;
     if (line === "stop") {
       void core.tasks.stopAll();
+      return;
+    }
+    const [word = "", ...args] = line.split(/\s+/);
+    const extra = Object.hasOwn(commands, word) ? commands[word] : undefined;
+    if (extra) {
+      extra(args);
       return;
     }
     const question = core.questions.pending()[0];

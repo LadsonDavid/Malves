@@ -74,8 +74,8 @@ public issue before it's decided, not after.
 ## Where it stands
 
 - **lead engine** — working, separate repo, Apache-2.0
-- **desktop runner** — build step 1 done: runs an ACP agent locally, questions answered in the terminal
-- **Android app** — designed, not built
+- **desktop runner** — runs ACP agents; `malves serve` pairs phones over an end-to-end encrypted link
+- **Android app** — first version: pair by QR, answer agent questions, start and stop tasks (no push notifications yet)
 - **browser automation** — designed, not built
 
 The full design — requirements, architecture, security model and tech stack — is

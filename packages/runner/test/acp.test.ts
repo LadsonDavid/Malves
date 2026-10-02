@@ -19,6 +19,7 @@ const opened: Array<() => void> = [];
 afterEach(() => {
   for (const close of opened.splice(0)) close();
   delete process.env.MALVES_DEMO_FILE;
+  delete process.env.MALVES_DEMO_AUTH;
 });
 
 function setup(questionTimeoutMs = 10_000) {
@@ -110,5 +111,49 @@ describe("ACP agent, end to end", () => {
     const task = await core.tasks.whenFinished(id);
     expect(task.state).toBe("failed");
     expect(task.reason).toMatch(/Could not start the agent/);
+  }, 20_000);
+
+  it("an agent that isn't signed in fails with a plain message, and says so", async () => {
+    const c = setup();
+    process.env.MALVES_DEMO_AUTH = "required";
+    const needsSignIn: string[] = [];
+    const core = createCore({
+      store: c.store,
+      clock: systemClock,
+      ids: randomIds,
+      notifier: noPush,
+      host: new AcpHost({
+        onSignInNeeded: (agent) => needsSignIn.push(agent),
+        signInMessage: (agent) => `${agent} isn't signed in. Sign in, then try again.`,
+      }),
+      agents: new Map([["demo", command(process.execPath, [demoAgent])]]),
+      questionTimeoutMs: 1000,
+    });
+    const id = core.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    const task = await core.tasks.whenFinished(id);
+    expect(task).toMatchObject({
+      state: "failed",
+      reason: "demo isn't signed in. Sign in, then try again.",
+    });
+    expect(needsSignIn).toEqual(["demo"]);
+  }, 20_000);
+});
+
+describe("checking whether an agent is ready", () => {
+  const demo = command(process.execPath, [demoAgent]);
+
+  it("a working agent is ready", async () => {
+    expect(await new AcpHost().probe(demo, tmpdir())).toEqual({ state: "ready" });
+  }, 20_000);
+
+  it("an agent that isn't signed in needs sign-in", async () => {
+    process.env.MALVES_DEMO_AUTH = "required";
+    expect(await new AcpHost().probe(demo, tmpdir())).toEqual({ state: "needs_sign_in" });
+  }, 20_000);
+
+  it("a missing program isn't available, and says why", async () => {
+    const result = await new AcpHost().probe(command("malves-no-such-program"), tmpdir());
+    expect(result.state).toBe("unavailable");
+    expect(result.detail).toMatch(/Could not start it/);
   }, 20_000);
 });

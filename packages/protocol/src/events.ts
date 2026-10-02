@@ -98,6 +98,20 @@ const QuestionClosed = z.object({
   }),
 });
 
+const DevicePaired = z.object({
+  type: z.literal("device.paired"),
+  data: z.object({
+    device_id: z.string(),
+    name: z.string(),
+    public_key: z.string(),
+  }),
+});
+
+const DeviceRevoked = z.object({
+  type: z.literal("device.revoked"),
+  data: z.object({ device_id: z.string() }),
+});
+
 const ErrorReport = z.object({
   type: z.literal("error"),
   data: z.object({
@@ -116,6 +130,8 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskResult,
   QuestionOpened,
   QuestionClosed,
+  DevicePaired,
+  DeviceRevoked,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;
@@ -128,6 +144,12 @@ export type LoggedEvent = EventBody & {
   /** Unix time in milliseconds. */
   at: number;
 };
+
+/** Validates a logged event arriving over the link. */
+export const LoggedEvent = z.intersection(
+  EventBody,
+  z.object({ seq: z.number().int().positive(), at: z.number().int() }),
+);
 
 export type EventOf<T extends EventType> = Extract<LoggedEvent, { type: T }>;
 export type DataOf<T extends EventType> = Extract<EventBody, { type: T }>["data"];

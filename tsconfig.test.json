@@ -12,5 +12,6 @@
     },
     "allowImportingTsExtensions": true
   },
-  "include": ["packages/*/test", "packages/*/src", "vitest.config.ts"]
+  "include": ["packages/*/test", "packages/*/src", "vitest.config.ts"],
+  "exclude": ["packages/app"]
 }

@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
+import { homedir, networkInterfaces } from "node:os";
 import path from "node:path";
 import type { Clock, Ids } from "@malves/core";
+import { generateKeyPair, type KeyPair, publicKeyOf } from "@malves/protocol";
 
 export const systemClock: Clock = {
   now: () => Date.now(),
@@ -52,6 +62,58 @@ function isAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/**
+ * The real, absolute path of a folder. `.native` because plain `realpathSync`
+ * keeps Windows short names (`C:\PROGRA~1`) while the ACP adapter's `realpath`
+ * expands them, and the two would then not match.
+ */
+export function resolveFolder(folder: string): string {
+  return realpathSync.native(path.resolve(folder));
+}
+
+/**
+ * The runner's own key pair, made on first use.
+ *
+ * ponytail: kept in the data directory (owner-only on Linux/macOS), not the OS
+ * keychain §15 names. Anything running as this user can read it — but such a
+ * process can already run the agents directly. Move to the keychain when a
+ * stronger local threat model matters.
+ */
+export function runnerKeys(dir: string): KeyPair {
+  const file = path.join(dir, "runner-key.json");
+  try {
+    const { secretKey } = JSON.parse(readFileSync(file, "utf8")) as { secretKey: string };
+    return { secretKey, publicKey: publicKeyOf(secretKey) };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const keys = generateKeyPair();
+    writeFileSync(file, JSON.stringify({ secretKey: keys.secretKey }), { mode: 0o600, flag: "wx" });
+    return keys;
+  }
+}
+
+/** This computer's Tailscale address, if it's on a tailnet (they're always in 100.64.0.0/10). */
+export function tailscaleAddress(): string | undefined {
+  return ipv4Addresses().find(isTailscale);
+}
+
+/** Other network addresses a phone on the same Wi-Fi could use. */
+export function lanAddresses(): string[] {
+  return ipv4Addresses().filter((ip) => !isTailscale(ip));
+}
+
+function ipv4Addresses(): string[] {
+  return Object.values(networkInterfaces())
+    .flatMap((list) => list ?? [])
+    .filter((a) => a.family === "IPv4" && !a.internal)
+    .map((a) => a.address);
+}
+
+function isTailscale(ip: string): boolean {
+  const [a, b] = ip.split(".").map(Number);
+  return a === 100 && b !== undefined && b >= 64 && b <= 127;
 }
 
 /** "90s", "10m", "1h", or plain milliseconds. */

@@ -9,13 +9,26 @@ import type {
   AgentHost,
   AgentRun,
   AgentSession,
+  Command,
   Decision,
 } from "@malves/core";
 
 export type AcpHostOptions = {
   /** Progress the agent reports (tool calls), for display only. Not logged. */
   onActivity?: (taskId: string, text: string) => void;
+  /** The agent refused to start a session until it is signed in. */
+  onSignInNeeded?: (agent: string) => void;
+  /** The agent opened a session, so it is signed in and working. */
+  onReady?: (agent: string) => void;
+  /** What to tell the user when an agent needs signing in. */
+  signInMessage?: (agent: string) => string;
 };
+
+/** Whether an agent can take a task right now. */
+export type Probe = { state: "ready" | "needs_sign_in" | "unavailable"; detail?: string };
+
+/** ACP's `auth_required` error code. */
+const AUTH_REQUIRED = -32000;
 
 const STDERR_TAIL = 4000;
 /** Larger files are refused rather than loaded into memory. */
@@ -69,12 +82,64 @@ export class AcpHost implements AgentHost {
       this.live.delete(child);
     };
 
-    const finished = Promise.race([
-      this.converse(run, callbacks, child, () => stopped),
-      ended,
-    ]).finally(() => void stop());
+    // "Authentication required" means nothing to most people; say what to do.
+    const conversation = this.converse(run, callbacks, child, () => stopped).catch(
+      (error: unknown) => {
+        if (!isAuthRequired(error)) throw error;
+        this.options.onSignInNeeded?.(run.agent);
+        throw new Error(
+          this.options.signInMessage?.(run.agent) ??
+            `${run.agent} isn't signed in on this computer. Sign in there, then try again.`,
+        );
+      },
+    );
+    const finished = Promise.race([conversation, ended]).finally(() => void stop());
 
     return { finished, cancel: stop };
+  }
+
+  /**
+   * Starts the agent, opens a session in `cwd`, and stops it — no prompt, no
+   * work done. Tells whether the agent could take a task right now, so the
+   * phone can say "needs sign-in" before the user taps Start.
+   */
+  async probe(command: Command, cwd: string, timeoutMs = 30_000): Promise<Probe> {
+    let child: ChildProcess;
+    try {
+      child = spawn(command.program, [...command.args], {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: false,
+        detached: process.platform !== "win32",
+        windowsHide: true,
+      });
+    } catch (error) {
+      return { state: "unavailable", detail: `Could not start it: ${messageOf(error)}` };
+    }
+    this.live.add(child);
+
+    let timer: NodeJS.Timeout | undefined;
+    const failed = new Promise<Probe>((resolve) => {
+      child.once("error", (error) =>
+        resolve({ state: "unavailable", detail: `Could not start it: ${error.message}` }),
+      );
+      child.once("exit", (code) =>
+        resolve({ state: "unavailable", detail: `It stopped while starting (code ${code}).` }),
+      );
+    });
+    const timedOut = new Promise<Probe>((resolve) => {
+      timer = setTimeout(
+        () => resolve({ state: "unavailable", detail: "It didn't respond in time." }),
+        timeoutMs,
+      );
+    });
+    try {
+      return await Promise.race([openSession(child, cwd), failed, timedOut]);
+    } finally {
+      clearTimeout(timer);
+      kill(child);
+      this.live.delete(child);
+    }
   }
 
   /** Kills every agent still running. For process exit. */
@@ -132,6 +197,7 @@ export class AcpHost implements AgentHost {
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
         });
         return ctx.buildSession(run.workspaceRoot).withSession(async (session) => {
+          this.options.onReady?.(run.agent);
           const turn = session.prompt(run.prompt);
           const failed = turn.then(() => new Promise<never>(() => {}));
           for (;;) {
@@ -147,6 +213,40 @@ export class AcpHost implements AgentHost {
         });
       });
   }
+}
+
+/** `initialize` + `session/new`, nothing else. */
+async function openSession(child: ChildProcess, cwd: string): Promise<Probe> {
+  if (!child.stdin || !child.stdout) return { state: "unavailable", detail: "No stdio" };
+  const stream = acp.ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+  );
+  try {
+    await acp.client({ name: "malves" }).connectWith(stream, async (ctx) => {
+      await ctx.request(acp.methods.agent.initialize, {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+      });
+      await ctx.buildSession(cwd).withSession(async () => {});
+    });
+    return { state: "ready" };
+  } catch (error) {
+    if (isAuthRequired(error)) return { state: "needs_sign_in" };
+    return { state: "unavailable", detail: messageOf(error) };
+  }
+}
+
+function isAuthRequired(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === AUTH_REQUIRED
+  );
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
