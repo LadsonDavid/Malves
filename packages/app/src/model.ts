@@ -41,6 +41,10 @@ export type Task = {
   models?: string[];
   /** Free-model tasks: tokens used, once finished. */
   usage?: { calls: number; tokens: number };
+  /** Files the task changed, in a git project. */
+  changes?: { files: number; added: number; removed: number };
+  /** The commit, once approved. */
+  commit?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -152,6 +156,22 @@ function apply(model: Model, event: LoggedEvent): Model {
           calls: event.data.calls,
           tokens: event.data.input_tokens + event.data.output_tokens,
         },
+      }));
+    case "task.changes": {
+      const files = event.data.files;
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        changes: {
+          files: files.length,
+          added: files.reduce((n, f) => n + f.added, 0),
+          removed: files.reduce((n, f) => n + f.removed, 0),
+        },
+      }));
+    }
+    case "task.committed":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        commit: event.data.commit,
       }));
     case "task.result":
       return updateTask(model, event.data.task_id, (task) => ({

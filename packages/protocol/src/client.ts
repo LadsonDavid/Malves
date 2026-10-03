@@ -143,6 +143,11 @@ export class LinkClient {
     });
   }
 
+  /** A finished task's changes as a diff, in `ack.result`. */
+  viewChanges(taskId: string): Promise<Ack> {
+    return this.send({ type: "changes.diff", task_id: taskId });
+  }
+
   /** Continues a finished task's conversation with the same agent. */
   reply(taskId: string, prompt: string): Promise<Ack> {
     return this.send({ type: "task.reply", task_id: taskId, prompt });

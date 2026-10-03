@@ -76,7 +76,7 @@ public issue before it's decided, not after.
 | Piece | State |
 |---|---|
 | Desktop runner | Works. Runs Claude Code, Codex and Antigravity through ACP; Cursor once its CLI is installed |
-| Android app | Works in Expo Go. Pair by QR; start, stop and reply to tasks; continue an earlier conversation; answer questions |
+| Android app | Works in Expo Go. Pair by QR; start, stop and reply to tasks; continue an earlier conversation; answer questions; see what a task changed and commit it |
 | Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |

@@ -99,6 +99,23 @@ const TaskUsage = z.object({
   }),
 });
 
+/** Files a finished task changed in a git project (only the task's own, not earlier edits). */
+const TaskChanges = z.object({
+  type: z.literal("task.changes"),
+  data: z.object({
+    task_id: z.string(),
+    files: z.array(
+      z.object({ path: z.string(), added: z.number().int(), removed: z.number().int() }),
+    ),
+  }),
+});
+
+/** The user approved, and the task's changes were committed. */
+const TaskCommitted = z.object({
+  type: z.literal("task.committed"),
+  data: z.object({ task_id: z.string(), commit: z.string() }),
+});
+
 const QuestionOpened = z.object({
   type: z.literal("question.opened"),
   data: z.object({
@@ -156,6 +173,8 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskSession,
   TaskModel,
   TaskUsage,
+  TaskChanges,
+  TaskCommitted,
   QuestionOpened,
   QuestionClosed,
   DevicePaired,

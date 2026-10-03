@@ -167,6 +167,16 @@ Two writers would tangle it, so malves never runs two tasks in one
 conversation, and the phone warns when the chosen one was used in the last
 10 minutes ("close it on your computer first").
 
+### Reviewing and committing a task's changes
+
+In a git project, the runner snapshots the uncommitted files (path and content
+hash) as a task starts. When it ends, only files that differ from the snapshot
+are the task's: they are logged (`task.changes`) and the user is asked
+"Commit 3 changed files (+40 −12)?" — a `commit_approval` question, so it
+also arrives as a notification. **View changes** shows the diff on the phone.
+"Commit" commits only those files, with the task's first line as the message;
+the user's own earlier edits are never included. No answer means no commit.
+
 ### Storage: an append-only event log
 
 SQLite, append-only, with current state derived from the log — the same idea as

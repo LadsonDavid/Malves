@@ -103,7 +103,15 @@ function QuestionCard({
 }) {
   const [sending, setSending] = useState<string>();
   const [problem, setProblem] = useState<string>();
+  const [diff, setDiff] = useState<string>();
   const task = model.tasks[question.taskId];
+
+  const viewChanges = async () => {
+    if (!client) return;
+    if (diff !== undefined) return setDiff(undefined);
+    const ack = await client.viewChanges(question.taskId).catch(() => undefined);
+    setDiff(ack?.ok ? (ack.result ?? "") : (ack?.error ?? "Couldn't get the changes."));
+  };
   const minutes = Math.max(0, Math.round((question.expiresAt - Date.now()) / 60_000));
 
   const choose = async (choiceId: string) => {
@@ -127,6 +135,18 @@ function QuestionCard({
         {question.risk} risk · stops in ~{minutes} min if unanswered
       </Text>
       <Text style={styles.body}>{question.text}</Text>
+      {question.kind === "commit_approval" ? (
+        <Button
+          title={diff === undefined ? "View changes" : "Hide changes"}
+          kind="plain"
+          onPress={() => void viewChanges()}
+        />
+      ) : null}
+      {diff !== undefined ? (
+        <ScrollView horizontal style={{ maxHeight: 360 }}>
+          <Text style={{ fontFamily: "monospace", fontSize: 12 }}>{diff}</Text>
+        </ScrollView>
+      ) : null}
       <View style={styles.row}>
         {question.choices.map((c) => (
           <Button
@@ -222,6 +242,13 @@ function FinishedTask({
         {task.prompt}
       </Text>
       {task.reason ? <Text style={styles.muted}>{task.reason}</Text> : null}
+      {task.changes ? (
+        <Text style={styles.muted}>
+          {task.changes.files} file{task.changes.files === 1 ? "" : "s"} changed (+
+          {task.changes.added} −{task.changes.removed})
+          {task.commit ? ` · committed ${task.commit}` : ""}
+        </Text>
+      ) : null}
       {modelLine(task, model.agents) ? (
         <Text style={styles.muted}>{modelLine(task, model.agents)}</Text>
       ) : null}

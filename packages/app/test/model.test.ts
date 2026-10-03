@@ -242,3 +242,26 @@ describe("which model did the work (R8)", () => {
     expect(modelLine(task, [demoReady])).toBe("");
   });
 });
+
+describe("changes and commits", () => {
+  it("sums a task's changed files, and remembers the commit", () => {
+    const m = play(
+      created("t1"),
+      event({
+        type: "task.changes",
+        data: {
+          task_id: "t1",
+          files: [
+            { path: "a.ts", added: 30, removed: 2 },
+            { path: "b.ts", added: 10, removed: 0 },
+          ],
+        },
+      }),
+      event({ type: "task.committed", data: { task_id: "t1", commit: "abc1234" } }),
+    );
+    expect(m.tasks.t1).toMatchObject({
+      changes: { files: 2, added: 40, removed: 2 },
+      commit: "abc1234",
+    });
+  });
+});

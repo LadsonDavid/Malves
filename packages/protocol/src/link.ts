@@ -82,6 +82,13 @@ export const TaskReply = z.object({
   prompt: z.string().min(1).max(20_000),
 });
 
+/** A finished task's changes as a diff (answered in `ack.result`). */
+export const ChangesDiff = z.object({
+  type: z.literal("changes.diff"),
+  command_id: Id,
+  task_id: Id,
+});
+
 /** The agent's saved sessions in one project, newest first (answered in the ack). */
 export const SessionsList = z.object({
   type: z.literal("sessions.list"),
@@ -114,6 +121,7 @@ export const Command = z.discriminatedUnion("type", [
   TaskCreate,
   TaskReply,
   SessionsList,
+  ChangesDiff,
   AnswerCommand,
   TaskStop,
   AgentsCheck,

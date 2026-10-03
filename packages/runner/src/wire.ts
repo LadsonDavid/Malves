@@ -5,6 +5,7 @@ import type { AgentSessionInfo } from "@malves/protocol";
 import { AcpHost, type Launch } from "./adapters/acp/host.js";
 import { type BrowserTools, TOOL_SERVER_NAME } from "./adapters/browser/tools.js";
 import type { BudgetGuard } from "./adapters/budget/guard.js";
+import { GitChanges } from "./adapters/git/changes.js";
 import { SqliteStore } from "./adapters/sqlite/store.js";
 import { noPush } from "./adapters/terminal/terminal.js";
 import { AgentStatus } from "./agent-status.js";
@@ -24,6 +25,8 @@ export type Runner = Core & {
   useBrowserTools(tools: BrowserTools): void;
   /** Also notifies through this (`malves serve` with Tailscale). */
   usePush(push: Notifier): void;
+  /** A finished task's changes as a diff, for "View changes". */
+  diff(taskId: string): string;
   /** Meters free-model agents through this guard (§6). */
   useGuard(guard: BudgetGuard): void;
   /** The agent's saved conversations in a workspace, newest first, to continue one. */
@@ -77,6 +80,7 @@ export function openRunner(o: RunnerOptions): Runner {
       agents,
       questionTimeoutMs: o.questionTimeoutMs,
     });
+    const changes = new GitChanges(core, { questionTimeoutMs: o.questionTimeoutMs });
     const opened = store;
     return {
       ...core,
@@ -90,6 +94,7 @@ export function openRunner(o: RunnerOptions): Runner {
       useGuard(g) {
         guard = g;
       },
+      diff: (taskId) => changes.diff(taskId),
       async listSessions(agent, workspaceId) {
         const profile = profiles.get(agent);
         if (!profile) throw new Error(`Unknown agent: ${agent}`);
@@ -111,6 +116,7 @@ export function openRunner(o: RunnerOptions): Runner {
         }));
       },
       close() {
+        changes.close();
         host.killAll();
         opened.close();
         release();

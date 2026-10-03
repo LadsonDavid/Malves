@@ -34,6 +34,8 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** A finished task's changes as a diff. */
+  diff?: ((taskId: string) => string) | undefined;
   /** The ntfy subscribe link for notifications, when they're on. It changes when a phone is revoked. */
   pushLink?: (() => string | undefined) | undefined;
   listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
@@ -256,6 +258,9 @@ export class LinkServer {
         }
         case "task.reply":
           return ack(true, { result: this.core.tasks.reply(command.task_id, command.prompt) });
+        case "changes.diff":
+          if (!this.o.diff) return ack(false, { error: "Not available on this computer." });
+          return ack(true, { result: this.o.diff(command.task_id) });
         case "sessions.list": {
           if (!this.o.listSessions) return ack(false, { error: "Not available on this computer." });
           const sessions = await this.o.listSessions(command.agent, command.workspace_id);

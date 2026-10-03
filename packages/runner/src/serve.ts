@@ -67,6 +67,7 @@ export async function serve(
     agents: runner.agents,
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
+    diff: (taskId) => runner.diff(taskId),
     leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
   });
   const say = (line: string) => console.log(line);
