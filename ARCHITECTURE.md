@@ -278,20 +278,29 @@ guard. The budget screen says "via your Claude subscription — not metered".
 
 ---
 
-## 7. The lead engine is a separate endpoint
+## 7. The lead engine reaches the phone through the runner
 
-The runner never depends on signalstack.
+The runner never imports signalstack: it stays a separate Python process,
+reached over HTTP, on this computer or on a server (owner's choice).
 
-- The phone pairs with the lead engine as its own endpoint — over Tailscale in
-  A, or through a relay route in B.
-- "Research in browser" works by the phone passing lead details into
-  `task.create`. The phone carries data between the two systems.
+- `malves serve --leads <url>` (or `MALVES_LEADS_URL`) points the runner at
+  signalstack. Its `UI_KEY`, if set, comes from `MALVES_LEADS_KEY` and is sent
+  as an `x-key` header, never in the URL.
+- The phone sends `leads.refresh`; the runner fetches `GET /api/leads`, checks
+  the answer against the `Lead` schema, and sends a `leads` message to every
+  paired phone over the existing encrypted link. Leads are not written to the
+  event log — they are signalstack's data, and refreshing gets them again.
+- So the phone pairs once, with the runner: no second endpoint, no second
+  pairing, and lead traffic is end-to-end encrypted like everything else.
+- "Research in browser" starts an ordinary task whose prompt asks the agent to
+  read the company's site with the browser tools (§5), which ask before opening
+  it. Lead text comes from public posts, so the prompt marks it as notes, not
+  instructions.
 - The weekly digest push carries **counts only** ("12 companies this week"), no
   names.
 
-**Trade-off:** in topology B the relay can read lead traffic. Acceptable — the
-relay is your own server and the data is from public sources. End-to-end
-encryption is kept for the code path.
+**Trade-off:** leads need the computer to be on. Accepted — every task needs
+that too, and it keeps one pairing and one encrypted channel.
 
 ---
 
@@ -396,7 +405,9 @@ Each step ends in something demoable:
 5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
 6. Budget guard. R8.
 7. Relay for topology B.
-8. Lead engine endpoint. R7.
+8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
+   `malves serve --leads <url>`, the app's Leads screen with "Research in
+   browser". Awaiting a test against real signalstack data.
 
 ---
 
@@ -460,7 +471,7 @@ packages/
 | App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`; `expo-notifications` in step 3 | QR scanning, Android Keystore, secure random — all in Expo Go |
 | Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
 | Models | freellmapi | OpenAI-compatible, your own keys |
-| Leads | signalstack, unchanged | Add a notifier to its scheduler |
+| Leads | signalstack + one JSON endpoint (`/api/leads`) | Reached through the runner (§7); add a notifier to its scheduler |
 | Remote access (A) | Tailscale (free personal plan) | Handles NAT; nothing to host |
 | Testing | Vitest | Core tests run on fake ports |
 | Lint/format | Biome | One tool |

@@ -44,6 +44,7 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
         welcomed.current?.(welcome);
       },
       onAgents: (agents) => dispatch({ type: "agents", agents }),
+      onLeads: (leads, fetchedAt) => dispatch({ type: "leads", leads, fetchedAt }),
       onEvent: (event) => dispatch({ type: "event", event }),
       onStatus: (next, why) => {
         setStatus(next);

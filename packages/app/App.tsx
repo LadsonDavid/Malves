@@ -3,13 +3,14 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, Text } from "react-native";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { LeadsScreen } from "./src/screens/LeadsScreen";
 import { NewTaskScreen } from "./src/screens/NewTaskScreen";
 import { PairScreen } from "./src/screens/PairScreen";
 import { forgetPairing, loadPairing, type Pairing, savePairing } from "./src/storage";
 import { Button, styles } from "./src/ui";
 import { type Connection, useLink } from "./src/useLink";
 
-type Screen = "loading" | "pair" | "pairing" | "home" | "new";
+type Screen = "loading" | "pair" | "pairing" | "home" | "new" | "leads";
 
 /** e.g. "Pixel 8" — shown in `devices` on the computer. */
 function phoneName(): string {
@@ -94,6 +95,13 @@ export default function App() {
           <Text style={styles.muted}>Status: {link.status}</Text>
           <Button title="Cancel" kind="plain" onPress={unpair} />
         </ScrollView>
+      ) : screen === "leads" ? (
+        <LeadsScreen
+          model={link.model}
+          client={link.client}
+          lastAgent={lastAgent}
+          onClose={() => setScreen("home")}
+        />
       ) : screen === "new" ? (
         <NewTaskScreen
           model={link.model}
@@ -109,6 +117,7 @@ export default function App() {
           detail={link.detail}
           client={link.client}
           onNewTask={() => setScreen("new")}
+          onLeads={() => setScreen("leads")}
           onUnpair={unpair}
         />
       )}

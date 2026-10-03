@@ -11,7 +11,8 @@ import { openRunner, type Runner } from "./wire.js";
 
 const USAGE = `malves — run coding agents and answer their questions
 
-  malves serve [--host <ip>] [--port ${DEFAULT_PORT}] [--timeout 10m]   phone link + terminal
+  malves serve [--host <ip>] [--port ${DEFAULT_PORT}] [--timeout 10m] [--leads <url>]
+                                         phone link + terminal; --leads is signalstack
   malves workspace add <folder> [--name <name>]
   malves workspace list
   malves workspace remove <id>
@@ -19,7 +20,8 @@ const USAGE = `malves — run coding agents and answer their questions
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
 
-Data is kept in $MALVES_HOME (default ~/.malves).`;
+Data is kept in $MALVES_HOME (default ~/.malves).
+The lead engine URL can also come from MALVES_LEADS_URL; its UI_KEY from MALVES_LEADS_KEY.`;
 
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -33,6 +35,7 @@ async function main(argv: string[]): Promise<number> {
       since: { type: "string", default: "0" },
       host: { type: "string" },
       port: { type: "string", default: String(DEFAULT_PORT) },
+      leads: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });

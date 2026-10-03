@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isKey } from "./crypto.js";
 import { LoggedEvent } from "./events.js";
+import { Lead } from "./leads.js";
 
 /**
  * The phone ↔ runner link (§4). Our own small protocol: ACP covers runner ↔
@@ -87,12 +88,16 @@ export const TaskStop = z.object({
 /** Re-check which agents are ready, e.g. right after signing in on the computer. */
 export const AgentsCheck = z.object({ type: z.literal("agents.check"), command_id: Id });
 
+/** Fetch this week's leads from the lead engine, through the computer. */
+export const LeadsRefresh = z.object({ type: z.literal("leads.refresh"), command_id: Id });
+
 /** Things the phone asks the runner to do. Each is acknowledged once, by `command_id`. */
 export const Command = z.discriminatedUnion("type", [
   TaskCreate,
   AnswerCommand,
   TaskStop,
   AgentsCheck,
+  LeadsRefresh,
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -138,9 +143,17 @@ export const Ack = z.object({
 });
 export type Ack = z.infer<typeof Ack>;
 
+/** This week's leads, sent after `leads.refresh`. Not logged: it's the lead engine's data. */
+export const LeadsMessage = z.object({
+  type: z.literal("leads"),
+  leads: z.array(Lead),
+  fetched_at: z.number().int(),
+});
+
 export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
+  LeadsMessage,
   EventMessage,
   Ack,
 ]);

@@ -5,6 +5,7 @@ import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
+import { signalstack } from "./adapters/leads/signalstack.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import {
@@ -35,7 +36,7 @@ const HELP = `Commands while serving:
 export async function serve(
   runner: Runner,
   dir: string,
-  o: { host?: string | undefined; port: string },
+  o: { host?: string | undefined; port: string; leads?: string | undefined },
 ): Promise<number> {
   const port = Number(o.port);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -44,17 +45,26 @@ export async function serve(
   }
   const host = o.host ?? tailscaleAddress() ?? "127.0.0.1";
   const computer = hostname();
+  const leadsUrl = o.leads ?? process.env.MALVES_LEADS_URL;
+  if (leadsUrl && !URL.canParse(leadsUrl)) {
+    console.error(
+      `--leads must be the lead engine URL, e.g. http://127.0.0.1:8000, not "${leadsUrl}"`,
+    );
+    return 1;
+  }
   const server = new LinkServer(runner, {
     host,
     port,
     keys: runnerKeys(dir),
     computer,
     agents: runner.agents,
+    leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
   });
   const url = await server.start();
   const say = (line: string) => console.log(line);
 
   say(`malves is serving ${computer} at ${url}`);
+  if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
   if (host === "127.0.0.1") {
     say("\nOnly this computer can reach it. For your phone:");
     say("  • install Tailscale on both devices (works anywhere), or");
