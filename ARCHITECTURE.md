@@ -311,8 +311,23 @@ at it; it forwards to freellmapi or to your own key. It adds three things:
 3. When the floor would be broken, calls `questions.ask("Pause, or use your own
    key?")` instead of silently downgrading (R8).
 
-**Limit:** agents running on your own Claude or Cursor subscription bypass the
-guard. The budget screen says "via your Claude subscription — not metered".
+**Built:** with `MALVES_MODELS_URL` (freellmapi) and `MALVES_MODELS_KEY` set,
+two more agents appear: **Claude (free models)** and **Codex (free models)** —
+the same agents, with their model calls sent to the guard (Claude Code through
+`ANTHROPIC_BASE_URL`, Codex through its own provider config). Each task gets its
+own guard URL, so usage counts per task and dies with it, and the real
+freellmapi key never reaches the agent.
+
+- `X-Routed-Via` names the model before the answer is passed on, so a model
+  outside `MALVES_MODELS_ALLOW` is held back while the phone asks "Use it" or
+  "Stop the task" (once per model per task). Silence stops the task (R3).
+- The first model and every switch are logged (`task.model`); tokens are logged
+  when the task ends (`task.usage`). The phone shows "via A → B · 12k tokens".
+- A `429` from freellmapi (free quota used up) stops the task with a plain
+  reason; malves never moves it to another model by itself.
+
+**Limit:** agents running on your own Claude, Codex or Cursor subscription bypass
+the guard and aren't metered; the phone shows no model line for them.
 
 ---
 
@@ -442,7 +457,8 @@ Each step ends in something demoable:
    `GEMINI_HOME`, API-key sign-in only. **Cursor:** speaks ACP natively
    (`agent acp`); waiting for the CLI to be installed.
 5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
-6. Budget guard. R8.
+6. Budget guard. R8. **Built** (§6): Claude and Codex on free models through
+   the guard; awaiting a test against a real freellmapi.
 7. Relay for topology B.
 8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
    `malves serve --leads <url>`, the app's Leads screen with "Research in

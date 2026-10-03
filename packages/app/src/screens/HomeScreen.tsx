@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import {
   type Model,
+  modelLine,
   needsYou,
   type Question,
   recent,
@@ -161,6 +162,9 @@ function RunningTask({
       <Text style={styles.body} numberOfLines={3}>
         {task.prompt}
       </Text>
+      {modelLine(task, model.agents) ? (
+        <Text style={styles.muted}>{modelLine(task, model.agents)}</Text>
+      ) : null}
       <Button
         title="Stop"
         kind="danger"
@@ -218,6 +222,9 @@ function FinishedTask({
         {task.prompt}
       </Text>
       {task.reason ? <Text style={styles.muted}>{task.reason}</Text> : null}
+      {modelLine(task, model.agents) ? (
+        <Text style={styles.muted}>{modelLine(task, model.agents)}</Text>
+      ) : null}
       {task.result ? (
         <Text style={styles.muted} numberOfLines={6}>
           {task.result}

@@ -5,6 +5,7 @@ import {
   ago,
   emptyModel,
   mayStillBeOpen,
+  modelLine,
   needsYou,
   pickAgent,
   recent,
@@ -203,5 +204,41 @@ describe("continuing conversations", () => {
     expect(mayStillBeOpen("2026-10-03T11:55:00Z", now)).toBe(true);
     expect(mayStillBeOpen("2026-10-03T11:00:00Z", now)).toBe(false);
     expect(mayStillBeOpen(undefined, now)).toBe(false);
+  });
+});
+
+describe("which model did the work (R8)", () => {
+  const free: AgentInfo = {
+    name: "demo",
+    label: "Claude (free models)",
+    state: "ready",
+    metered: true,
+  };
+
+  it("shows every model that answered, in order, and the tokens once finished", () => {
+    const m = play(
+      created("t1"),
+      event({ type: "task.model", data: { task_id: "t1", model: "google/gemini-2.5-pro" } }),
+      event({ type: "task.model", data: { task_id: "t1", model: "groq/llama-3.3-70b" } }),
+      event({
+        type: "task.usage",
+        data: { task_id: "t1", calls: 3, input_tokens: 12_000, output_tokens: 345 },
+      }),
+    );
+    const task = m.tasks.t1;
+    if (!task) throw new Error("no task");
+    expect(modelLine(task, [free])).toBe(
+      "via google/gemini-2.5-pro → groq/llama-3.3-70b · 12k tokens",
+    );
+  });
+
+  it("says nothing for an agent on its own subscription", () => {
+    const m = play(
+      created("t1"),
+      event({ type: "task.model", data: { task_id: "t1", model: "x" } }),
+    );
+    const task = m.tasks.t1;
+    if (!task) throw new Error("no task");
+    expect(modelLine(task, [demoReady])).toBe("");
   });
 });

@@ -37,6 +37,10 @@ export type Task = {
   resume?: string;
   /** The conversation it ran in; Reply continues it. */
   sessionId?: string;
+  /** Free-model tasks: each model that answered, in order (R8: every switch shows). */
+  models?: string[];
+  /** Free-model tasks: tokens used, once finished. */
+  usage?: { calls: number; tokens: number };
   createdAt: number;
   updatedAt: number;
 };
@@ -135,6 +139,19 @@ function apply(model: Model, event: LoggedEvent): Model {
       return updateTask(model, event.data.task_id, (task) => ({
         ...task,
         sessionId: event.data.session_id,
+      }));
+    case "task.model":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        models: [...(task.models ?? []), event.data.model],
+      }));
+    case "task.usage":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        usage: {
+          calls: event.data.calls,
+          tokens: event.data.input_tokens + event.data.output_tokens,
+        },
       }));
     case "task.result":
       return updateTask(model, event.data.task_id, (task) => ({
@@ -239,4 +256,21 @@ export function ago(iso: string | undefined, now = Date.now()): string {
 export function mayStillBeOpen(iso: string | undefined, now = Date.now()): boolean {
   const at = iso ? Date.parse(iso) : Number.NaN;
   return !Number.isNaN(at) && now - at < MAYBE_OPEN_MS;
+}
+
+/**
+ * Which model did the work, in plain words: "via google/gemini-2.5-pro · 12.3k
+ * tokens", every switch included. Agents on their own subscription aren't metered.
+ */
+export function modelLine(task: Task, agents: AgentInfo[]): string {
+  const agent = agents.find((a) => a.name === task.agent);
+  if (!agent?.metered) return "";
+  const parts: string[] = [];
+  if (task.models?.length) parts.push(`via ${task.models.join(" → ")}`);
+  if (task.usage) parts.push(`${formatTokens(task.usage.tokens)} tokens`);
+  return parts.join(" · ");
+}
+
+function formatTokens(n: number): string {
+  return n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
 }

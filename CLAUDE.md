@@ -15,7 +15,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   (signalstack `/api/leads` → `serve --leads <url>` → app Leads screen), awaiting a
   real-data test. Continuing conversations built (Reply, and resume an
   earlier session; ARCHITECTURE §3). Step 3 (push) built with the ntfy app, awaiting a
-  real-phone test. Next: step 6 (budget guard).
+  real-phone test. Budget guard built (Claude/Codex on free models via freellmapi),
+  awaiting a real freellmapi test.
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before

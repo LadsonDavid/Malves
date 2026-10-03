@@ -80,7 +80,7 @@ public issue before it's decided, not after.
 | Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |
-| Budget guard | Not built yet |
+| Budget guard | Claude Code and Codex can run on your own free-tier keys through [freellmapi](https://github.com/tashfeenahmed/freellmapi); the phone shows which model answered and asks before a weaker one is used |
 | Relay (no Tailscale) | Not built yet |
 
 Over mobile data the phone reaches your computer through
@@ -107,7 +107,9 @@ demo agent (no API key). Questions nobody answers in time (`--timeout`, default
 10 minutes) stop the task — silence never means yes. `pnpm test` runs the tests.
 
 Options: `--leads http://127.0.0.1:8000` shows signalstack's leads on the phone;
-for Antigravity put `GEMINI_API_KEY` in `.env` and start with
+for free models put `MALVES_MODELS_URL` (freellmapi, e.g. `http://127.0.0.1:3001`),
+`MALVES_MODELS_KEY` and optionally `MALVES_MODELS_ALLOW` in `.env`; for
+Antigravity put `GEMINI_API_KEY` in `.env`; then start with
 `node --env-file=.env packages/runner/dist/main.js serve`.
 
 ## Contributing

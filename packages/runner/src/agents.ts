@@ -27,6 +27,11 @@ export type AgentProfile = {
   signInHint: string;
   /** Set when the program isn't installed: what to do about it. */
   missing?: string;
+  /**
+   * Its model calls go through the budget guard to freellmapi (§6), so they are
+   * metered. The value is the API format it speaks.
+   */
+  metered?: "anthropic" | "openai";
 };
 
 /**
@@ -60,7 +65,45 @@ export function agentProfiles(home = malvesHome()): Map<string, AgentProfile> {
       },
     ],
     ["antigravity", antigravity(home)],
+    ...freeModels(),
   ]);
+}
+
+/**
+ * Claude Code and Codex on your own free-tier keys: their model calls go to
+ * freellmapi through the budget guard instead of to Anthropic or OpenAI.
+ * Offered only once MALVES_MODELS_URL points at a freellmapi server.
+ */
+const FREE_HINT =
+  "Put your freellmapi unified key in MALVES_MODELS_KEY (the project's .env), then start malves with --env-file=.env.";
+
+function freeModels(): Array<[string, AgentProfile]> {
+  if (!process.env.MALVES_MODELS_URL) return [];
+  return [
+    [
+      "claude-free",
+      {
+        label: "Claude (free models)",
+        command: node(installedBin("@agentclientprotocol/claude-agent-acp", "claude-agent-acp")),
+        requiresEnv: "MALVES_MODELS_KEY",
+        metered: "anthropic",
+        signInHint: FREE_HINT,
+      },
+    ],
+    [
+      "codex-free",
+      {
+        label: "Codex (free models)",
+        command: node(installedBin("@agentclientprotocol/codex-acp", "codex-acp")),
+        // Always the API-key method: never the person's ChatGPT login.
+        authMethod: "api-key",
+        env: { NO_BROWSER: "1" },
+        requiresEnv: "MALVES_MODELS_KEY",
+        metered: "openai",
+        signInHint: FREE_HINT,
+      },
+    ],
+  ];
 }
 
 /**

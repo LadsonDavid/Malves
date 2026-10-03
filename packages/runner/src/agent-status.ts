@@ -19,7 +19,12 @@ export class AgentStatus {
     private readonly probe: (name: string, profile: AgentProfile) => Promise<Probe>,
   ) {
     for (const [name, p] of profiles)
-      this.info.set(name, { name, label: p.label, state: "checking" });
+      this.info.set(name, {
+        name,
+        label: p.label,
+        state: "checking",
+        ...(p.metered ? { metered: true } : {}),
+      });
   }
 
   list(): AgentInfo[] {
@@ -61,7 +66,13 @@ export class AgentStatus {
         : state === "unavailable"
           ? detail
           : undefined;
-    const next: AgentInfo = { name, label: current.label, state, ...(hint ? { hint } : {}) };
+    const next: AgentInfo = {
+      name,
+      label: current.label,
+      state,
+      ...(hint ? { hint } : {}),
+      ...(current.metered ? { metered: true } : {}),
+    };
     if (current.state === next.state && current.hint === next.hint) return;
     this.info.set(name, next);
     const list = this.list();

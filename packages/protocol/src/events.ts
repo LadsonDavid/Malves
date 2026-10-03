@@ -82,6 +82,23 @@ const TaskResult = z.object({
   }),
 });
 
+/** The model now answering for this task (logged at the start and at every switch, R8). */
+const TaskModel = z.object({
+  type: z.literal("task.model"),
+  data: z.object({ task_id: z.string(), model: z.string() }),
+});
+
+/** Tokens a metered task used, through the budget guard. Logged when it ends. */
+const TaskUsage = z.object({
+  type: z.literal("task.usage"),
+  data: z.object({
+    task_id: z.string(),
+    calls: z.number().int(),
+    input_tokens: z.number().int(),
+    output_tokens: z.number().int(),
+  }),
+});
+
 const QuestionOpened = z.object({
   type: z.literal("question.opened"),
   data: z.object({
@@ -137,6 +154,8 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskUpdated,
   TaskResult,
   TaskSession,
+  TaskModel,
+  TaskUsage,
   QuestionOpened,
   QuestionClosed,
   DevicePaired,

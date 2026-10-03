@@ -134,6 +134,8 @@ export const AgentInfo = z.object({
   state: AgentState,
   /** What the user can do about it, in plain words. */
   hint: z.string().optional(),
+  /** Its model calls go through the budget guard, so the phone can show model and tokens. */
+  metered: z.boolean().optional(),
 });
 export type AgentInfo = z.infer<typeof AgentInfo>;
 
