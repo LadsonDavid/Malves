@@ -434,7 +434,7 @@ Each step ends in something demoable:
    the terminal. Proves the questions module.
 2. Tailscale link, pairing, encryption, minimal app with inbox and answer
    buttons. **Built:** `malves serve`, link protocol, QR pairing, revocation,
-   resume, Expo app (pair / home / new task). Awaiting a test on a real phone.
+   resume, Expo app (pair / home / new task). Tested on a real phone.
 3. Push through ntfy. R1 and R2 become measurable. **Built** (§4) with the ntfy
    app; awaiting a test on a real phone (lock screen, Doze, mobile data).
 4. Cursor wrapper and Antigravity. R5. **Antigravity built:** Google's official
