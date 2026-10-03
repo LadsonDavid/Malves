@@ -1,5 +1,6 @@
 import { type KeyPair, open, randomToken, seal } from "./crypto.js";
 import type { LoggedEvent } from "./events.js";
+import type { Lead } from "./leads.js";
 import {
   type Ack,
   type AgentInfo,
@@ -64,6 +65,8 @@ export type LinkClientOptions = {
   onWelcome?: (welcome: Welcome) => void;
   /** Agent readiness changed on the computer. */
   onAgents?: (agents: AgentInfo[]) => void;
+  /** This week's leads arrived (after `refreshLeads`). */
+  onLeads?: (leads: Lead[], fetchedAt: number) => void;
   onEvent?: (event: LoggedEvent) => void;
   onStatus?: (status: LinkStatus, detail?: string) => void;
   /** Defaults to the global WebSocket. */
@@ -146,6 +149,11 @@ export class LinkClient {
     return this.send({ type: "agents.check" });
   }
 
+  /** Asks the computer for this week's leads; they arrive through `onLeads`. */
+  refreshLeads(): Promise<Ack> {
+    return this.send({ type: "leads.refresh" });
+  }
+
   private send(input: CommandInput): Promise<Ack> {
     const command = { ...input, command_id: randomToken(12) } as Command;
     return new Promise((resolve, reject) => {
@@ -216,6 +224,9 @@ export class LinkClient {
         this.o.onWelcome?.(message);
         this.o.onStatus?.("online");
         for (const { command } of this.pending.values()) this.transmit(command);
+        break;
+      case "leads":
+        this.o.onLeads?.(message.leads, message.fetched_at);
         break;
       case "agents":
         this.o.onAgents?.(message.agents);

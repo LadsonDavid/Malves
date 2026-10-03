@@ -8,6 +8,7 @@ import {
   CLOSE,
   generateKeyPair,
   type KeyPair,
+  type Lead,
   LINK_VERSION,
   LinkClient,
   type LinkStatus,
@@ -18,6 +19,7 @@ import {
 } from "@malves/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { AcpHost } from "../src/adapters/acp/host.js";
+import type { LeadSource } from "../src/adapters/leads/signalstack.js";
 import { LinkServer } from "../src/adapters/link/server.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { randomIds, systemClock } from "../src/system.js";
@@ -53,7 +55,10 @@ function fakeAgents(initial: AgentInfo[]) {
   };
 }
 
-async function runner(agentList: AgentInfo[] = [{ name: "demo", label: "Demo", state: "ready" }]) {
+async function runner(
+  agentList: AgentInfo[] = [{ name: "demo", label: "Demo", state: "ready" }],
+  leads?: LeadSource,
+) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-link-")));
   const site = path.join(dir, "site");
   mkdirSync(site);
@@ -76,6 +81,7 @@ async function runner(agentList: AgentInfo[] = [{ name: "demo", label: "Demo", s
     keys,
     computer: "test-pc",
     agents: fakeAgents(agentList),
+    leads,
   });
   await server.start();
   // Same order as `malves serve` shutting down: stop tasks, then close the log.
@@ -95,6 +101,7 @@ type Phone = {
   statuses: LinkStatus[];
   /** Every live agent update received. */
   agentUpdates: AgentInfo[][];
+  leads: Lead[][];
   welcome?: Welcome;
 };
 
@@ -113,6 +120,7 @@ function phone(
     events: [],
     statuses: [],
     agentUpdates: [],
+    leads: [],
     client: undefined as never,
   };
   p.client = new LinkClient({
@@ -128,6 +136,7 @@ function phone(
     onEvent: (e) => p.events.push(e),
     onStatus: (s) => p.statuses.push(s),
     onAgents: (agents) => p.agentUpdates.push(agents),
+    onLeads: (leads) => p.leads.push(leads),
     maxBackoffMs: 200,
   });
   p.client.connect();
@@ -190,6 +199,52 @@ describe("phone link, end to end", () => {
       ["claude", "ready", undefined],
       ["demo", "ready", undefined],
     ]);
+  });
+
+  it("'refresh leads' brings this week's leads to every phone", async () => {
+    const lead: Lead = {
+      domain: "hot.example",
+      name: "Hot Co",
+      tier: "hot",
+      score: 80,
+      fit: 0.9,
+      intent: 0.8,
+      types: ["intent"],
+      why: "Asked for a tool like this",
+      trigger: "Read the pricing page",
+      opener: "Saw you were comparing tools",
+      contact: { name: "Ada", title: "VP Eng", email: "ada@hot.example", status: "valid" },
+      signals: 2,
+      last_signal: "2026-10-01T00:00:00+00:00",
+    };
+    const r = await runner(undefined, { fetch: async () => [lead] });
+    const asker = await pairedPhone(r);
+    const other = await pairedPhone(r);
+
+    expect(await asker.client.refreshLeads()).toMatchObject({ ok: true, result: "1" });
+    await waitFor(() => asker.leads.length > 0 && other.leads.length > 0, "the leads");
+    expect(asker.leads[0]).toEqual([lead]);
+    expect(other.leads[0]).toEqual([lead]);
+  });
+
+  it("'refresh leads' says plainly when no lead engine is set up, or it fails", async () => {
+    const none = await pairedPhone(await runner());
+    expect(await none.client.refreshLeads()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("--leads"),
+    });
+
+    const broken = await runner(undefined, {
+      fetch: async () => {
+        throw new Error("Can't reach the lead engine");
+      },
+    });
+    const p = await pairedPhone(broken);
+    expect(await p.client.refreshLeads()).toMatchObject({
+      ok: false,
+      error: "Can't reach the lead engine",
+    });
+    expect(p.leads).toEqual([]);
   });
 
   it("refuses a wrong pairing code, and a code that was already used", async () => {

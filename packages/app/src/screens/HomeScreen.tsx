@@ -18,11 +18,12 @@ type Props = {
   detail: string | undefined;
   client: LinkClient | undefined;
   onNewTask: () => void;
+  onLeads: () => void;
   onUnpair: () => void;
 };
 
 /** The home screen answers one question: what needs me right now? */
-export function HomeScreen({ model, status, detail, client, onNewTask, onUnpair }: Props) {
+export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, onUnpair }: Props) {
   const questions = needsYou(model);
   const active = running(model);
   const done = recent(model);
@@ -56,6 +57,7 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onUnpair 
       </Section>
 
       <Button title="New task" onPress={onNewTask} disabled={status === "rejected"} />
+      <Button title="Leads" kind="plain" onPress={onLeads} disabled={status === "rejected"} />
 
       {done.length > 0 ? (
         <Section title="Recent">

@@ -18,6 +18,7 @@ import {
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import type { LeadSource } from "../leads/signalstack.js";
 
 export type LinkServerOptions = {
   /** A concrete address: the Tailscale IP, a LAN IP, or 127.0.0.1. */
@@ -29,6 +30,8 @@ export type LinkServerOptions = {
   /** Shown on the phone, e.g. the computer's hostname. */
   computer: string;
   agents: AgentDirectory;
+  /** The lead engine, if set up (`--leads`). */
+  leads?: LeadSource | undefined;
   pairingTtlMs?: number;
   handshakeTimeoutMs?: number;
   heartbeatMs?: number;
@@ -56,6 +59,7 @@ export class LinkServer {
   private offer: { code: string; expiresAt: number } | undefined;
   private readonly results = new Map<string, Promise<Ack>>();
   private readonly alive = new WeakSet<WebSocket>();
+  private readonly sessions = new Set<Session>();
   private address = "";
 
   constructor(
@@ -167,7 +171,10 @@ export class LinkServer {
         return undefined;
       }
     }
-    return new Session(ws, device, key, hello.data, this.core, this);
+    const session = new Session(ws, device, key, hello.data, this.core, this);
+    this.sessions.add(session);
+    ws.on("close", () => this.sessions.delete(session));
+    return session;
   }
 
   /** One use only; a wrong guess doesn't burn the code (it's 24 random bytes). */
@@ -254,6 +261,17 @@ export class LinkServer {
           await this.core.tasks.stop(command.task_id);
           return ack(true);
         }
+        case "leads.refresh": {
+          if (!this.o.leads) {
+            return ack(false, {
+              error: "No lead engine is set up. Start malves with --leads <signalstack URL>.",
+            });
+          }
+          const leads = await this.o.leads.fetch();
+          // Every phone gets them, not just the one that asked.
+          for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
+          return ack(true, { result: String(leads.length) });
+        }
         case "agents.check":
           // The new states reach every phone through `subscribeAgents`.
           await this.o.agents.checkAll();
@@ -336,7 +354,7 @@ class Session {
     this.send({ type: "event", event });
   }
 
-  private send(message: RunnerMessage): void {
+  send(message: RunnerMessage): void {
     if (this.ws.readyState === this.ws.OPEN) this.ws.send(this.server.seal(message, this.key));
   }
 }

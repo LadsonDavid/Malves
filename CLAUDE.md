@@ -11,8 +11,9 @@ these are non-negotiable; solve them differently if needed, but never drop one.
 - **Status:** steps 1–2 built and tested on a real phone (demo + Claude).
   Antigravity built (official server, API key from `.env`; start malves with
   `node --env-file=.env …`). Browser (Chrome extension, ARCHITECTURE §5) built,
-  awaiting a real test. Cursor waits on the CLI install. Next: lead engine
-  (signalstack JSON endpoint → runner → app Leads tab). Step 3 (push) not started.
+  awaiting a real test. Cursor waits on the CLI install. Lead engine built
+  (signalstack `/api/leads` → `serve --leads <url>` → app Leads screen), awaiting a
+  real-data test. Next: continuing existing agent sessions, then step 3 (push).
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before
