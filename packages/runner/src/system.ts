@@ -99,7 +99,19 @@ export function runnerKeys(dir: string): KeyPair {
  * replaces it, so an extension set up with the old one is shut out.
  */
 export function extensionToken(dir: string, renew = false): string {
-  const file = path.join(dir, "extension-token.json");
+  return secret(dir, "extension-token.json", renew);
+}
+
+/**
+ * The secret ntfy topic phones subscribe to for notifications. `renew` replaces
+ * it, so a phone subscribed with the old one gets nothing more.
+ */
+export function pushTopic(dir: string, renew = false): string {
+  return secret(dir, "push-topic.json", renew);
+}
+
+function secret(dir: string, name: string, renew: boolean): string {
+  const file = path.join(dir, name);
   if (!renew) {
     try {
       return (JSON.parse(readFileSync(file, "utf8")) as { token: string }).token;

@@ -34,6 +34,12 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** A finished task's changes as a diff. */
+  diff?: ((taskId: string) => string) | undefined;
+  /** Where phones reach this computer when it isn't `host` itself: the relay (topology B). */
+  publicUrl?: string | undefined;
+  /** The ntfy subscribe link for notifications, when they're on. It changes when a phone is revoked. */
+  pushLink?: (() => string | undefined) | undefined;
   listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
   pairingTtlMs?: number;
   handshakeTimeoutMs?: number;
@@ -64,6 +70,7 @@ export class LinkServer {
   private readonly alive = new WeakSet<WebSocket>();
   private readonly sessions = new Set<Session>();
   private address = "";
+  private chrome: boolean | undefined;
 
   constructor(
     private readonly core: Core,
@@ -105,11 +112,17 @@ export class LinkServer {
     this.offer = { code, expiresAt: now + (this.o.pairingTtlMs ?? 120_000) };
     return {
       v: LINK_VERSION,
-      url: this.address,
+      url: this.o.publicUrl ?? this.address,
       runner: this.o.keys.publicKey,
       code,
       computer: this.o.computer,
     };
+  }
+
+  /** Tells every phone whether Chrome is connected (and every phone that connects later). */
+  setChrome(connected: boolean): void {
+    this.chrome = connected;
+    for (const s of this.sessions) s.send({ type: "chrome", connected });
   }
 
   async close(): Promise<void> {
@@ -120,7 +133,8 @@ export class LinkServer {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 
-  private accept(ws: WebSocket): void {
+  /** Takes a phone connection — directly, or handed over by the relay client. */
+  accept(ws: WebSocket): void {
     this.alive.add(ws);
     ws.on("pong", () => this.alive.add(ws));
 
@@ -216,6 +230,7 @@ export class LinkServer {
 
   /** @internal */
   welcome(device: Device): RunnerMessage {
+    const push = this.o.pushLink?.();
     return {
       type: "welcome",
       v: LINK_VERSION,
@@ -224,6 +239,8 @@ export class LinkServer {
       workspaces: this.core.workspaces.list().map(({ id, name }) => ({ id, name })),
       agents: this.o.agents.list(),
       last_seq: this.core.log.lastSeq,
+      ...(push ? { push: { subscribe: push } } : {}),
+      ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
     };
   }
 
@@ -252,6 +269,9 @@ export class LinkServer {
         }
         case "task.reply":
           return ack(true, { result: this.core.tasks.reply(command.task_id, command.prompt) });
+        case "changes.diff":
+          if (!this.o.diff) return ack(false, { error: "Not available on this computer." });
+          return ack(true, { result: this.o.diff(command.task_id) });
         case "sessions.list": {
           if (!this.o.listSessions) return ack(false, { error: "Not available on this computer." });
           const sessions = await this.o.listSessions(command.agent, command.workspace_id);

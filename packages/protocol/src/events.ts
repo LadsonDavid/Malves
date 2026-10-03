@@ -82,6 +82,40 @@ const TaskResult = z.object({
   }),
 });
 
+/** The model now answering for this task (logged at the start and at every switch, R8). */
+const TaskModel = z.object({
+  type: z.literal("task.model"),
+  data: z.object({ task_id: z.string(), model: z.string() }),
+});
+
+/** Tokens a metered task used, through the budget guard. Logged when it ends. */
+const TaskUsage = z.object({
+  type: z.literal("task.usage"),
+  data: z.object({
+    task_id: z.string(),
+    calls: z.number().int(),
+    input_tokens: z.number().int(),
+    output_tokens: z.number().int(),
+  }),
+});
+
+/** Files a finished task changed in a git project (only the task's own, not earlier edits). */
+const TaskChanges = z.object({
+  type: z.literal("task.changes"),
+  data: z.object({
+    task_id: z.string(),
+    files: z.array(
+      z.object({ path: z.string(), added: z.number().int(), removed: z.number().int() }),
+    ),
+  }),
+});
+
+/** The user approved, and the task's changes were committed. */
+const TaskCommitted = z.object({
+  type: z.literal("task.committed"),
+  data: z.object({ task_id: z.string(), commit: z.string() }),
+});
+
 const QuestionOpened = z.object({
   type: z.literal("question.opened"),
   data: z.object({
@@ -137,6 +171,10 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskUpdated,
   TaskResult,
   TaskSession,
+  TaskModel,
+  TaskUsage,
+  TaskChanges,
+  TaskCommitted,
   QuestionOpened,
   QuestionClosed,
   DevicePaired,

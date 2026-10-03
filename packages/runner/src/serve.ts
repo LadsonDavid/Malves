@@ -5,12 +5,16 @@ import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
+import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
+import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
+import { NtfyPush } from "./adapters/push/ntfy.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import {
   extensionToken,
   lanAddresses,
+  pushTopic,
   resolveFolder,
   runnerKeys,
   tailscaleAddress,
@@ -21,6 +25,8 @@ const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
   pair text       the same code as text, to paste into an emulator
   agents          check which agents are ready (e.g. after signing in)
+  push            notifications: status and how to set them up
+  push new        new notification topic (cuts off every subscribed phone)
   extension       how to connect Chrome, and its code
   extension new   replace the Chrome code (shuts out the old one)
   devices         list paired phones
@@ -36,7 +42,12 @@ const HELP = `Commands while serving:
 export async function serve(
   runner: Runner,
   dir: string,
-  o: { host?: string | undefined; port: string; leads?: string | undefined },
+  o: {
+    host?: string | undefined;
+    port: string;
+    leads?: string | undefined;
+    relay?: string | undefined;
+  },
 ): Promise<number> {
   const port = Number(o.port);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -45,6 +56,29 @@ export async function serve(
   }
   const host = o.host ?? tailscaleAddress() ?? "127.0.0.1";
   const computer = hostname();
+  // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
+  const push =
+    host === tailscaleAddress() ? new NtfyPush(runner, { host, topic: pushTopic(dir) }) : undefined;
+  const relayUrl = o.relay ?? process.env.MALVES_RELAY_URL;
+  const relayToken = process.env.MALVES_RELAY_TOKEN ?? "";
+  if (relayUrl && (!/^wss?:\/\/\S+$/.test(relayUrl) || relayToken.length < 24)) {
+    console.error(
+      "--relay needs a wss:// address and MALVES_RELAY_TOKEN (the same long secret as on the relay).",
+    );
+    return 1;
+  }
+  const keys = runnerKeys(dir);
+  const relay = relayUrl
+    ? new RelayClient({
+        relay: relayUrl,
+        token: relayToken,
+        key: keys.publicKey,
+        // `server` is created just below; phones only arrive after it has started.
+        adopt: (ws) => server.accept(ws),
+        onStatus: (on) =>
+          console.log(on ? "Relay connected." : "Relay disconnected; reconnecting…"),
+      })
+    : undefined;
   const leadsUrl = o.leads ?? process.env.MALVES_LEADS_URL;
   if (leadsUrl && !URL.canParse(leadsUrl)) {
     console.error(
@@ -52,20 +86,52 @@ export async function serve(
     );
     return 1;
   }
+  const leads = leadsUrl
+    ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY })
+    : undefined;
   const server = new LinkServer(runner, {
     host,
     port,
-    keys: runnerKeys(dir),
+    keys,
+    publicUrl: relay?.phoneUrl,
     computer,
     agents: runner.agents,
+    pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
-    leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
+    diff: (taskId) => runner.diff(taskId),
+    leads,
+  });
+  const say = (line: string) => console.log(line);
+  let pushOn = false;
+  if (push) {
+    try {
+      await push.start();
+      runner.usePush(push);
+      pushOn = true;
+    } catch (error) {
+      say(
+        `Notifications couldn't start: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  // A revoked phone may still have the ntfy app subscribed: cut it off too.
+  const stopRenewing = runner.log.subscribe((event) => {
+    if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
   });
   const url = await server.start();
-  const say = (line: string) => console.log(line);
+  relay?.start();
+  const stopDigest =
+    leads && pushOn && push
+      ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
+      : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
+  say(
+    pushOn
+      ? "Notifications: on (type `push` to set up the phone)."
+      : "Notifications: off (they need Tailscale).",
+  );
   if (host === "127.0.0.1") {
     say("\nOnly this computer can reach it. For your phone:");
     say("  • install Tailscale on both devices (works anywhere), or");
@@ -86,7 +152,11 @@ export async function serve(
   const startBridge = async () => {
     try {
       await bridge.start();
-      bridge.onChange((on) => say(on ? "Chrome connected." : "Chrome disconnected."));
+      bridge.onChange((on) => {
+        say(on ? "Chrome connected." : "Chrome disconnected.");
+        server.setChrome(on);
+      });
+      server.setChrome(bridge.connected);
     } catch (error) {
       say(
         `Chrome bridge couldn't start: ${error instanceof Error ? error.message : String(error)}`,
@@ -118,6 +188,24 @@ export async function serve(
     say("Scan this with the malves app within 2 minutes. Type `pair` for a fresh code.");
   };
 
+  const showPush = () => {
+    if (!pushOn || !push) {
+      say(
+        "Notifications are off. They need Tailscale: start malves with Tailscale running on this computer.",
+      );
+      return;
+    }
+    say(
+      [
+        "Notifications are on. On your phone:",
+        "  1. Install the ntfy app (Google Play or F-Droid).",
+        '  2. In the malves app, tap "Set up notifications" — or add this in ntfy by hand:',
+        `     ${push.subscribeUrl}`,
+        "  3. In ntfy, allow notifications, and let it run in the background.",
+      ].join("\n"),
+    );
+  };
+
   const checkAgents = () => {
     say("Checking which agents are ready…");
     void runner.agents.checkAll().then(() => say(describeAgents(runner.agents.list())));
@@ -126,6 +214,13 @@ export async function serve(
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    push: ([mode]) => {
+      if (mode === "new" && push) {
+        push.renew(pushTopic(dir, true));
+        say("New notification topic made; phones must set up notifications again.");
+      }
+      showPush();
+    },
     extension: ([mode]) => {
       if (mode !== "new") return showExtension();
       token = extensionToken(dir, true);
@@ -183,7 +278,11 @@ export async function serve(
 
   say("\nStopping…");
   await runner.tasks.stopAll();
+  relay?.close();
   await server.close();
+  stopRenewing();
+  stopDigest();
+  await push?.close();
   await tools.close();
   await bridge.close();
   terminal.close();

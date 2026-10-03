@@ -63,7 +63,7 @@ identical in both.
  │   └─ SQLite event log               │   └────────────▲──────────────┘
  │ signalstack (optional)              │                │ outbound WSS only
  └─────────────────────────────────────┘   ┌────────────┴── Desktop ───┐
-  push via ntfy.sh — ciphertext only       │ runner … (identical)      │
+  push: ntfy app ◀─ runner, over Tailscale │ runner … (identical)      │
                                            └───────────────────────────┘
 ```
 
@@ -167,6 +167,16 @@ Two writers would tangle it, so malves never runs two tasks in one
 conversation, and the phone warns when the chosen one was used in the last
 10 minutes ("close it on your computer first").
 
+### Reviewing and committing a task's changes
+
+In a git project, the runner snapshots the uncommitted files (path and content
+hash) as a task starts. When it ends, only files that differ from the snapshot
+are the task's: they are logged (`task.changes`) and the user is asked
+"Commit 3 changed files (+40 −12)?" — a `commit_approval` question, so it
+also arrives as a notification. **View changes** shows the diff on the phone.
+"Commit" commits only those files, with the task's first line as the message;
+the user's own earlier edits are never included. No answer means no commit.
+
 ### Storage: an append-only event log
 
 SQLite, append-only, with current state derived from the log — the same idea as
@@ -226,14 +236,31 @@ connection, so the relay and the push service cannot read anything.
 ### Push: a hint, never the source of truth
 
 ```
-runner ─(encrypted payload)─▶ ntfy ─▶ UnifiedPush on the phone ─▶ app decrypts
-                                        ─▶ notification with [Existing] [New] buttons
-tapping a button ─▶ answer is sent over the link (Tailscale or relay)
+runner (acting as a tiny ntfy server, on the Tailscale address only)
+   ─▶ ntfy app on the phone (holds the connection, no Google, no ntfy.sh)
+   ─▶ notification with up to three answer buttons, on the lock screen
+tapping a button ─▶ POST to a one-time answer link on the runner ─▶ questions.answer
 ```
 
-The push service only sees ciphertext (public ntfy.sh in A, your own ntfy in
-B). **If a push is lost, nothing breaks** — opening the app resumes from the
-event log.
+- The phone's ntfy app subscribes to a **secret topic** on the runner. The
+  malves app carries the subscribe link inside the encrypted welcome, and
+  "Set up notifications" opens ntfy with it (`ntfy://…`).
+- Each button is a random, single-use answer link that dies when its question
+  closes. When a question closes anywhere, the notification is removed
+  (`message_delete`).
+- **Revoking a phone makes a new topic.** Old subscriptions and every button
+  already sent stop working; other phones set up notifications again.
+- ntfy messages are plain JSON, so they are served **only on the Tailscale
+  address**, where WireGuard encrypts them. Without Tailscale, notifications are
+  off; the app still works.
+
+**If a push is lost, nothing breaks** — opening the app resumes from the event
+log.
+
+*Why not UnifiedPush + `expo-unified-push` (the first plan):* that library
+shows notifications without buttons, so R1 fails, and it needs a custom Android
+build. Our own native module would fix both, but costs weeks of Kotlin. The ntfy
+app already does buttons and background delivery well.
 
 ---
 
@@ -294,8 +321,23 @@ at it; it forwards to freellmapi or to your own key. It adds three things:
 3. When the floor would be broken, calls `questions.ask("Pause, or use your own
    key?")` instead of silently downgrading (R8).
 
-**Limit:** agents running on your own Claude or Cursor subscription bypass the
-guard. The budget screen says "via your Claude subscription — not metered".
+**Built:** with `MALVES_MODELS_URL` (freellmapi) and `MALVES_MODELS_KEY` set,
+two more agents appear: **Claude (free models)** and **Codex (free models)** —
+the same agents, with their model calls sent to the guard (Claude Code through
+`ANTHROPIC_BASE_URL`, Codex through its own provider config). Each task gets its
+own guard URL, so usage counts per task and dies with it, and the real
+freellmapi key never reaches the agent.
+
+- `X-Routed-Via` names the model before the answer is passed on, so a model
+  outside `MALVES_MODELS_ALLOW` is held back while the phone asks "Use it" or
+  "Stop the task" (once per model per task). Silence stops the task (R3).
+- The first model and every switch are logged (`task.model`); tokens are logged
+  when the task ends (`task.usage`). The phone shows "via A → B · 12k tokens".
+- A `429` from freellmapi (free quota used up) stops the task with a plain
+  reason; malves never moves it to another model by itself.
+
+**Limit:** agents running on your own Claude, Codex or Cursor subscription bypass
+the guard and aren't metered; the phone shows no model line for them.
 
 ---
 
@@ -354,7 +396,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | Playwright | separate process; navigation timeouts | browser task failed, coding tasks unaffected |
 | freellmapi | timeout; on running out, ask via questions | the pause-or-own-key prompt |
 | Link (Tailscale or relay) | backoff with jitter; resume from sequence number | "last seen…", then catches up |
-| ntfy | retry; failure is harmless | inbox correct when the app opens |
+| ntfy app | it reconnects and catches up on open questions; failure is harmless | inbox correct when the app opens |
 | signalstack | fully independent | leads shown with an "as of" timestamp |
 | Unanswered question | timeout, then **stop** | "Stopped waiting. Nothing changed after the question." |
 
@@ -369,7 +411,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 3 | **Decided:** TypeScript runner, relay and Expo Android app; signalstack stays in Python behind HTTP. ACP's only official SDK is TypeScript, Happy is a TypeScript/Expo monorepo, and one language lets phone and runner share protocol and encryption code. See §15 |
 | 4 | SQLite append-only event log |
 | 5 | End-to-end encryption with libsodium, adapted from Happy |
-| 6 | Push through UnifiedPush and ntfy, encrypted payloads; push is only a hint |
+| 6 | Push through the ntfy app, served by the runner over Tailscale, with one-time answer buttons; push is only a hint (§4) |
 | 7 | Two deployment topologies |
 | 8 | Browser tasks through the same questions pipeline, via the gate |
 | 9 | Budget guard with a quality floor |
@@ -417,15 +459,22 @@ Each step ends in something demoable:
    the terminal. Proves the questions module.
 2. Tailscale link, pairing, encryption, minimal app with inbox and answer
    buttons. **Built:** `malves serve`, link protocol, QR pairing, revocation,
-   resume, Expo app (pair / home / new task). Awaiting a test on a real phone.
-3. Push through ntfy. R1 and R2 become measurable.
+   resume, Expo app (pair / home / new task). Tested on a real phone.
+3. Push through ntfy. R1 and R2 become measurable. **Built** (§4) with the ntfy
+   app; awaiting a test on a real phone (lock screen, Doze, mobile data).
 4. Cursor wrapper and Antigravity. R5. **Antigravity built:** Google's official
    `agy_acp_server` (installed under the data folder, signature checked), own
    `GEMINI_HOME`, API-key sign-in only. **Cursor:** speaks ACP natively
-   (`agent acp`); waiting for the CLI to be installed.
+   (`agent acp`); profile built — found as a real program on PATH or in
+   ~/.local/bin (never a `.cmd`). Awaiting a test once the CLI is installed.
 5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
-6. Budget guard. R8.
-7. Relay for topology B.
+6. Budget guard. R8. **Built** (§6): Claude and Codex on free models through
+   the guard; awaiting a test against a real freellmapi.
+7. Relay for topology B. **Built:** `packages/relay` — the computer keeps one
+   outbound control connection (`MALVES_RELAY_TOKEN`); for each phone the relay
+   says "incoming" and the computer opens a connection that the link server
+   adopts like a direct one. Frames and close codes pass unchanged. Limit:
+   notifications still need Tailscale.
 8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
    `malves serve --leads <url>`, the app's Leads screen with "Research in
    browser". Awaiting a test against real signalstack data.
@@ -439,14 +488,15 @@ Each step ends in something demoable:
   approve the result". Test in week 1; it shapes what R5 can claim.
 - **Claude Code uses Anthropic's API format**, so the budget guard must
   translate or pass it through. Subscription users bypass it entirely.
-- **Android Doze mode** must still deliver high-priority UnifiedPush messages
-  with action buttons. Test on a real phone.
+- **Android Doze mode** must still deliver ntfy's notifications quickly, with
+  buttons that work from the lock screen. Test on a real phone (R1, R2).
 - **Topology A needs Tailscale switched on** on the phone — a setup step that
   counts against R10.
-- **Android blocks plain `ws://` outside Expo Go.** Expo Go allows it, so step 2
-  works there. The step 3 development build must allow cleartext to the runner
-  (or use `wss://`). Payloads are end-to-end encrypted either way, so this is a
-  platform rule, not a security gap.
+- ~~**Android blocks plain `ws://` outside Expo Go.**~~ Done: the APK sets
+  `usesCleartextTraffic` (expo-build-properties). Payloads are end-to-end
+  encrypted either way, so this is a platform rule, not a security gap. The APK
+  is built by `.github/workflows/apk.yml` (expo prebuild + Gradle, no
+  accounts); awaiting its first run and an install on a real phone.
 
 ---
 
@@ -487,7 +537,7 @@ packages/
 | Budget guard | Node built-in `http` + `fetch` | Two routes; no framework |
 | Phone link | `ws` 8.22 (server); the standard `WebSocket` API in the shared `LinkClient` | One client for the app and the tests. Default port 7717; the runner listens on its Tailscale address if it has one |
 | Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |
-| Push | ntfy (ntfy.sh in A, self-hosted in B) + `expo-unified-push` | Self-hostable; payload encrypted |
+| Push | The ntfy Android app; the runner speaks ntfy's subscribe API itself | No extra server, no Google; Tailscale only |
 | App | Expo **SDK 57** (React Native 0.86) + TypeScript | Shares `protocol` (via its built `dist`); state is a pure reducer over the event stream |
 | App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`; `expo-notifications` in step 3 | QR scanning, Android Keystore, secure random — all in Expo Go |
 | Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
@@ -509,9 +559,7 @@ packages/
 
 ### Check before committing
 
-- `expo-unified-push` maintenance — check the latest release. Fallback: the
-  embedded FCM distributor or a small native module.
-- UnifiedPush needs native code, so use an Expo **development build**, not Expo
-  Go. Local APK builds are free.
+- ~~`expo-unified-push` maintenance.~~ Checked: no answer buttons, one
+  maintainer. Replaced by the ntfy app (§4), so Expo Go still works.
 - ~~`tweetnacl` needs a secure random source on React Native.~~ Done: `index.ts`
   calls `setRandomSource` with `expo-crypto` before anything else.

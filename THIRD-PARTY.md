@@ -12,7 +12,7 @@ are not copied into this repository.
 - Licence: Apache-2.0, Copyright Zed Industries
 - Used in:
   - `packages/runner/src/adapters/acp/host.ts` — the client connection sequence
-    (spawn, `ndJsonStream`, `initialize`, `buildSession`, the `nextUpdate()` loop)
+    (spawn, `ndJsonStream`, `initialize`, opening a session, prompting)
     follows the SDK's example client. The permission, confinement, cancellation
     and process-group handling are original.
   - `packages/runner/src/demo-agent.ts` — the shape of the agent (handlers for

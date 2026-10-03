@@ -37,6 +37,14 @@ export type Task = {
   resume?: string;
   /** The conversation it ran in; Reply continues it. */
   sessionId?: string;
+  /** Free-model tasks: each model that answered, in order (R8: every switch shows). */
+  models?: string[];
+  /** Free-model tasks: tokens used, once finished. */
+  usage?: { calls: number; tokens: number };
+  /** Files the task changed, in a git project. */
+  changes?: { files: number; added: number; removed: number };
+  /** The commit, once approved. */
+  commit?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -51,12 +59,17 @@ export type Model = {
   questions: Record<string, Question>;
   /** This week's leads, once fetched. Not from the event log: they're the lead engine's. */
   leads: { list: Lead[]; fetchedAt: number } | null;
+  /** `ntfy://` link that subscribes the ntfy app to this computer's notifications, if they're on. */
+  push: string | null;
+  /** Whether Chrome is connected on the computer; null until the computer says. */
+  chrome: boolean | null;
 };
 
 export type Action =
   | { type: "welcome"; welcome: Welcome }
   | { type: "event"; event: LoggedEvent }
   | { type: "agents"; agents: AgentInfo[] }
+  | { type: "chrome"; connected: boolean }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
   | { type: "reset" };
 
@@ -67,12 +80,16 @@ export const emptyModel: Model = {
   tasks: {},
   questions: {},
   leads: null,
+  push: null,
+  chrome: null,
 };
 
 export function reduce(model: Model, action: Action): Model {
   switch (action.type) {
     case "agents":
       return { ...model, agents: action.agents };
+    case "chrome":
+      return { ...model, chrome: action.connected };
     case "leads":
       return { ...model, leads: { list: action.leads, fetchedAt: action.fetchedAt } };
     case "reset":
@@ -83,6 +100,8 @@ export function reduce(model: Model, action: Action): Model {
         computer: action.welcome.computer,
         workspaces: action.welcome.workspaces,
         agents: action.welcome.agents,
+        push: action.welcome.push?.subscribe ?? null,
+        chrome: action.welcome.chrome ?? null,
       };
     case "event":
       return apply(model, action.event);
@@ -131,6 +150,35 @@ function apply(model: Model, event: LoggedEvent): Model {
       return updateTask(model, event.data.task_id, (task) => ({
         ...task,
         sessionId: event.data.session_id,
+      }));
+    case "task.model":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        models: [...(task.models ?? []), event.data.model],
+      }));
+    case "task.usage":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        usage: {
+          calls: event.data.calls,
+          tokens: event.data.input_tokens + event.data.output_tokens,
+        },
+      }));
+    case "task.changes": {
+      const files = event.data.files;
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        changes: {
+          files: files.length,
+          added: files.reduce((n, f) => n + f.added, 0),
+          removed: files.reduce((n, f) => n + f.removed, 0),
+        },
+      }));
+    }
+    case "task.committed":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        commit: event.data.commit,
       }));
     case "task.result":
       return updateTask(model, event.data.task_id, (task) => ({
@@ -235,4 +283,21 @@ export function ago(iso: string | undefined, now = Date.now()): string {
 export function mayStillBeOpen(iso: string | undefined, now = Date.now()): boolean {
   const at = iso ? Date.parse(iso) : Number.NaN;
   return !Number.isNaN(at) && now - at < MAYBE_OPEN_MS;
+}
+
+/**
+ * Which model did the work, in plain words: "via google/gemini-2.5-pro · 12.3k
+ * tokens", every switch included. Agents on their own subscription aren't metered.
+ */
+export function modelLine(task: Task, agents: AgentInfo[]): string {
+  const agent = agents.find((a) => a.name === task.agent);
+  if (!agent?.metered) return "";
+  const parts: string[] = [];
+  if (task.models?.length) parts.push(`via ${task.models.join(" → ")}`);
+  if (task.usage) parts.push(`${formatTokens(task.usage.tokens)} tokens`);
+  return parts.join(" · ");
+}
+
+function formatTokens(n: number): string {
+  return n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
 }

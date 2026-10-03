@@ -2,7 +2,9 @@ import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import {
+  ago,
   type Model,
+  modelLine,
   needsYou,
   type Question,
   recent,
@@ -10,12 +12,15 @@ import {
   type Task,
   workspaceName,
 } from "../model";
+import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, Section, styles } from "../ui";
 
 type Props = {
   model: Model;
   status: LinkStatus;
   detail: string | undefined;
+  /** When the link was last online, for "last seen". */
+  lastOnline: number | undefined;
   client: LinkClient | undefined;
   onNewTask: () => void;
   onLeads: () => void;
@@ -23,7 +28,16 @@ type Props = {
 };
 
 /** The home screen answers one question: what needs me right now? */
-export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, onUnpair }: Props) {
+export function HomeScreen({
+  model,
+  status,
+  detail,
+  lastOnline,
+  client,
+  onNewTask,
+  onLeads,
+  onUnpair,
+}: Props) {
   const questions = needsYou(model);
   const active = running(model);
   const done = recent(model);
@@ -32,7 +46,14 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
     <ScrollView contentContainerStyle={styles.page}>
       <View style={{ gap: 4 }}>
         <Text style={styles.title}>{model.computer ?? "Your computer"}</Text>
-        <StatusLine status={status} />
+        <StatusLine status={status} lastOnline={lastOnline} />
+        {status === "online" && model.chrome !== null ? (
+          <Text style={styles.muted}>
+            {model.chrome
+              ? "Chrome: connected — browser tasks can work"
+              : "Chrome: not connected (type `extension` on the computer to set it up)"}
+          </Text>
+        ) : null}
       </View>
 
       {status === "rejected" ? (
@@ -41,6 +62,8 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
           <Button title="Pair again" onPress={onUnpair} />
         </Card>
       ) : null}
+
+      {status === "online" ? <PushCard link={model.push} /> : null}
 
       <Section title={`Needs you (${questions.length})`}>
         {questions.length === 0 ? <Text style={styles.muted}>Nothing needs you.</Text> : null}
@@ -72,11 +95,18 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
   );
 }
 
-function StatusLine({ status }: { status: LinkStatus }) {
+function StatusLine({
+  status,
+  lastOnline,
+}: {
+  status: LinkStatus;
+  lastOnline: number | undefined;
+}) {
+  const seen = lastOnline ? `last seen ${ago(new Date(lastOnline).toISOString())}, ` : "";
   const [label, tone] = {
     online: ["● Online", color.ok],
     connecting: ["Connecting…", color.muted],
-    offline: ["Offline — retrying", color.warn],
+    offline: [`Offline — ${seen}retrying`, color.warn],
     rejected: ["Not connected", color.danger],
   }[status];
   return <Text style={{ color: tone, fontWeight: "600" }}>{label}</Text>;
@@ -99,7 +129,15 @@ function QuestionCard({
 }) {
   const [sending, setSending] = useState<string>();
   const [problem, setProblem] = useState<string>();
+  const [diff, setDiff] = useState<string>();
   const task = model.tasks[question.taskId];
+
+  const viewChanges = async () => {
+    if (!client) return;
+    if (diff !== undefined) return setDiff(undefined);
+    const ack = await client.viewChanges(question.taskId).catch(() => undefined);
+    setDiff(ack?.ok ? (ack.result ?? "") : (ack?.error ?? "Couldn't get the changes."));
+  };
   const minutes = Math.max(0, Math.round((question.expiresAt - Date.now()) / 60_000));
 
   const choose = async (choiceId: string) => {
@@ -123,6 +161,18 @@ function QuestionCard({
         {question.risk} risk · stops in ~{minutes} min if unanswered
       </Text>
       <Text style={styles.body}>{question.text}</Text>
+      {question.kind === "commit_approval" ? (
+        <Button
+          title={diff === undefined ? "View changes" : "Hide changes"}
+          kind="plain"
+          onPress={() => void viewChanges()}
+        />
+      ) : null}
+      {diff !== undefined ? (
+        <ScrollView horizontal style={{ maxHeight: 360 }}>
+          <Text style={{ fontFamily: "monospace", fontSize: 12 }}>{diff}</Text>
+        </ScrollView>
+      ) : null}
       <View style={styles.row}>
         {question.choices.map((c) => (
           <Button
@@ -158,6 +208,9 @@ function RunningTask({
       <Text style={styles.body} numberOfLines={3}>
         {task.prompt}
       </Text>
+      {modelLine(task, model.agents) ? (
+        <Text style={styles.muted}>{modelLine(task, model.agents)}</Text>
+      ) : null}
       <Button
         title="Stop"
         kind="danger"
@@ -215,6 +268,16 @@ function FinishedTask({
         {task.prompt}
       </Text>
       {task.reason ? <Text style={styles.muted}>{task.reason}</Text> : null}
+      {task.changes ? (
+        <Text style={styles.muted}>
+          {task.changes.files} file{task.changes.files === 1 ? "" : "s"} changed (+
+          {task.changes.added} −{task.changes.removed})
+          {task.commit ? ` · committed ${task.commit}` : ""}
+        </Text>
+      ) : null}
+      {modelLine(task, model.agents) ? (
+        <Text style={styles.muted}>{modelLine(task, model.agents)}</Text>
+      ) : null}
       {task.result ? (
         <Text style={styles.muted} numberOfLines={6}>
           {task.result}

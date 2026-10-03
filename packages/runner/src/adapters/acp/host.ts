@@ -23,7 +23,7 @@ export type AcpHostOptions = {
   /** What to tell the user when an agent needs signing in. */
   signInMessage?: (agent: string) => string;
   /** Per-agent start-up details, e.g. Antigravity's own environment and sign-in method. */
-  launch?: (agent: string) => Launch | undefined;
+  launch?: (agent: string, run?: AgentRun) => Launch | undefined;
   /** Tool servers to give an agent's session (malves' browser tools), if it supports HTTP ones. */
   toolServers?: (run: AgentRun) => acp.McpServer[];
   /**
@@ -64,7 +64,7 @@ export class AcpHost implements AgentHost {
   constructor(private readonly options: AcpHostOptions = {}) {}
 
   start(run: AgentRun, callbacks: AgentCallbacks): AgentSession {
-    const launch = this.options.launch?.(run.agent) ?? {};
+    const launch = this.options.launch?.(run.agent, run) ?? {};
     // No API key: don't spend half a minute starting an agent that can't sign in.
     if (launch.requiresEnv && !process.env[launch.requiresEnv]) {
       this.options.onSignInNeeded?.(run.agent);

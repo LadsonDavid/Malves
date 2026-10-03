@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { samePath, type Workspace } from "@malves/core";
 import { DEFAULT_PORT } from "@malves/protocol";
+import { guardFromEnv } from "./adapters/budget/guard.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
 import { serve } from "./serve.js";
@@ -11,7 +12,7 @@ import { openRunner, type Runner } from "./wire.js";
 
 const USAGE = `malves — run coding agents and answer their questions
 
-  malves serve [--host <ip>] [--port ${DEFAULT_PORT}] [--timeout 10m] [--leads <url>]
+  malves serve [--host <ip>] [--port ${DEFAULT_PORT}] [--timeout 10m] [--leads <url>] [--relay wss://…]
                                          phone link + terminal; --leads is signalstack
   malves workspace add <folder> [--name <name>]
   malves workspace list
@@ -21,7 +22,10 @@ const USAGE = `malves — run coding agents and answer their questions
   malves log [--since <seq>]
 
 Data is kept in $MALVES_HOME (default ~/.malves).
-The lead engine URL can also come from MALVES_LEADS_URL; its UI_KEY from MALVES_LEADS_KEY.`;
+The lead engine URL can also come from MALVES_LEADS_URL; its UI_KEY from MALVES_LEADS_KEY.
+Relay (no Tailscale): --relay or MALVES_RELAY_URL, with MALVES_RELAY_TOKEN.
+Free models: MALVES_MODELS_URL (freellmapi) and MALVES_MODELS_KEY add "Claude (free models)";
+MALVES_MODELS_ALLOW (e.g. "gemini-2.5-pro,deepseek") is the quality floor.`;
 
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -36,6 +40,7 @@ async function main(argv: string[]): Promise<number> {
       host: { type: "string" },
       port: { type: "string", default: String(DEFAULT_PORT) },
       leads: { type: "string" },
+      relay: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -53,6 +58,11 @@ async function main(argv: string[]): Promise<number> {
 
   const dir = dataDir();
   const runner = openRunner({ dir, questionTimeoutMs: parseDuration(values.timeout) });
+  const guard = guardFromEnv(runner);
+  if (guard) {
+    await guard.start();
+    runner.useGuard(guard);
+  }
   try {
     switch (cmd) {
       case "serve":
@@ -75,6 +85,7 @@ async function main(argv: string[]): Promise<number> {
         return 1;
     }
   } finally {
+    await guard?.close();
     runner.close();
   }
 }

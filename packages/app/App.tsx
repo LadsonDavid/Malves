@@ -115,6 +115,7 @@ export default function App() {
           model={link.model}
           status={link.status}
           detail={link.detail}
+          lastOnline={link.lastOnline}
           client={link.client}
           onNewTask={() => setScreen("new")}
           onLeads={() => setScreen("leads")}

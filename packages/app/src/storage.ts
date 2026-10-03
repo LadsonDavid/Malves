@@ -41,6 +41,18 @@ export function savePairing(pairing: Pairing): Promise<void> {
   return SecureStore.setItemAsync(KEY, JSON.stringify(pairing));
 }
 
-export function forgetPairing(): Promise<void> {
-  return SecureStore.deleteItemAsync(KEY);
+export async function forgetPairing(): Promise<void> {
+  await SecureStore.deleteItemAsync(KEY);
+  await SecureStore.deleteItemAsync(PUSH_KEY);
+}
+
+/** The notification link last opened in the ntfy app. It holds a secret topic. */
+const PUSH_KEY = "malves.push";
+
+export function loadPushLink(): Promise<string | null> {
+  return SecureStore.getItemAsync(PUSH_KEY);
+}
+
+export function savePushLink(link: string): Promise<void> {
+  return SecureStore.setItemAsync(PUSH_KEY, link);
 }

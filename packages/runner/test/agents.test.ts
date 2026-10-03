@@ -160,3 +160,40 @@ describe("Antigravity", () => {
     expect(p?.env?.GEMINI_HOME).toBe(path.join(dir, "agents", "antigravity", "home"));
   });
 });
+
+describe("Cursor profile", () => {
+  const exe = process.platform === "win32" ? "agent.exe" : "agent";
+  function withPath(files: string[]) {
+    const dir = mkdtempSync(path.join(tmpdir(), "malves-path-"));
+    for (const f of files) writeFileSync(path.join(dir, f), "");
+    // Also a home folder of its own, so a real ~/.local/bin on this machine doesn't count.
+    const saved = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      USERPROFILE: process.env.USERPROFILE,
+    };
+    Object.assign(process.env, { PATH: dir, HOME: dir, USERPROFILE: dir });
+    try {
+      return { dir, cursor: agentProfiles(dir).get("cursor") };
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  it("uses Cursor's real program with `acp` once it's installed", () => {
+    const { dir, cursor } = withPath([exe]);
+    expect(cursor?.command).toEqual({ program: path.join(dir, exe), args: ["acp"] });
+    expect(cursor?.missing).toBeUndefined();
+  });
+
+  it("says how to install it when it isn't there", () => {
+    expect(withPath([]).cursor?.missing).toContain("isn't installed");
+  });
+
+  it.runIf(process.platform === "win32")("never starts a .cmd wrapper, and says so", () => {
+    expect(withPath(["agent.cmd"]).cursor?.missing).toContain("can't start without a shell");
+  });
+});

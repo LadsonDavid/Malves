@@ -65,6 +65,8 @@ export type LinkClientOptions = {
   onWelcome?: (welcome: Welcome) => void;
   /** Agent readiness changed on the computer. */
   onAgents?: (agents: AgentInfo[]) => void;
+  /** Chrome connected or disconnected on the computer. */
+  onChrome?: (connected: boolean) => void;
   /** This week's leads arrived (after `refreshLeads`). */
   onLeads?: (leads: Lead[], fetchedAt: number) => void;
   onEvent?: (event: LoggedEvent) => void;
@@ -141,6 +143,11 @@ export class LinkClient {
       prompt: input.prompt,
       ...(input.resume ? { resume: input.resume } : {}),
     });
+  }
+
+  /** A finished task's changes as a diff, in `ack.result`. */
+  viewChanges(taskId: string): Promise<Ack> {
+    return this.send({ type: "changes.diff", task_id: taskId });
   }
 
   /** Continues a finished task's conversation with the same agent. */
@@ -245,6 +252,9 @@ export class LinkClient {
         this.o.onWelcome?.(message);
         this.o.onStatus?.("online");
         for (const { command } of this.pending.values()) this.transmit(command);
+        break;
+      case "chrome":
+        this.o.onChrome?.(message.connected);
         break;
       case "leads":
         this.o.onLeads?.(message.leads, message.fetched_at);

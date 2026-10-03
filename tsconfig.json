@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/protocol" },
     { "path": "packages/core" },
-    { "path": "packages/runner" }
+    { "path": "packages/runner" },
+    { "path": "packages/relay" }
   ]
 }

@@ -1,8 +1,8 @@
 # malves
 
-> **Status: design stage. No code yet.** This repo is the problem statement and
-> the architecture. If you want something you can install today, come back later.
-> If you want to shape it before it sets, now is the only time that's possible.
+> **Status: working prototype, Android only.** A phone app, a desktop runner and
+> a Chrome extension, tested end to end; the phone app builds as an installable
+> APK. See [Where it stands](#where-it-stands).
 
 ## The problem
 
@@ -36,7 +36,7 @@ form, and there is no per-seat bill.
 | 1, 6, 7 | **lead engine** | Scrapes public buying signals, scores accounts, self-hosted. Already exists: [signalstack](https://github.com/LadsonDavid/signalstack) |
 | 2, 3 | **Android app** | Task-level control of your desktop. Not a screen. Not a cursor |
 | 4 | **desktop runner** | Drives your AI coding tool through the [Agent Client Protocol](https://agentclientprotocol.com) (Claude Code, Codex, Antigravity and ~50 more), plus a wrapper for Cursor |
-| 5 | **browser automation** | Playwright on your desktop, behind a phone-approval gate. No subscription |
+| 5 | **browser automation** | A Chrome extension that lets the agent use the tab you have open, asking your phone before it acts on a site. No subscription |
 | 6, 7 | **your own model keys** | [freellmapi](https://github.com/tashfeenahmed/freellmapi) or any OpenAI-compatible endpoint, with a budget guard that never silently downgrades |
 
 ### Point 3 is the one that matters
@@ -73,32 +73,49 @@ public issue before it's decided, not after.
 
 ## Where it stands
 
-- **lead engine** — working, separate repo, Apache-2.0
-- **desktop runner** — runs ACP agents; `malves serve` pairs phones over an end-to-end encrypted link
-- **Android app** — first version: pair by QR, answer agent questions, start and stop tasks (no push notifications yet)
-- **browser automation** — designed, not built
+| Piece | State |
+|---|---|
+| Desktop runner | Works. Runs Claude Code, Codex, Antigravity and Cursor through ACP (Cursor: once its CLI is installed) |
+| Android app | Works in Expo Go. Pair by QR; start, stop and reply to tasks; continue an earlier conversation; answer questions; see what a task changed and commit it |
+| Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
+| Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
+| Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |
+| Budget guard | Claude Code and Codex can run on your own free-tier keys through [freellmapi](https://github.com/tashfeenahmed/freellmapi); the phone shows which model answered and asks before a weaker one is used |
+| Relay (no Tailscale) | A small server you run yourself ([packages/relay](packages/relay/README.md)); the computer only dials out. Notifications still need Tailscale |
 
-The full design — requirements, architecture, security model and tech stack — is
-in [ARCHITECTURE.md](ARCHITECTURE.md).
+Over mobile data the phone reaches your computer through
+[Tailscale](https://tailscale.com) (free for personal use). The full design —
+requirements, architecture, security model and tech stack — is in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-### Trying the runner (build step 1)
+### Trying it
 
-Needs Node.js 22.12+ and pnpm.
+**On the computer** (Node.js 22.12+ and pnpm):
 
 ```sh
 pnpm install && pnpm build
-node packages/runner/dist/main.js workspace add ~/code/my-site
-node packages/runner/dist/main.js run -w my-site "add a demo file"   # demo agent, no API key
-node packages/runner/dist/main.js run -w my-site -a claude "fix the footer"
+cp .env.example .env              # optional settings; every line is explained
+pnpm malves workspace add ~/code/my-site
+pnpm malves serve                 # shows a QR code to pair the phone
 ```
 
-Questions appear in the terminal; answer with a number. If nobody answers before
-`--timeout` (default 10m), the task stops. `pnpm test` runs the test suite.
+**On the phone:** install the malves APK (from the repo's Releases, or build
+it yourself: Actions → Android APK → Run workflow) and scan the QR code. To use
+it away from home, install [Tailscale](https://tailscale.com) on both, or run
+your own [relay](packages/relay/README.md). For lock-screen notifications,
+install the free [ntfy](https://ntfy.sh) app and tap **Set up notifications**.
+Developers can use Expo Go instead: `pnpm --filter @malves/app start`.
+
+In `serve`, type `help` for commands: `pair`, `agents`, `extension` (connect
+Chrome), `push` (notifications), `devices`, `revoke`, `stop`. Without a phone,
+`pnpm malves run -w my-site "add a demo file"` runs a task in the terminal with
+the demo agent (no API key). Questions nobody answers in time (`--timeout`,
+default 10 minutes) stop the task — silence never means yes. `pnpm test` runs
+the tests.
 
 ## Contributing
 
-Not open for contributions yet; the project is still at the design stage. The
-security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
+Not open for code contributions yet; issues and ideas are welcome. The security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
 before anything else — a phone that makes your desktop run code is remote code
 execution as a feature, and that deserves a threat model before it deserves a
 demo.

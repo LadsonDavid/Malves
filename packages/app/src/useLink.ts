@@ -15,6 +15,8 @@ export type Link = {
   status: LinkStatus;
   /** Why the runner refused us, or why the connection dropped. */
   detail: string | undefined;
+  /** When the link was last online; shown as "last seen" while offline. */
+  lastOnline: number | undefined;
   client: LinkClient | undefined;
 };
 
@@ -28,6 +30,7 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
   const [status, setStatus] = useState<LinkStatus>("connecting");
   const [detail, setDetail] = useState<string>();
   const [client, setClient] = useState<LinkClient>();
+  const [lastOnline, setLastOnline] = useState<number>();
   const welcomed = useRef(onWelcome);
   welcomed.current = onWelcome;
 
@@ -44,10 +47,15 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
         welcomed.current?.(welcome);
       },
       onAgents: (agents) => dispatch({ type: "agents", agents }),
+      onChrome: (connected) => dispatch({ type: "chrome", connected }),
       onLeads: (leads, fetchedAt) => dispatch({ type: "leads", leads, fetchedAt }),
       onEvent: (event) => dispatch({ type: "event", event }),
       onStatus: (next, why) => {
-        setStatus(next);
+        // Leaving "online" is the moment we were last connected.
+        setStatus((prev) => {
+          if (prev === "online" && next !== "online") setLastOnline(Date.now());
+          return next;
+        });
         setDetail(why);
       },
     });
@@ -56,5 +64,5 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
     return () => link.close();
   }, [connection]);
 
-  return { model, status, detail, client };
+  return { model, status, detail, client, lastOnline };
 }

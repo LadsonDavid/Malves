@@ -14,7 +14,12 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   awaiting a real test. Cursor waits on the CLI install. Lead engine built
   (signalstack `/api/leads` → `serve --leads <url>` → app Leads screen), awaiting a
   real-data test. Continuing conversations built (Reply, and resume an
-  earlier session; ARCHITECTURE §3). Next: step 3 (push).
+  earlier session; ARCHITECTURE §3). Step 3 (push) built with the ntfy app, awaiting a
+  real-phone test. Budget guard built (Claude/Codex on free models via freellmapi),
+  awaiting a real freellmapi test. Also built: review & commit a task's changes,
+  weekly leads digest, Cursor profile (waits on its CLI), Chrome/last-seen on the
+  phone, relay (`packages/relay`, topology B), APK workflow + `pnpm malves` +
+  `.env.example`. All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before
@@ -54,6 +59,7 @@ Set these locally in every new environment. Never commit here as
 | One `questions.ask()` module for every human decision | Agent questions, permissions, browser gate, budget floor, commit approval |
 | Unanswered question → **stop**, never proceed | R3 |
 | Push is a hint; the event log is the truth | Lost pushes never break anything |
+| Push via the ntfy app, with the runner as its server over Tailscale | `expo-unified-push` has no answer buttons (R1) and needs a custom build |
 
 ## Ruled out — don't re-propose
 
