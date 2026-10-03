@@ -21,6 +21,8 @@ export type Runner = Core & {
   agents: AgentStatus;
   /** Gives every task's agent these browser tools (`malves serve` only). */
   useBrowserTools(tools: BrowserTools): void;
+  /** Also notifies through this (`malves serve` with Tailscale). */
+  usePush(push: Notifier): void;
   /** The agent's saved conversations in a workspace, newest first, to continue one. */
   listSessions(agent: string, workspaceId: string): Promise<AgentSessionInfo[]>;
   close(): void;
@@ -37,6 +39,7 @@ export function openRunner(o: RunnerOptions): Runner {
     // Real tasks keep the readiness labels honest between checks.
     let status: AgentStatus | undefined;
     let browserTools: BrowserTools | undefined;
+    let push: Notifier | undefined;
     const host = new AcpHost({
       ...(o.onActivity ? { onActivity: o.onActivity } : {}),
       onSignInNeeded: (agent) => status?.set(agent, "needs_sign_in"),
@@ -55,7 +58,14 @@ export function openRunner(o: RunnerOptions): Runner {
       store,
       clock: systemClock,
       ids: randomIds,
-      notifier: o.notifier ?? noPush,
+      notifier: {
+        async questionOpened(question) {
+          await Promise.all([
+            (o.notifier ?? noPush).questionOpened(question),
+            push?.questionOpened(question),
+          ]);
+        },
+      },
       host,
       agents,
       questionTimeoutMs: o.questionTimeoutMs,
@@ -66,6 +76,9 @@ export function openRunner(o: RunnerOptions): Runner {
       agents: status,
       useBrowserTools(tools) {
         browserTools = tools;
+      },
+      usePush(notifier) {
+        push = notifier;
       },
       async listSessions(agent, workspaceId) {
         const profile = profiles.get(agent);

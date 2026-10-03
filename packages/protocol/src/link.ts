@@ -145,6 +145,8 @@ export const Welcome = z.object({
   workspaces: z.array(z.object({ id: Id, name: z.string() })),
   agents: z.array(AgentInfo),
   last_seq: z.number().int().min(0),
+  /** Notifications: an `ntfy://` link that subscribes the phone's ntfy app. Only over Tailscale. */
+  push: z.object({ subscribe: z.string().max(300) }).optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
 
