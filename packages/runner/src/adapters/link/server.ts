@@ -68,6 +68,7 @@ export class LinkServer {
   private readonly alive = new WeakSet<WebSocket>();
   private readonly sessions = new Set<Session>();
   private address = "";
+  private chrome: boolean | undefined;
 
   constructor(
     private readonly core: Core,
@@ -114,6 +115,12 @@ export class LinkServer {
       code,
       computer: this.o.computer,
     };
+  }
+
+  /** Tells every phone whether Chrome is connected (and every phone that connects later). */
+  setChrome(connected: boolean): void {
+    this.chrome = connected;
+    for (const s of this.sessions) s.send({ type: "chrome", connected });
   }
 
   async close(): Promise<void> {
@@ -230,6 +237,7 @@ export class LinkServer {
       agents: this.o.agents.list(),
       last_seq: this.core.log.lastSeq,
       ...(push ? { push: { subscribe: push } } : {}),
+      ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
     };
   }
 

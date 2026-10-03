@@ -157,8 +157,13 @@ export const Welcome = z.object({
   last_seq: z.number().int().min(0),
   /** Notifications: an `ntfy://` link that subscribes the phone's ntfy app. Only over Tailscale. */
   push: z.object({ subscribe: z.string().max(300) }).optional(),
+  /** Whether the Chrome extension is connected, so browser tasks can work. */
+  chrome: z.boolean().optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
+
+/** Sent when Chrome connects or disconnects. */
+export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
 
 /** Sent whenever an agent's readiness changes. */
 export const AgentsMessage = z.object({ type: z.literal("agents"), agents: z.array(AgentInfo) });
@@ -196,6 +201,7 @@ export const LeadsMessage = z.object({
 export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
+  ChromeMessage,
   LeadsMessage,
   EventMessage,
   Ack,

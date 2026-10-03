@@ -124,7 +124,11 @@ export async function serve(
   const startBridge = async () => {
     try {
       await bridge.start();
-      bridge.onChange((on) => say(on ? "Chrome connected." : "Chrome disconnected."));
+      bridge.onChange((on) => {
+        say(on ? "Chrome connected." : "Chrome disconnected.");
+        server.setChrome(on);
+      });
+      server.setChrome(bridge.connected);
     } catch (error) {
       say(
         `Chrome bridge couldn't start: ${error instanceof Error ? error.message : String(error)}`,

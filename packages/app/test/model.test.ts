@@ -265,3 +265,15 @@ describe("changes and commits", () => {
     });
   });
 });
+
+describe("Chrome on the computer", () => {
+  it("follows the welcome, then live updates", () => {
+    const welcome = { computer: "pc", workspaces: [], agents: [] };
+    expect(play({ type: "welcome", welcome: welcome as never }).chrome).toBeNull();
+    const m = play(
+      { type: "welcome", welcome: { ...welcome, chrome: false } as never },
+      { type: "chrome", connected: true },
+    );
+    expect(m.chrome).toBe(true);
+  });
+});

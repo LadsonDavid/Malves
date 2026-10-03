@@ -2,6 +2,7 @@ import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import {
+  ago,
   type Model,
   modelLine,
   needsYou,
@@ -18,6 +19,8 @@ type Props = {
   model: Model;
   status: LinkStatus;
   detail: string | undefined;
+  /** When the link was last online, for "last seen". */
+  lastOnline: number | undefined;
   client: LinkClient | undefined;
   onNewTask: () => void;
   onLeads: () => void;
@@ -25,7 +28,16 @@ type Props = {
 };
 
 /** The home screen answers one question: what needs me right now? */
-export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, onUnpair }: Props) {
+export function HomeScreen({
+  model,
+  status,
+  detail,
+  lastOnline,
+  client,
+  onNewTask,
+  onLeads,
+  onUnpair,
+}: Props) {
   const questions = needsYou(model);
   const active = running(model);
   const done = recent(model);
@@ -34,7 +46,14 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
     <ScrollView contentContainerStyle={styles.page}>
       <View style={{ gap: 4 }}>
         <Text style={styles.title}>{model.computer ?? "Your computer"}</Text>
-        <StatusLine status={status} />
+        <StatusLine status={status} lastOnline={lastOnline} />
+        {status === "online" && model.chrome !== null ? (
+          <Text style={styles.muted}>
+            {model.chrome
+              ? "Chrome: connected — browser tasks can work"
+              : "Chrome: not connected (type `extension` on the computer to set it up)"}
+          </Text>
+        ) : null}
       </View>
 
       {status === "rejected" ? (
@@ -76,11 +95,18 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
   );
 }
 
-function StatusLine({ status }: { status: LinkStatus }) {
+function StatusLine({
+  status,
+  lastOnline,
+}: {
+  status: LinkStatus;
+  lastOnline: number | undefined;
+}) {
+  const seen = lastOnline ? `last seen ${ago(new Date(lastOnline).toISOString())}, ` : "";
   const [label, tone] = {
     online: ["● Online", color.ok],
     connecting: ["Connecting…", color.muted],
-    offline: ["Offline — retrying", color.warn],
+    offline: [`Offline — ${seen}retrying`, color.warn],
     rejected: ["Not connected", color.danger],
   }[status];
   return <Text style={{ color: tone, fontWeight: "600" }}>{label}</Text>;

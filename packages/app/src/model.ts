@@ -61,12 +61,15 @@ export type Model = {
   leads: { list: Lead[]; fetchedAt: number } | null;
   /** `ntfy://` link that subscribes the ntfy app to this computer's notifications, if they're on. */
   push: string | null;
+  /** Whether Chrome is connected on the computer; null until the computer says. */
+  chrome: boolean | null;
 };
 
 export type Action =
   | { type: "welcome"; welcome: Welcome }
   | { type: "event"; event: LoggedEvent }
   | { type: "agents"; agents: AgentInfo[] }
+  | { type: "chrome"; connected: boolean }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
   | { type: "reset" };
 
@@ -78,12 +81,15 @@ export const emptyModel: Model = {
   questions: {},
   leads: null,
   push: null,
+  chrome: null,
 };
 
 export function reduce(model: Model, action: Action): Model {
   switch (action.type) {
     case "agents":
       return { ...model, agents: action.agents };
+    case "chrome":
+      return { ...model, chrome: action.connected };
     case "leads":
       return { ...model, leads: { list: action.leads, fetchedAt: action.fetchedAt } };
     case "reset":
@@ -95,6 +101,7 @@ export function reduce(model: Model, action: Action): Model {
         workspaces: action.welcome.workspaces,
         agents: action.welcome.agents,
         push: action.welcome.push?.subscribe ?? null,
+        chrome: action.welcome.chrome ?? null,
       };
     case "event":
       return apply(model, action.event);
