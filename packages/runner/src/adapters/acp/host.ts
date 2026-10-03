@@ -206,9 +206,20 @@ export class AcpHost implements AgentHost {
       if (isStopped()) throw new Error("The task has been stopped");
     };
     const inWorkspace = async (requested: string) => realConfine(callbacks, requested);
+    let sessionId = "";
+    let replaying = false;
 
     return acp
       .client({ name: "malves" })
+      .onNotification(acp.methods.client.session.update, ({ params }) => {
+        if (replaying || params.sessionId !== sessionId) return;
+        const update = params.update;
+        if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
+          callbacks.output(update.content.text);
+        } else if (update.sessionUpdate === "tool_call") {
+          this.options.onActivity?.(run.taskId, update.title);
+        }
+      })
       .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
         if (isStopped()) return { outcome: { outcome: "cancelled" } };
         if (this.options.gatedElsewhere?.(params.toolCall)) {
@@ -251,27 +262,97 @@ export class AcpHost implements AgentHost {
         const mcpServers = init.agentCapabilities?.mcpCapabilities?.http
           ? (this.options.toolServers?.(run) ?? [])
           : [];
-        return ctx
-          .buildSession({ cwd: run.workspaceRoot, mcpServers })
-          .withSession(async (session) => {
-            this.options.onReady?.(run.agent);
-            const turn = session.prompt(run.prompt);
-            const failed = turn.then(() => new Promise<never>(() => {}));
-            for (;;) {
-              const message = await Promise.race([session.nextUpdate(), failed]);
-              if (message.kind === "stop") return agentEnd(message.stopReason);
-              const update = message.update;
-              if (
-                update.sessionUpdate === "agent_message_chunk" &&
-                update.content.type === "text"
-              ) {
-                callbacks.output(update.content.text);
-              } else if (update.sessionUpdate === "tool_call") {
-                this.options.onActivity?.(run.taskId, update.title);
-              }
-            }
-          });
+        const where: acp.NewSessionRequest = { cwd: run.workspaceRoot, mcpServers };
+        if (!run.resume) {
+          sessionId = (await ctx.request(acp.methods.agent.session.new, where)).sessionId;
+        } else if (init.agentCapabilities?.sessionCapabilities?.resume) {
+          sessionId = run.resume;
+          await ctx.request(acp.methods.agent.session.resume, { ...where, sessionId });
+        } else if (init.agentCapabilities?.loadSession) {
+          // `load` replays the whole conversation first; the user has seen it already.
+          sessionId = run.resume;
+          replaying = true;
+          await ctx.request(acp.methods.agent.session.load, { ...where, sessionId });
+          replaying = false;
+        } else {
+          throw new Error(`${run.agent} can't continue an earlier conversation.`);
+        }
+        callbacks.session(sessionId);
+        this.options.onReady?.(run.agent);
+        const { stopReason } = await ctx.request(acp.methods.agent.session.prompt, {
+          sessionId,
+          prompt: [{ type: "text", text: run.prompt }],
+        });
+        return agentEnd(stopReason);
       });
+  }
+
+  /**
+   * The agent's saved conversations in `cwd`, newest first. Starts the agent,
+   * asks, and stops it — nothing is opened or changed.
+   */
+  async listSessions(
+    agent: string,
+    command: Command,
+    cwd: string,
+    launch: Launch = {},
+    timeoutMs = 30_000,
+  ): Promise<acp.SessionInfo[]> {
+    if (launch.requiresEnv && !process.env[launch.requiresEnv]) {
+      throw new Error(`Set ${launch.requiresEnv} on the computer first.`);
+    }
+    const child = spawn(command.program, [...command.args], {
+      cwd,
+      env: { ...process.env, ...launch.env },
+      stdio: ["pipe", "pipe", "ignore"],
+      shell: false,
+      detached: process.platform !== "win32",
+      windowsHide: true,
+    });
+    this.live.add(child);
+    let timer: NodeJS.Timeout | undefined;
+    const gaveUp = new Promise<never>((_, reject) => {
+      child.once("error", (error) => reject(new Error(`Could not start it: ${error.message}`)));
+      timer = setTimeout(() => reject(new Error("It didn't answer in time.")), timeoutMs);
+    });
+    try {
+      if (!child.stdin || !child.stdout) throw new Error("agent stdio is not piped");
+      const stream = acp.ndJsonStream(
+        Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+        Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      );
+      const listing = acp.client({ name: "malves" }).connectWith(stream, async (ctx) => {
+        const init = await ctx.request(acp.methods.agent.initialize, {
+          protocolVersion: acp.PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+        if (launch.authMethod) {
+          await ctx
+            .request(acp.methods.agent.authenticate, { methodId: launch.authMethod })
+            .catch(signInFailed);
+        }
+        const caps = init.agentCapabilities;
+        if (!caps?.sessionCapabilities?.list) {
+          throw new Error("This agent can't list its earlier conversations.");
+        }
+        if (!caps.sessionCapabilities.resume && !caps.loadSession) {
+          throw new Error("This agent can't continue earlier conversations.");
+        }
+        const { sessions } = await ctx.request(acp.methods.agent.session.list, { cwd });
+        return sessions;
+      });
+      const sessions = await Promise.race([listing, gaveUp]);
+      return sessions
+        .filter((s) => s.cwd === cwd)
+        .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+    } catch (error) {
+      if (isAuthRequired(error)) throw new Error(this.signInMessage(agent));
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      kill(child);
+      this.live.delete(child);
+    }
   }
 }
 

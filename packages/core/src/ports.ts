@@ -48,6 +48,8 @@ export type AgentRun = {
   /** The registered workspace root. The agent's cwd, and the limit of its file access. */
   workspaceRoot: string;
   prompt: string;
+  /** Continue this earlier agent session instead of starting a new one. */
+  resume?: string;
 };
 
 export type AgentCallbacks = {
@@ -56,6 +58,8 @@ export type AgentCallbacks = {
    * has been stopped and the agent must not proceed.
    */
   decide(decision: Decision): Promise<string | null>;
+  /** The agent session is open; its id lets a later task continue the conversation. */
+  session(id: string): void;
   /** Text the agent wants to show the user. */
   output(text: string): void;
   /** Resolves a path the agent asked for, or throws if it is outside the workspace. */

@@ -3,6 +3,7 @@ import type { Core, Device } from "@malves/core";
 import {
   type Ack,
   type AgentInfo,
+  type AgentSessionInfo,
   CLOSE,
   Command,
   FirstFrame,
@@ -32,6 +33,8 @@ export type LinkServerOptions = {
   agents: AgentDirectory;
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
+  /** An agent's saved conversations in a workspace, newest first. */
+  listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
   pairingTtlMs?: number;
   handshakeTimeoutMs?: number;
   heartbeatMs?: number;
@@ -230,7 +233,7 @@ export class LinkServer {
   }
 
   private async run(command: Command): Promise<Ack> {
-    const ack = (ok: boolean, detail?: { result?: string; error?: string }): Ack => ({
+    const ack = (ok: boolean, detail?: Omit<Partial<Ack>, "type" | "command_id" | "ok">): Ack => ({
       type: "ack",
       command_id: command.command_id,
       ok,
@@ -243,8 +246,16 @@ export class LinkServer {
             workspaceId: command.workspace_id,
             agent: command.agent,
             prompt: command.prompt,
+            resume: command.resume,
           });
           return ack(true, { result: id });
+        }
+        case "task.reply":
+          return ack(true, { result: this.core.tasks.reply(command.task_id, command.prompt) });
+        case "sessions.list": {
+          if (!this.o.listSessions) return ack(false, { error: "Not available on this computer." });
+          const sessions = await this.o.listSessions(command.agent, command.workspace_id);
+          return ack(true, { sessions });
         }
         case "answer": {
           const result = this.core.questions.answer({

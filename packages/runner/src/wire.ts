@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type Core, createCore, type Notifier } from "@malves/core";
+import type { AgentSessionInfo } from "@malves/protocol";
 import { AcpHost, type Launch } from "./adapters/acp/host.js";
 import { type BrowserTools, TOOL_SERVER_NAME } from "./adapters/browser/tools.js";
 import { SqliteStore } from "./adapters/sqlite/store.js";
@@ -20,6 +21,8 @@ export type Runner = Core & {
   agents: AgentStatus;
   /** Gives every task's agent these browser tools (`malves serve` only). */
   useBrowserTools(tools: BrowserTools): void;
+  /** The agent's saved conversations in a workspace, newest first, to continue one. */
+  listSessions(agent: string, workspaceId: string): Promise<AgentSessionInfo[]>;
   close(): void;
 };
 
@@ -63,6 +66,26 @@ export function openRunner(o: RunnerOptions): Runner {
       agents: status,
       useBrowserTools(tools) {
         browserTools = tools;
+      },
+      async listSessions(agent, workspaceId) {
+        const profile = profiles.get(agent);
+        if (!profile) throw new Error(`Unknown agent: ${agent}`);
+        if (profile.missing) throw new Error(profile.missing);
+        const workspace = core.workspaces.get(workspaceId);
+        if (!workspace) throw new Error(`Unknown workspace: ${workspaceId}`);
+        const found = await host.listSessions(
+          agent,
+          profile.command,
+          workspace.path,
+          launchOf(profile),
+          profile.startupMs,
+        );
+        // ponytail: newest 20 only; add paging if people want older ones.
+        return found.slice(0, 20).map((s) => ({
+          id: s.sessionId,
+          ...(s.title ? { title: s.title.slice(0, 200) } : {}),
+          ...(s.updatedAt ? { updated_at: s.updatedAt } : {}),
+        }));
       },
       close() {
         host.killAll();

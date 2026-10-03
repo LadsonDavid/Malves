@@ -54,7 +54,15 @@ const TaskCreated = z.object({
     workspace_id: z.string(),
     agent: z.string(),
     prompt: z.string(),
+    /** Continues this earlier agent session instead of starting a new one. */
+    resume_session: z.string().optional(),
   }),
+});
+
+/** The agent opened (or continued) this session for the task; a reply can continue it. */
+const TaskSession = z.object({
+  type: z.literal("task.session"),
+  data: z.object({ task_id: z.string(), session_id: z.string() }),
 });
 
 const TaskUpdated = z.object({
@@ -128,6 +136,7 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskCreated,
   TaskUpdated,
   TaskResult,
+  TaskSession,
   QuestionOpened,
   QuestionClosed,
   DevicePaired,

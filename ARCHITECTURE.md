@@ -146,6 +146,27 @@ queued → running ⇄ waiting (on a question) → done | failed | stopped
 "Computer offline" is *not* a task state. It is shown alongside, based on
 heartbeats, so the phone never claims a task is running when it can't know.
 
+### Continuing a conversation
+
+A task is one turn of a conversation with an agent. When the agent opens its
+session, the runner logs `task.session`, so the conversation can be continued:
+
+- **Reply** on a finished task starts a new task in the same agent session,
+  project and agent.
+- **Continue an earlier one** lists the agent's saved conversations in that
+  project (ACP `session/list`) — including ones started in the IDE or terminal —
+  and the new task resumes the chosen one.
+
+The runner uses `session/resume` where the agent offers it, else `session/load`,
+whose replay of the past is dropped (the user has seen it). Claude, Codex and
+Antigravity support both. Antigravity lists only conversations malves started,
+because it runs with its own `GEMINI_HOME`.
+
+**Limit:** ACP can't attach to a conversation that is *live* in another process.
+Two writers would tangle it, so malves never runs two tasks in one
+conversation, and the phone warns when the chosen one was used in the last
+10 minutes ("close it on your computer first").
+
 ### Storage: an append-only event log
 
 SQLite, append-only, with current state derived from the log — the same idea as

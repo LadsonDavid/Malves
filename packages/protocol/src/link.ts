@@ -70,6 +70,24 @@ export const TaskCreate = z.object({
   workspace_id: Id,
   agent: Id,
   prompt: z.string().min(1).max(20_000),
+  /** An agent session id from `sessions.list`, to continue it. */
+  resume: z.string().min(1).max(200).optional(),
+});
+
+/** Continue a finished task's conversation with the same agent. */
+export const TaskReply = z.object({
+  type: z.literal("task.reply"),
+  command_id: Id,
+  task_id: Id,
+  prompt: z.string().min(1).max(20_000),
+});
+
+/** The agent's saved sessions in one project, newest first (answered in the ack). */
+export const SessionsList = z.object({
+  type: z.literal("sessions.list"),
+  command_id: Id,
+  workspace_id: Id,
+  agent: Id,
 });
 
 export const AnswerCommand = z.object({
@@ -94,6 +112,8 @@ export const LeadsRefresh = z.object({ type: z.literal("leads.refresh"), command
 /** Things the phone asks the runner to do. Each is acknowledged once, by `command_id`. */
 export const Command = z.discriminatedUnion("type", [
   TaskCreate,
+  TaskReply,
+  SessionsList,
   AnswerCommand,
   TaskStop,
   AgentsCheck,
@@ -133,6 +153,15 @@ export const AgentsMessage = z.object({ type: z.literal("agents"), agents: z.arr
 
 export const EventMessage = z.object({ type: z.literal("event"), event: LoggedEvent });
 
+/** One saved conversation an agent can continue. */
+export const AgentSessionInfo = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  /** ISO 8601. Recent means it may still be open on the computer. */
+  updated_at: z.string().optional(),
+});
+export type AgentSessionInfo = z.infer<typeof AgentSessionInfo>;
+
 export const Ack = z.object({
   type: z.literal("ack"),
   command_id: Id,
@@ -140,6 +169,8 @@ export const Ack = z.object({
   /** e.g. the new task's id, or how an answer was applied. */
   result: z.string().optional(),
   error: z.string().optional(),
+  /** The answer to `sessions.list`. */
+  sessions: z.array(AgentSessionInfo).optional(),
 });
 export type Ack = z.infer<typeof Ack>;
 

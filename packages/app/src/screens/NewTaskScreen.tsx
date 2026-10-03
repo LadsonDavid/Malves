@@ -1,8 +1,8 @@
-import type { AgentInfo, LinkClient } from "@malves/protocol";
+import type { AgentInfo, AgentSessionInfo, LinkClient } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
-import { type Model, pickAgent } from "../model";
-import { Banner, Button, Section, styles } from "../ui";
+import { ago, type Model, mayStillBeOpen, pickAgent } from "../model";
+import { Banner, Button, Card, Section, styles } from "../ui";
 
 type Props = {
   model: Model;
@@ -28,6 +28,10 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string>();
+  /** Earlier conversations of this agent in this project, once asked for. */
+  const [earlier, setEarlier] = useState<{ key: string; list: AgentSessionInfo[] }>();
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [resume, setResume] = useState<AgentSessionInfo>();
 
   // Only a ready agent can be selected; otherwise suggest one that will work.
   const isReady = (name: string | undefined) =>
@@ -37,13 +41,37 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
     (a) => a.state === "needs_sign_in" || a.state === "unavailable",
   );
   const stillChecking = model.agents.some((a) => a.state === "checking");
+  // A conversation belongs to one agent in one project: changing either forgets the choice.
+  const key = `${agent}@${workspaceId}`;
+  const shown = earlier?.key === key ? earlier.list : undefined;
+  const continuing = shown && resume && shown.some((s) => s.id === resume.id) ? resume : undefined;
+
+  const loadEarlier = async () => {
+    if (!client || !workspaceId || !agent) return;
+    setLoadingEarlier(true);
+    setProblem(undefined);
+    try {
+      const ack = await client.listSessions({ workspaceId, agent });
+      if (ack.ok) setEarlier({ key, list: ack.sessions ?? [] });
+      else setProblem(ack.error ?? "The computer couldn't list earlier conversations.");
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
 
   const start = async () => {
     if (!client || !workspaceId || !agent) return;
     setSending(true);
     setProblem(undefined);
     try {
-      const ack = await client.createTask({ workspaceId, agent, prompt: prompt.trim() });
+      const ack = await client.createTask({
+        workspaceId,
+        agent,
+        prompt: prompt.trim(),
+        resume: continuing?.id,
+      });
       if (ack.ok) {
         onCreated(agent);
         onClose();
@@ -73,7 +101,7 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
         style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
         multiline
         autoFocus
-        placeholder="What should the agent do?"
+        placeholder={continuing ? "What next?" : "What should the agent do?"}
         value={prompt}
         onChangeText={setPrompt}
       />
@@ -128,9 +156,54 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
         ) : null}
       </Section>
 
+      <Section title="Conversation">
+        {continuing ? (
+          <Card>
+            <Text style={styles.body}>Continuing: {continuing.title || "untitled"}</Text>
+            {mayStillBeOpen(continuing.updated_at) ? (
+              <Banner tone="info">
+                Used {ago(continuing.updated_at)}. If it's still open on your computer, close it
+                there first, or the two will get mixed up.
+              </Banner>
+            ) : null}
+            <Button
+              title="Start a new one instead"
+              kind="plain"
+              onPress={() => setResume(undefined)}
+            />
+          </Card>
+        ) : (
+          <Text style={styles.muted}>A new conversation.</Text>
+        )}
+        {!continuing && !shown ? (
+          <Button
+            title="Continue an earlier one"
+            kind="plain"
+            busy={loadingEarlier}
+            disabled={!client || !workspaceId || !agent}
+            onPress={() => void loadEarlier()}
+          />
+        ) : null}
+        {!continuing && shown?.length === 0 ? (
+          <Text style={styles.muted}>
+            No earlier conversations with this agent in this project.
+          </Text>
+        ) : null}
+        {!continuing
+          ? shown?.map((s) => (
+              <Button
+                key={s.id}
+                title={`${s.title || "untitled"}${s.updated_at ? ` · ${ago(s.updated_at)}` : ""}`}
+                kind="plain"
+                onPress={() => setResume(s)}
+              />
+            ))
+          : null}
+      </Section>
+
       {problem ? <Banner tone="bad">{problem}</Banner> : null}
       <Button
-        title={sending ? "Sending…" : "Start"}
+        title={sending ? "Sending…" : continuing ? "Continue" : "Start"}
         busy={sending}
         disabled={!client || !workspaceId || !agent || prompt.trim() === ""}
         onPress={() => void start()}

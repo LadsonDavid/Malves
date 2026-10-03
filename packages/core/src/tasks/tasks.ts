@@ -13,6 +13,10 @@ export type Task = {
   state: TaskState;
   reason?: string;
   result?: string;
+  /** The agent session this task continued, if any. */
+  resume?: string;
+  /** The agent session this task ran in, once open. A reply continues it. */
+  sessionId?: string;
 };
 
 /** The result keeps at most this much of the agent's text: the end, where the summary is. */
@@ -55,7 +59,20 @@ export class Tasks {
       switch (event.type) {
         case "task.created": {
           const { task_id: id, workspace_id: workspaceId, agent, prompt } = event.data;
-          this.tasks.set(id, { id, workspaceId, agent, prompt, state: "queued" });
+          const resume = event.data.resume_session;
+          this.tasks.set(id, {
+            id,
+            workspaceId,
+            agent,
+            prompt,
+            state: "queued",
+            ...(resume === undefined ? {} : { resume }),
+          });
+          break;
+        }
+        case "task.session": {
+          const task = this.tasks.get(event.data.task_id);
+          if (task) task.sessionId = event.data.session_id;
           break;
         }
         case "task.updated": {
@@ -79,21 +96,59 @@ export class Tasks {
     });
   }
 
-  /** Starts a task in a registered workspace, with a known agent. Returns its id. */
-  create(input: { workspaceId: string; agent: string; prompt: string }): string {
+  /**
+   * Starts a task in a registered workspace, with a known agent. Returns its id.
+   * `resume` continues an earlier agent session instead of starting a new one.
+   */
+  create(input: {
+    workspaceId: string;
+    agent: string;
+    prompt: string;
+    resume?: string | undefined;
+  }): string {
     const workspace = this.o.workspaces.get(input.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${input.workspaceId}`);
     const agentCommand = this.o.agents.get(input.agent);
     if (!agentCommand) throw new Error(`Unknown agent: ${input.agent}`);
     if (input.prompt.trim() === "") throw new Error("The task needs a description");
+    // Two agents writing to one conversation at once would tangle it.
+    if (
+      input.resume &&
+      this.list().some((t) => !isTerminal(t.state) && sessionOf(t) === input.resume)
+    ) {
+      throw new Error(
+        "That conversation is already running in another task. Wait for it to finish.",
+      );
+    }
 
     const id = this.o.ids.next("t");
     this.o.log.append({
       type: "task.created",
-      data: { task_id: id, workspace_id: workspace.id, agent: input.agent, prompt: input.prompt },
+      data: {
+        task_id: id,
+        workspace_id: workspace.id,
+        agent: input.agent,
+        prompt: input.prompt,
+        ...(input.resume ? { resume_session: input.resume } : {}),
+      },
     });
     void this.run(id, agentCommand, workspace.path);
     return id;
+  }
+
+  /** Continues a finished task's conversation: a new task in the same agent session. */
+  reply(taskId: string, prompt: string): string {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`Unknown task: ${taskId}`);
+    if (!isTerminal(task.state)) throw new Error("Wait for this task to finish, then reply.");
+    const session = sessionOf(task);
+    if (!session) throw new Error("This task's agent didn't keep a conversation to continue.");
+    return this.create({
+      workspaceId: task.workspaceId,
+      agent: task.agent,
+      prompt,
+      resume: session,
+    });
   }
 
   async stop(taskId: string, reason = STOPPED_BY_USER): Promise<void> {
@@ -152,16 +207,26 @@ export class Tasks {
     let output = "";
     try {
       this.transition(taskId, "running");
+      const task = this.tasks.get(taskId);
       const session = this.o.host.start(
         {
           taskId,
-          agent: this.tasks.get(taskId)?.agent ?? "",
+          agent: task?.agent ?? "",
           command: agentCommand,
           workspaceRoot: root,
-          prompt: this.tasks.get(taskId)?.prompt ?? "",
+          prompt: task?.prompt ?? "",
+          ...(task?.resume ? { resume: task.resume } : {}),
         },
         {
           decide: (decision) => this.decide(taskId, decision),
+          session: (id) => {
+            if (this.isActive(taskId)) {
+              this.o.log.append({
+                type: "task.session",
+                data: { task_id: taskId, session_id: id },
+              });
+            }
+          },
           output: (text) => {
             output += text;
             if (output.length > 2 * MAX_RESULT_CHARS) output = output.slice(-MAX_RESULT_CHARS);
@@ -271,6 +336,11 @@ export class Tasks {
       data: { task_id: taskId, state: to, ...(reason === undefined ? {} : { reason }) },
     });
   }
+}
+
+/** The conversation a task is in: its own session once open, else the one it continues. */
+function sessionOf(task: Task): string | undefined {
+  return task.sessionId ?? task.resume;
 }
 
 function isTerminal(state: TaskState): boolean {

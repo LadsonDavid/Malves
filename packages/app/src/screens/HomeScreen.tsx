@@ -1,6 +1,6 @@
 import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import {
   type Model,
   needsYou,
@@ -62,7 +62,7 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
       {done.length > 0 ? (
         <Section title="Recent">
           {done.map((t) => (
-            <FinishedTask key={t.id} task={t} model={model} />
+            <FinishedTask key={t.id} task={t} model={model} client={client} />
           ))}
         </Section>
       ) : null}
@@ -175,13 +175,41 @@ function RunningTask({
   );
 }
 
-function FinishedTask({ task, model }: { task: Task; model: Model }) {
+function FinishedTask({
+  task,
+  model,
+  client,
+}: {
+  task: Task;
+  model: Model;
+  client: LinkClient | undefined;
+}) {
+  const [replying, setReplying] = useState(false);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<string>();
+  const send = async () => {
+    if (!client) return;
+    setSending(true);
+    setProblem(undefined);
+    try {
+      const ack = await client.reply(task.id, text.trim());
+      if (!ack.ok) return setProblem(ack.error ?? "The computer couldn't send the reply.");
+      setReplying(false);
+      setText("");
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSending(false);
+    }
+  };
   const tone =
     task.state === "done" ? color.ok : task.state === "failed" ? color.danger : color.muted;
   return (
     <Card>
       <Text style={{ color: tone, fontWeight: "600" }}>
         {task.state} · {task.agent} · {workspaceName(model, task.workspaceId)}
+        {task.resume ? " · continued" : ""}
       </Text>
       <Text style={styles.body} numberOfLines={2}>
         {task.prompt}
@@ -192,6 +220,31 @@ function FinishedTask({ task, model }: { task: Task; model: Model }) {
           {task.result}
         </Text>
       ) : null}
+      {task.sessionId && !replying ? (
+        <Button title="Reply" kind="plain" onPress={() => setReplying(true)} />
+      ) : null}
+      {replying ? (
+        <>
+          <TextInput
+            style={[styles.input, { minHeight: 80, textAlignVertical: "top" }]}
+            multiline
+            autoFocus
+            placeholder={`Tell ${task.agent} what next`}
+            value={text}
+            onChangeText={setText}
+          />
+          <View style={styles.row}>
+            <Button
+              title="Send"
+              busy={sending}
+              disabled={text.trim() === ""}
+              onPress={() => void send()}
+            />
+            <Button title="Cancel" kind="plain" onPress={() => setReplying(false)} />
+          </View>
+        </>
+      ) : null}
+      {problem ? <Banner tone="bad">{problem}</Banner> : null}
     </Card>
   );
 }
