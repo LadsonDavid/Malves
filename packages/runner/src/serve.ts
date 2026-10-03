@@ -7,10 +7,12 @@ import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { LinkServer } from "./adapters/link/server.js";
+import { NtfyPush } from "./adapters/push/ntfy.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import {
   extensionToken,
   lanAddresses,
+  pushTopic,
   resolveFolder,
   runnerKeys,
   tailscaleAddress,
@@ -21,6 +23,8 @@ const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
   pair text       the same code as text, to paste into an emulator
   agents          check which agents are ready (e.g. after signing in)
+  push            notifications: status and how to set them up
+  push new        new notification topic (cuts off every subscribed phone)
   extension       how to connect Chrome, and its code
   extension new   replace the Chrome code (shuts out the old one)
   devices         list paired phones
@@ -45,6 +49,9 @@ export async function serve(
   }
   const host = o.host ?? tailscaleAddress() ?? "127.0.0.1";
   const computer = hostname();
+  // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
+  const push =
+    host === tailscaleAddress() ? new NtfyPush(runner, { host, topic: pushTopic(dir) }) : undefined;
   const leadsUrl = o.leads ?? process.env.MALVES_LEADS_URL;
   if (leadsUrl && !URL.canParse(leadsUrl)) {
     console.error(
@@ -58,14 +65,36 @@ export async function serve(
     keys: runnerKeys(dir),
     computer,
     agents: runner.agents,
+    pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
   });
-  const url = await server.start();
   const say = (line: string) => console.log(line);
+  let pushOn = false;
+  if (push) {
+    try {
+      await push.start();
+      runner.usePush(push);
+      pushOn = true;
+    } catch (error) {
+      say(
+        `Notifications couldn't start: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  // A revoked phone may still have the ntfy app subscribed: cut it off too.
+  const stopRenewing = runner.log.subscribe((event) => {
+    if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
+  });
+  const url = await server.start();
 
   say(`malves is serving ${computer} at ${url}`);
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
+  say(
+    pushOn
+      ? "Notifications: on (type `push` to set up the phone)."
+      : "Notifications: off (they need Tailscale).",
+  );
   if (host === "127.0.0.1") {
     say("\nOnly this computer can reach it. For your phone:");
     say("  • install Tailscale on both devices (works anywhere), or");
@@ -118,6 +147,24 @@ export async function serve(
     say("Scan this with the malves app within 2 minutes. Type `pair` for a fresh code.");
   };
 
+  const showPush = () => {
+    if (!pushOn || !push) {
+      say(
+        "Notifications are off. They need Tailscale: start malves with Tailscale running on this computer.",
+      );
+      return;
+    }
+    say(
+      [
+        "Notifications are on. On your phone:",
+        "  1. Install the ntfy app (Google Play or F-Droid).",
+        '  2. In the malves app, tap "Set up notifications" — or add this in ntfy by hand:',
+        `     ${push.subscribeUrl}`,
+        "  3. In ntfy, allow notifications, and let it run in the background.",
+      ].join("\n"),
+    );
+  };
+
   const checkAgents = () => {
     say("Checking which agents are ready…");
     void runner.agents.checkAll().then(() => say(describeAgents(runner.agents.list())));
@@ -126,6 +173,13 @@ export async function serve(
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    push: ([mode]) => {
+      if (mode === "new" && push) {
+        push.renew(pushTopic(dir, true));
+        say("New notification topic made; phones must set up notifications again.");
+      }
+      showPush();
+    },
     extension: ([mode]) => {
       if (mode !== "new") return showExtension();
       token = extensionToken(dir, true);
@@ -184,6 +238,8 @@ export async function serve(
   say("\nStopping…");
   await runner.tasks.stopAll();
   await server.close();
+  stopRenewing();
+  await push?.close();
   await tools.close();
   await bridge.close();
   terminal.close();

@@ -51,6 +51,8 @@ export type Model = {
   questions: Record<string, Question>;
   /** This week's leads, once fetched. Not from the event log: they're the lead engine's. */
   leads: { list: Lead[]; fetchedAt: number } | null;
+  /** `ntfy://` link that subscribes the ntfy app to this computer's notifications, if they're on. */
+  push: string | null;
 };
 
 export type Action =
@@ -67,6 +69,7 @@ export const emptyModel: Model = {
   tasks: {},
   questions: {},
   leads: null,
+  push: null,
 };
 
 export function reduce(model: Model, action: Action): Model {
@@ -83,6 +86,7 @@ export function reduce(model: Model, action: Action): Model {
         computer: action.welcome.computer,
         workspaces: action.welcome.workspaces,
         agents: action.welcome.agents,
+        push: action.welcome.push?.subscribe ?? null,
       };
     case "event":
       return apply(model, action.event);

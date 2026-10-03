@@ -34,6 +34,8 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** The ntfy subscribe link for notifications, when they're on. It changes when a phone is revoked. */
+  pushLink?: (() => string | undefined) | undefined;
   listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
   pairingTtlMs?: number;
   handshakeTimeoutMs?: number;
@@ -216,6 +218,7 @@ export class LinkServer {
 
   /** @internal */
   welcome(device: Device): RunnerMessage {
+    const push = this.o.pushLink?.();
     return {
       type: "welcome",
       v: LINK_VERSION,
@@ -224,6 +227,7 @@ export class LinkServer {
       workspaces: this.core.workspaces.list().map(({ id, name }) => ({ id, name })),
       agents: this.o.agents.list(),
       last_seq: this.core.log.lastSeq,
+      ...(push ? { push: { subscribe: push } } : {}),
     };
   }
 

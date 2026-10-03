@@ -10,6 +10,7 @@ import {
   type Task,
   workspaceName,
 } from "../model";
+import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, Section, styles } from "../ui";
 
 type Props = {
@@ -41,6 +42,8 @@ export function HomeScreen({ model, status, detail, client, onNewTask, onLeads, 
           <Button title="Pair again" onPress={onUnpair} />
         </Card>
       ) : null}
+
+      {status === "online" ? <PushCard link={model.push} /> : null}
 
       <Section title={`Needs you (${questions.length})`}>
         {questions.length === 0 ? <Text style={styles.muted}>Nothing needs you.</Text> : null}

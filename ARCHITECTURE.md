@@ -63,7 +63,7 @@ identical in both.
  │   └─ SQLite event log               │   └────────────▲──────────────┘
  │ signalstack (optional)              │                │ outbound WSS only
  └─────────────────────────────────────┘   ┌────────────┴── Desktop ───┐
-  push via ntfy.sh — ciphertext only       │ runner … (identical)      │
+  push: ntfy app ◀─ runner, over Tailscale │ runner … (identical)      │
                                            └───────────────────────────┘
 ```
 
@@ -226,14 +226,31 @@ connection, so the relay and the push service cannot read anything.
 ### Push: a hint, never the source of truth
 
 ```
-runner ─(encrypted payload)─▶ ntfy ─▶ UnifiedPush on the phone ─▶ app decrypts
-                                        ─▶ notification with [Existing] [New] buttons
-tapping a button ─▶ answer is sent over the link (Tailscale or relay)
+runner (acting as a tiny ntfy server, on the Tailscale address only)
+   ─▶ ntfy app on the phone (holds the connection, no Google, no ntfy.sh)
+   ─▶ notification with up to three answer buttons, on the lock screen
+tapping a button ─▶ POST to a one-time answer link on the runner ─▶ questions.answer
 ```
 
-The push service only sees ciphertext (public ntfy.sh in A, your own ntfy in
-B). **If a push is lost, nothing breaks** — opening the app resumes from the
-event log.
+- The phone's ntfy app subscribes to a **secret topic** on the runner. The
+  malves app carries the subscribe link inside the encrypted welcome, and
+  "Set up notifications" opens ntfy with it (`ntfy://…`).
+- Each button is a random, single-use answer link that dies when its question
+  closes. When a question closes anywhere, the notification is removed
+  (`message_delete`).
+- **Revoking a phone makes a new topic.** Old subscriptions and every button
+  already sent stop working; other phones set up notifications again.
+- ntfy messages are plain JSON, so they are served **only on the Tailscale
+  address**, where WireGuard encrypts them. Without Tailscale, notifications are
+  off; the app still works.
+
+**If a push is lost, nothing breaks** — opening the app resumes from the event
+log.
+
+*Why not UnifiedPush + `expo-unified-push` (the first plan):* that library
+shows notifications without buttons, so R1 fails, and it needs a custom Android
+build. Our own native module would fix both, but costs weeks of Kotlin. The ntfy
+app already does buttons and background delivery well.
 
 ---
 
@@ -354,7 +371,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | Playwright | separate process; navigation timeouts | browser task failed, coding tasks unaffected |
 | freellmapi | timeout; on running out, ask via questions | the pause-or-own-key prompt |
 | Link (Tailscale or relay) | backoff with jitter; resume from sequence number | "last seen…", then catches up |
-| ntfy | retry; failure is harmless | inbox correct when the app opens |
+| ntfy app | it reconnects and catches up on open questions; failure is harmless | inbox correct when the app opens |
 | signalstack | fully independent | leads shown with an "as of" timestamp |
 | Unanswered question | timeout, then **stop** | "Stopped waiting. Nothing changed after the question." |
 
@@ -369,7 +386,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 3 | **Decided:** TypeScript runner, relay and Expo Android app; signalstack stays in Python behind HTTP. ACP's only official SDK is TypeScript, Happy is a TypeScript/Expo monorepo, and one language lets phone and runner share protocol and encryption code. See §15 |
 | 4 | SQLite append-only event log |
 | 5 | End-to-end encryption with libsodium, adapted from Happy |
-| 6 | Push through UnifiedPush and ntfy, encrypted payloads; push is only a hint |
+| 6 | Push through the ntfy app, served by the runner over Tailscale, with one-time answer buttons; push is only a hint (§4) |
 | 7 | Two deployment topologies |
 | 8 | Browser tasks through the same questions pipeline, via the gate |
 | 9 | Budget guard with a quality floor |
@@ -418,7 +435,8 @@ Each step ends in something demoable:
 2. Tailscale link, pairing, encryption, minimal app with inbox and answer
    buttons. **Built:** `malves serve`, link protocol, QR pairing, revocation,
    resume, Expo app (pair / home / new task). Awaiting a test on a real phone.
-3. Push through ntfy. R1 and R2 become measurable.
+3. Push through ntfy. R1 and R2 become measurable. **Built** (§4) with the ntfy
+   app; awaiting a test on a real phone (lock screen, Doze, mobile data).
 4. Cursor wrapper and Antigravity. R5. **Antigravity built:** Google's official
    `agy_acp_server` (installed under the data folder, signature checked), own
    `GEMINI_HOME`, API-key sign-in only. **Cursor:** speaks ACP natively
@@ -439,8 +457,8 @@ Each step ends in something demoable:
   approve the result". Test in week 1; it shapes what R5 can claim.
 - **Claude Code uses Anthropic's API format**, so the budget guard must
   translate or pass it through. Subscription users bypass it entirely.
-- **Android Doze mode** must still deliver high-priority UnifiedPush messages
-  with action buttons. Test on a real phone.
+- **Android Doze mode** must still deliver ntfy's notifications quickly, with
+  buttons that work from the lock screen. Test on a real phone (R1, R2).
 - **Topology A needs Tailscale switched on** on the phone — a setup step that
   counts against R10.
 - **Android blocks plain `ws://` outside Expo Go.** Expo Go allows it, so step 2
@@ -487,7 +505,7 @@ packages/
 | Budget guard | Node built-in `http` + `fetch` | Two routes; no framework |
 | Phone link | `ws` 8.22 (server); the standard `WebSocket` API in the shared `LinkClient` | One client for the app and the tests. Default port 7717; the runner listens on its Tailscale address if it has one |
 | Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |
-| Push | ntfy (ntfy.sh in A, self-hosted in B) + `expo-unified-push` | Self-hostable; payload encrypted |
+| Push | The ntfy Android app; the runner speaks ntfy's subscribe API itself | No extra server, no Google; Tailscale only |
 | App | Expo **SDK 57** (React Native 0.86) + TypeScript | Shares `protocol` (via its built `dist`); state is a pure reducer over the event stream |
 | App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`; `expo-notifications` in step 3 | QR scanning, Android Keystore, secure random — all in Expo Go |
 | Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
@@ -509,9 +527,7 @@ packages/
 
 ### Check before committing
 
-- `expo-unified-push` maintenance — check the latest release. Fallback: the
-  embedded FCM distributor or a small native module.
-- UnifiedPush needs native code, so use an Expo **development build**, not Expo
-  Go. Local APK builds are free.
+- ~~`expo-unified-push` maintenance.~~ Checked: no answer buttons, one
+  maintainer. Replaced by the ntfy app (§4), so Expo Go still works.
 - ~~`tweetnacl` needs a secure random source on React Native.~~ Done: `index.ts`
   calls `setRandomSource` with `expo-crypto` before anything else.
