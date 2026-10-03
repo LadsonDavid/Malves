@@ -13,7 +13,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "io.github.ladsondavid.malves"
     },
     "plugins": [
       "expo-secure-store",
@@ -21,6 +22,14 @@
         "expo-camera",
         {
           "cameraPermission": "The camera is used only to scan the pairing code shown on your computer."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ]

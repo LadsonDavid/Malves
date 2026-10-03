@@ -1,0 +1,42 @@
+name: Android APK
+
+# Builds an installable APK of the phone app, so nobody needs Expo Go or an
+# Android SDK. Run it by hand (Actions → Android APK → Run workflow) to get the
+# APK as a download, or push a tag like v0.1.0 to attach it to a release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @malves/protocol build
+      # Generates the native Android project from app.json (it isn't committed).
+      - run: pnpm --filter @malves/app exec expo prebuild --platform android --no-install
+      - run: ./gradlew assembleRelease --no-daemon
+        working-directory: packages/app/android
+      - run: mv packages/app/android/app/build/outputs/apk/release/app-release.apk malves.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malves-apk
+          path: malves.apk
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: gh release create "$GITHUB_REF_NAME" malves.apk --title "$GITHUB_REF_NAME" --notes "Android app. Install malves.apk on your phone (allow installs from your browser or files app)."
+        env:
+          GH_TOKEN: ${{ github.token }}

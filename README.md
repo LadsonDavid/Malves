@@ -1,8 +1,8 @@
 # malves
 
 > **Status: working prototype, Android only.** A phone app, a desktop runner and
-> a Chrome extension, tested end to end. Not yet packaged for easy install — see
-> [Where it stands](#where-it-stands).
+> a Chrome extension, tested end to end; the phone app builds as an installable
+> APK. See [Where it stands](#where-it-stands).
 
 ## The problem
 
@@ -90,27 +90,28 @@ requirements, architecture, security model and tech stack — is in
 
 ### Trying it
 
-Needs Node.js 22.12+, pnpm, and on the phone Expo Go (and Tailscale to use it
-away from home).
+**On the computer** (Node.js 22.12+ and pnpm):
 
 ```sh
 pnpm install && pnpm build
-node packages/runner/dist/main.js workspace add ~/code/my-site
-node packages/runner/dist/main.js serve          # shows a QR code to pair the phone
-pnpm --filter @malves/app start                   # then scan its QR with Expo Go
+cp .env.example .env              # optional settings; every line is explained
+pnpm malves workspace add ~/code/my-site
+pnpm malves serve                 # shows a QR code to pair the phone
 ```
+
+**On the phone:** install the malves APK (from the repo's Releases, or build
+it yourself: Actions → Android APK → Run workflow) and scan the QR code. To use
+it away from home, install [Tailscale](https://tailscale.com) on both, or run
+your own [relay](packages/relay/README.md). For lock-screen notifications,
+install the free [ntfy](https://ntfy.sh) app and tap **Set up notifications**.
+Developers can use Expo Go instead: `pnpm --filter @malves/app start`.
 
 In `serve`, type `help` for commands: `pair`, `agents`, `extension` (connect
 Chrome), `push` (notifications), `devices`, `revoke`, `stop`. Without a phone,
-`malves run -w my-site "add a demo file"` runs a task in the terminal with the
-demo agent (no API key). Questions nobody answers in time (`--timeout`, default
-10 minutes) stop the task — silence never means yes. `pnpm test` runs the tests.
-
-Options: `--leads http://127.0.0.1:8000` shows signalstack's leads on the phone;
-for free models put `MALVES_MODELS_URL` (freellmapi, e.g. `http://127.0.0.1:3001`),
-`MALVES_MODELS_KEY` and optionally `MALVES_MODELS_ALLOW` in `.env`; for
-Antigravity put `GEMINI_API_KEY` in `.env`; then start with
-`node --env-file=.env packages/runner/dist/main.js serve`.
+`pnpm malves run -w my-site "add a demo file"` runs a task in the terminal with
+the demo agent (no API key). Questions nobody answers in time (`--timeout`,
+default 10 minutes) stop the task — silence never means yes. `pnpm test` runs
+the tests.
 
 ## Contributing
 

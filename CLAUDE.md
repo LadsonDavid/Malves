@@ -16,7 +16,10 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   real-data test. Continuing conversations built (Reply, and resume an
   earlier session; ARCHITECTURE §3). Step 3 (push) built with the ntfy app, awaiting a
   real-phone test. Budget guard built (Claude/Codex on free models via freellmapi),
-  awaiting a real freellmapi test.
+  awaiting a real freellmapi test. Also built: review & commit a task's changes,
+  weekly leads digest, Cursor profile (waits on its CLI), Chrome/last-seen on the
+  phone, relay (`packages/relay`, topology B), APK workflow + `pnpm malves` +
+  `.env.example`. All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before

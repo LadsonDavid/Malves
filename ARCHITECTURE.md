@@ -492,10 +492,11 @@ Each step ends in something demoable:
   buttons that work from the lock screen. Test on a real phone (R1, R2).
 - **Topology A needs Tailscale switched on** on the phone — a setup step that
   counts against R10.
-- **Android blocks plain `ws://` outside Expo Go.** Expo Go allows it, so step 2
-  works there. The step 3 development build must allow cleartext to the runner
-  (or use `wss://`). Payloads are end-to-end encrypted either way, so this is a
-  platform rule, not a security gap.
+- ~~**Android blocks plain `ws://` outside Expo Go.**~~ Done: the APK sets
+  `usesCleartextTraffic` (expo-build-properties). Payloads are end-to-end
+  encrypted either way, so this is a platform rule, not a security gap. The APK
+  is built by `.github/workflows/apk.yml` (expo prebuild + Gradle, no
+  accounts); awaiting its first run and an install on a real phone.
 
 ---
 

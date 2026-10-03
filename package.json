@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc -b && pnpm --filter @malves/extension build",
+    "malves": "node --env-file-if-exists=.env packages/runner/dist/main.js",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p packages/extension/tsconfig.test.json && pnpm --filter @malves/app exec tsc --noEmit",
     "test": "vitest run",
     "lint": "biome check .",
