@@ -36,6 +36,8 @@ export type LinkServerOptions = {
   /** An agent's saved conversations in a workspace, newest first. */
   /** A finished task's changes as a diff. */
   diff?: ((taskId: string) => string) | undefined;
+  /** Where phones reach this computer when it isn't `host` itself: the relay (topology B). */
+  publicUrl?: string | undefined;
   /** The ntfy subscribe link for notifications, when they're on. It changes when a phone is revoked. */
   pushLink?: (() => string | undefined) | undefined;
   listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
@@ -110,7 +112,7 @@ export class LinkServer {
     this.offer = { code, expiresAt: now + (this.o.pairingTtlMs ?? 120_000) };
     return {
       v: LINK_VERSION,
-      url: this.address,
+      url: this.o.publicUrl ?? this.address,
       runner: this.o.keys.publicKey,
       code,
       computer: this.o.computer,
@@ -131,7 +133,8 @@ export class LinkServer {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 
-  private accept(ws: WebSocket): void {
+  /** Takes a phone connection — directly, or handed over by the relay client. */
+  accept(ws: WebSocket): void {
     this.alive.add(ws);
     ws.on("pong", () => this.alive.add(ws));
 

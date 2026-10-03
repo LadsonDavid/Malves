@@ -7,6 +7,7 @@ import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
 import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
+import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -41,7 +42,12 @@ const HELP = `Commands while serving:
 export async function serve(
   runner: Runner,
   dir: string,
-  o: { host?: string | undefined; port: string; leads?: string | undefined },
+  o: {
+    host?: string | undefined;
+    port: string;
+    leads?: string | undefined;
+    relay?: string | undefined;
+  },
 ): Promise<number> {
   const port = Number(o.port);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -53,6 +59,26 @@ export async function serve(
   // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
   const push =
     host === tailscaleAddress() ? new NtfyPush(runner, { host, topic: pushTopic(dir) }) : undefined;
+  const relayUrl = o.relay ?? process.env.MALVES_RELAY_URL;
+  const relayToken = process.env.MALVES_RELAY_TOKEN ?? "";
+  if (relayUrl && (!/^wss?:\/\/\S+$/.test(relayUrl) || relayToken.length < 24)) {
+    console.error(
+      "--relay needs a wss:// address and MALVES_RELAY_TOKEN (the same long secret as on the relay).",
+    );
+    return 1;
+  }
+  const keys = runnerKeys(dir);
+  const relay = relayUrl
+    ? new RelayClient({
+        relay: relayUrl,
+        token: relayToken,
+        key: keys.publicKey,
+        // `server` is created just below; phones only arrive after it has started.
+        adopt: (ws) => server.accept(ws),
+        onStatus: (on) =>
+          console.log(on ? "Relay connected." : "Relay disconnected; reconnecting…"),
+      })
+    : undefined;
   const leadsUrl = o.leads ?? process.env.MALVES_LEADS_URL;
   if (leadsUrl && !URL.canParse(leadsUrl)) {
     console.error(
@@ -66,7 +92,8 @@ export async function serve(
   const server = new LinkServer(runner, {
     host,
     port,
-    keys: runnerKeys(dir),
+    keys,
+    publicUrl: relay?.phoneUrl,
     computer,
     agents: runner.agents,
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
@@ -92,6 +119,7 @@ export async function serve(
     if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
   });
   const url = await server.start();
+  relay?.start();
   const stopDigest =
     leads && pushOn && push
       ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
@@ -250,6 +278,7 @@ export async function serve(
 
   say("\nStopping…");
   await runner.tasks.stopAll();
+  relay?.close();
   await server.close();
   stopRenewing();
   stopDigest();

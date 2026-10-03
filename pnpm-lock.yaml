@@ -82,6 +82,16 @@ importers:
         specifier: ^4.3.0
         version: 4.6.5
 
+  packages/relay:
+    dependencies:
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+
   packages/runner:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':

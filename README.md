@@ -81,7 +81,7 @@ public issue before it's decided, not after.
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |
 | Budget guard | Claude Code and Codex can run on your own free-tier keys through [freellmapi](https://github.com/tashfeenahmed/freellmapi); the phone shows which model answered and asks before a weaker one is used |
-| Relay (no Tailscale) | Not built yet |
+| Relay (no Tailscale) | A small server you run yourself ([packages/relay](packages/relay/README.md)); the computer only dials out. Notifications still need Tailscale |
 
 Over mobile data the phone reaches your computer through
 [Tailscale](https://tailscale.com) (free for personal use). The full design —

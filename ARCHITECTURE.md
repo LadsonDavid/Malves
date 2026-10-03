@@ -470,7 +470,11 @@ Each step ends in something demoable:
 5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
 6. Budget guard. R8. **Built** (§6): Claude and Codex on free models through
    the guard; awaiting a test against a real freellmapi.
-7. Relay for topology B.
+7. Relay for topology B. **Built:** `packages/relay` — the computer keeps one
+   outbound control connection (`MALVES_RELAY_TOKEN`); for each phone the relay
+   says "incoming" and the computer opens a connection that the link server
+   adopts like a direct one. Frames and close codes pass unchanged. Limit:
+   notifications still need Tailscale.
 8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
    `malves serve --leads <url>`, the app's Leads screen with "Research in
    browser". Awaiting a test against real signalstack data.
