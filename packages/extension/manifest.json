@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "malves",
+  "version": "0.0.1",
+  "description": "Lets malves on this computer use Chrome. Every new site, click and typed text is approved on your phone first.",
+  "permissions": ["tabs", "scripting", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "dist/background.js", "type": "module" },
+  "action": { "default_title": "malves", "default_popup": "popup.html" }
+}

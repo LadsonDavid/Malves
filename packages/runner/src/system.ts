@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   closeSync,
   mkdirSync,
@@ -92,6 +92,24 @@ export function runnerKeys(dir: string): KeyPair {
     writeFileSync(file, JSON.stringify({ secretKey: keys.secretKey }), { mode: 0o600, flag: "wx" });
     return keys;
   }
+}
+
+/**
+ * The secret the Chrome extension proves itself with. Made on first use; `renew`
+ * replaces it, so an extension set up with the old one is shut out.
+ */
+export function extensionToken(dir: string, renew = false): string {
+  const file = path.join(dir, "extension-token.json");
+  if (!renew) {
+    try {
+      return (JSON.parse(readFileSync(file, "utf8")) as { token: string }).token;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  const token = randomBytes(24).toString("base64url");
+  writeFileSync(file, JSON.stringify({ token }), { mode: 0o600 });
+  return token;
 }
 
 /** This computer's Tailscale address, if it's on a tailnet (they're always in 100.64.0.0/10). */

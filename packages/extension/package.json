@@ -1,0 +1,13 @@
+{
+  "name": "@malves/extension",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.4"
+  }
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>malves</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; width: 300px; margin: 0; padding: 14px; color: #111827; }
+      h1 { font-size: 16px; margin: 0 0 8px; }
+      p { margin: 0 0 12px; line-height: 1.4; }
+      p[data-state="connected"] { color: #15803d; font-weight: 600; }
+      p[data-state="wrong-code"] { color: #b91c1c; }
+      label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+      input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+      button { margin-top: 8px; width: 100%; min-height: 36px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }
+      small { display: block; margin-top: 12px; color: #6b7280; line-height: 1.4; }
+    </style>
+  </head>
+  <body>
+    <h1>malves</h1>
+    <p id="status">…</p>
+    <label for="code">Code from <code>malves serve</code> (type <code>extension</code> there)</label>
+    <input id="code" autocomplete="off" spellcheck="false" />
+    <button id="save" type="button">Connect</button>
+    <small>
+      malves works in the tab that's open. Every new site, click and typed text is approved on your
+      phone first. Password and card fields are never filled.
+    </small>
+    <script type="module" src="dist/popup.js"></script>
+  </body>
+</html>

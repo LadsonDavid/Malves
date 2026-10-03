@@ -15,7 +15,7 @@ pain points in [idea.txt](idea.txt) and the requirements R1–R10 below.
 | 2 | Can't carry the desktop everywhere | Android app ↔ desktop runner |
 | 3 | Remote desktop is unusable on a phone | Structured events, not pixels. No cursor, no screen mirroring |
 | 4 | Remote control only works for Claude and Codex | ACP (~50 agents) + a Cursor wrapper + Antigravity via API key |
-| 5 | Browser automation needs a paid subscription | Playwright behind an approval gate |
+| 5 | Browser automation needs a paid subscription | Chrome extension + phone approval gate (§5) |
 | 6 | Credits drain fast | freellmapi (your own keys) + budget guard + disk snapshots |
 | 7 | Budget is low | Everything self-hosted; $0 required |
 
@@ -216,27 +216,49 @@ event log.
 
 ---
 
-## 5. Browser tasks use the same pipeline as coding tasks
+## 5. Browser tasks: a Chrome extension, like Claude in Chrome
 
-- A browser task is a task whose agent has been given browser tools.
-- The runner starts a cheap ACP agent running on free models through the budget
-  guard.
-- The runner supplies the browser tools itself via ACP session setup
-  (`mcpServers`).
-- Those tools are the **browser gate**: a proxy in front of Playwright's own MCP
-  server.
+**Owner's decisions (2026-10-02):** work like Claude in Chrome — in the user's
+real, logged-in Chrome, on **whatever tab is open**, with the browser tools
+**available to every task**. This replaces the earlier Playwright design.
 
-The gate enforces rules **in the tool**, independent of the agent's behaviour:
+```
+agent ──MCP over HTTP──▶ runner: browser gate ──WS 127.0.0.1:7718──▶ Chrome extension ──▶ open tab
+        (per-task URL)       │ asks the phone                (extension origin + code)
+                             ▼
+                      tasks.ask → questions.ask (silence stops the task, R3)
+```
+
+- **Tools** (`adapters/browser/tools.ts`): `browser_snapshot`, `_navigate`,
+  `_click`, `_type`, `_select`, `_press`, `_scroll`, `_back`. Served as an MCP
+  server on 127.0.0.1, one unguessable URL per task, passed to the agent in ACP
+  `session/new` (`mcpServers`, HTTP — supported by Claude, Codex and
+  Antigravity). DNS-rebinding protection on; URLs die with the task.
+- **Bridge** (`adapters/browser/bridge.ts`): the extension connects to
+  `ws://127.0.0.1:7718` and must come from a `chrome-extension://` origin
+  **and** present the code from `malves serve` → `extension`. A web page can
+  open a socket to 127.0.0.1 but can't fake that origin.
+- **Extension** (`packages/extension`, MV3, loaded unpacked — not published):
+  all logic is bundled; the runner sends only operation names and arguments, so
+  there is no remote code.
+
+The gate enforces rules **in the tool**, independent of the agent:
 
 | Action | Rule |
 |---|---|
-| navigate, read, snapshot, extract | allowed |
-| click submit, fill a form, upload | asks the phone via `questions.ask` (R6) |
-| password fields, payment fields | **refused**, never automated |
+| first use of a site in a task (reading too — it's the logged-in browser) | asks the phone (R6) |
+| click, type, choose, press Enter | asks the phone, naming the element (R6) |
+| password, card, CVC, one-time-code fields | **refused** in the page itself; their values are never read |
+| unanswered question | the task stops (R3) |
 
-Also: a dedicated browser profile with no saved logins; a separate process so a
-hung browser can't stall coding tasks; snapshots written to disk rather than
-returned inline, to save tokens.
+The agent's own generic "allow this tool?" prompt is skipped for these tools
+only, since the gate already asks a more specific question.
+
+**Known limits:** element labels come from the web page, so a hostile page can
+word its own buttons misleadingly (they are clipped to one short line before
+reaching the phone). A logged-in browser means an agent can act as the user —
+the phone approval is the real safety net, which is why nothing that changes a
+page goes through without it.
 
 ---
 
@@ -367,8 +389,11 @@ Each step ends in something demoable:
    buttons. **Built:** `malves serve`, link protocol, QR pairing, revocation,
    resume, Expo app (pair / home / new task). Awaiting a test on a real phone.
 3. Push through ntfy. R1 and R2 become measurable.
-4. Cursor wrapper and Antigravity. R5.
-5. Browser gate. R6.
+4. Cursor wrapper and Antigravity. R5. **Antigravity built:** Google's official
+   `agy_acp_server` (installed under the data folder, signature checked), own
+   `GEMINI_HOME`, API-key sign-in only. **Cursor:** speaks ACP natively
+   (`agent acp`); waiting for the CLI to be installed.
+5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
 6. Budget guard. R8.
 7. Relay for topology B.
 8. Lead engine endpoint. R7.
@@ -425,8 +450,8 @@ packages/
 | Storage | SQLite via `better-sqlite3`, **pinned to 12.11.1** | Proven, synchronous, single file — fits an append-only log. 13.x ships no Windows builds; check before upgrading |
 | Processes | Node `child_process.spawn` with argument arrays | No library; never builds commands from strings |
 | Secrets | Phone: `expo-secure-store` (Android Keystore). Runner: `runner-key.json` in the data folder, owner-only | **Deviation:** the OS keychain needs native modules and a desktop session CI can't provide. A process that can read the file can already run the agents directly. Revisit if the local threat model grows |
-| Browser | `playwright` (MCP server included) | The browser gate proxies in front of it |
-| Browser gate | `@modelcontextprotocol/sdk` | Official MCP SDK for the approval proxy |
+| Browser | Chrome extension (`packages/extension`, MV3, unpacked) | Owner chose Claude-in-Chrome style: real logged-in Chrome, current tab |
+| Browser gate | `@modelcontextprotocol/sdk` 1.31 (stateless HTTP) + `ws` bridge | Official MCP SDK; tools served to agents, gate inside each tool |
 | Budget guard | Node built-in `http` + `fetch` | Two routes; no framework |
 | Phone link | `ws` 8.22 (server); the standard `WebSocket` API in the shared `LinkClient` | One client for the app and the tests. Default port 7717; the runner listens on its Tailscale address if it has one |
 | Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |

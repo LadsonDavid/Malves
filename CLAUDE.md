@@ -8,9 +8,12 @@ these are non-negotiable; solve them differently if needed, but never drop one.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) is the source of truth: requirements R1–R10,
   design, security, ADRs, tech stack (§15), build order (§13).
-- **Status:** build steps 1 and 2 built. Step 2 = `malves serve` (link server,
-  QR pairing, revocation, resume) + Expo app in `packages/app`. Step 2 still
-  needs a test on a real phone; then step 3 (push).
+- **Status:** steps 1–2 built and tested on a real phone (demo + Claude).
+  Antigravity built (official server, API key from `.env`; start malves with
+  `node --env-file=.env …`). Browser (Chrome extension, ARCHITECTURE §5) built,
+  awaiting a real test. Cursor waits on the CLI install. Next: lead engine
+  (signalstack JSON endpoint → runner → app Leads tab). Step 3 (push) not started.
+- **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before
   writing Expo code — don't rely on memory.
@@ -57,7 +60,8 @@ Set these locally in every new environment. Never commit here as
 | Designing a custom agent protocol | ACP exists (Zed, JetBrains, Google, Devin Desktop) |
 | GUI/accessibility automation of editors | Cursor has a headless CLI; Antigravity has an SDK + ACP server; Windsurf is now Devin Desktop with ACP |
 | Driving Antigravity via a consumer Google login | Google suspended accounts for this in Feb 2026. API key only |
-| Publishing a Chrome extension | MV3 bans remote code; browser tasks use Playwright behind an approval gate |
+| Publishing the Chrome extension to the Web Store | It's loaded unpacked; all logic is bundled, the runner sends only operation names (no remote code). See ARCHITECTURE §5 |
+| Browser tasks in a separate Playwright browser | Owner chose Claude-in-Chrome style: real Chrome, current tab, tools always available |
 | Free LLM tiers as the foundation | Tiers are shrinking and some train on prompts. freellmapi with the user's own keys; never silently downgrade |
 | iOS in v1, shared team accounts, code editing on the phone, screen mirroring | Out of scope — see ARCHITECTURE.md §0 |
 

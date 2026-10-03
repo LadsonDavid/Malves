@@ -6,3 +6,8 @@ dist/
 *.db-wal
 *.db-shm
 coverage/
+
+# Secrets: never commit. .env.example (no real values) is allowed.
+.env
+.env.*
+!.env.example
