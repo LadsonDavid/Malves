@@ -5,6 +5,7 @@ import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
+import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
@@ -59,6 +60,9 @@ export async function serve(
     );
     return 1;
   }
+  const leads = leadsUrl
+    ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY })
+    : undefined;
   const server = new LinkServer(runner, {
     host,
     port,
@@ -68,7 +72,7 @@ export async function serve(
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
-    leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
+    leads,
   });
   const say = (line: string) => console.log(line);
   let pushOn = false;
@@ -88,6 +92,10 @@ export async function serve(
     if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
   });
   const url = await server.start();
+  const stopDigest =
+    leads && pushOn && push
+      ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
+      : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
@@ -240,6 +248,7 @@ export async function serve(
   await runner.tasks.stopAll();
   await server.close();
   stopRenewing();
+  stopDigest();
   await push?.close();
   await tools.close();
   await bridge.close();

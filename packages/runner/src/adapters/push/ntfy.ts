@@ -108,6 +108,11 @@ export class NtfyPush implements Notifier {
     this.broadcast(this.messageFor(question));
   }
 
+  /** A plain notification with no buttons, e.g. the weekly leads digest. Phones not connected now miss it. */
+  notify(title: string, message: string): void {
+    this.broadcast({ ...this.event("message"), title, message, priority: 3 });
+  }
+
   async close(): Promise<void> {
     clearInterval(this.keepalive);
     this.unsubscribe();
