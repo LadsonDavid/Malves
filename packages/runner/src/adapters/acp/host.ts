@@ -22,6 +22,25 @@ export type AcpHostOptions = {
   onReady?: (agent: string) => void;
   /** What to tell the user when an agent needs signing in. */
   signInMessage?: (agent: string) => string;
+  /** Per-agent start-up details, e.g. Antigravity's own environment and sign-in method. */
+  launch?: (agent: string) => Launch | undefined;
+  /** Tool servers to give an agent's session (malves' browser tools), if it supports HTTP ones. */
+  toolServers?: (run: AgentRun) => acp.McpServer[];
+  /**
+   * True for a tool call whose own gate already asks the user (malves' browser
+   * tools). The agent's generic "allow this tool?" would only ask twice.
+   */
+  gatedElsewhere?: (toolCall: unknown) => boolean;
+};
+
+/** How to start one particular agent (see `AgentProfile`). */
+export type Launch = {
+  /** Added to the agent's environment. */
+  env?: Record<string, string>;
+  /** ACP sign-in method chosen explicitly after `initialize`. */
+  authMethod?: string;
+  /** If this environment variable is missing, the agent can't sign in at all. */
+  requiresEnv?: string;
 };
 
 /** Whether an agent can take a task right now. */
@@ -45,8 +64,19 @@ export class AcpHost implements AgentHost {
   constructor(private readonly options: AcpHostOptions = {}) {}
 
   start(run: AgentRun, callbacks: AgentCallbacks): AgentSession {
+    const launch = this.options.launch?.(run.agent) ?? {};
+    // No API key: don't spend half a minute starting an agent that can't sign in.
+    if (launch.requiresEnv && !process.env[launch.requiresEnv]) {
+      this.options.onSignInNeeded?.(run.agent);
+      return {
+        finished: Promise.reject(new Error(this.signInMessage(run.agent))),
+        cancel: async () => {},
+      };
+    }
+
     const child = spawn(run.command.program, [...run.command.args], {
       cwd: run.workspaceRoot,
+      env: { ...process.env, ...launch.env },
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
       detached: process.platform !== "win32",
@@ -83,14 +113,11 @@ export class AcpHost implements AgentHost {
     };
 
     // "Authentication required" means nothing to most people; say what to do.
-    const conversation = this.converse(run, callbacks, child, () => stopped).catch(
+    const conversation = this.converse(run, callbacks, child, () => stopped, launch).catch(
       (error: unknown) => {
         if (!isAuthRequired(error)) throw error;
         this.options.onSignInNeeded?.(run.agent);
-        throw new Error(
-          this.options.signInMessage?.(run.agent) ??
-            `${run.agent} isn't signed in on this computer. Sign in there, then try again.`,
-        );
+        throw new Error(this.signInMessage(run.agent));
       },
     );
     const finished = Promise.race([conversation, ended]).finally(() => void stop());
@@ -103,11 +130,18 @@ export class AcpHost implements AgentHost {
    * work done. Tells whether the agent could take a task right now, so the
    * phone can say "needs sign-in" before the user taps Start.
    */
-  async probe(command: Command, cwd: string, timeoutMs = 30_000): Promise<Probe> {
+  async probe(
+    command: Command,
+    cwd: string,
+    launch: Launch = {},
+    timeoutMs = 30_000,
+  ): Promise<Probe> {
+    if (launch.requiresEnv && !process.env[launch.requiresEnv]) return { state: "needs_sign_in" };
     let child: ChildProcess;
     try {
       child = spawn(command.program, [...command.args], {
         cwd,
+        env: { ...process.env, ...launch.env },
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
         detached: process.platform !== "win32",
@@ -134,7 +168,7 @@ export class AcpHost implements AgentHost {
       );
     });
     try {
-      return await Promise.race([openSession(child, cwd), failed, timedOut]);
+      return await Promise.race([openSession(child, cwd, launch.authMethod), failed, timedOut]);
     } finally {
       clearTimeout(timer);
       kill(child);
@@ -147,11 +181,19 @@ export class AcpHost implements AgentHost {
     for (const child of this.live) kill(child);
   }
 
+  private signInMessage(agent: string): string {
+    return (
+      this.options.signInMessage?.(agent) ??
+      `${agent} isn't signed in on this computer. Sign in there, then try again.`
+    );
+  }
+
   private converse(
     run: AgentRun,
     callbacks: AgentCallbacks,
     child: ChildProcess,
     isStopped: () => boolean,
+    launch: Launch,
   ): Promise<AgentEnd> {
     if (!child.stdin || !child.stdout) throw new Error("agent stdio is not piped");
     const stream = acp.ndJsonStream(
@@ -169,6 +211,10 @@ export class AcpHost implements AgentHost {
       .client({ name: "malves" })
       .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
         if (isStopped()) return { outcome: { outcome: "cancelled" } };
+        if (this.options.gatedElsewhere?.(params.toolCall)) {
+          const once = params.options.find((o) => o.kind === "allow_once");
+          if (once) return { outcome: { outcome: "selected", optionId: once.optionId } };
+        }
         const decision = permissionDecision(params);
         // Only "allow always" was offered: refuse rather than hand out a blanket yes.
         if (decision.choices.length === 0) return { outcome: { outcome: "cancelled" } };
@@ -192,31 +238,50 @@ export class AcpHost implements AgentHost {
         return {};
       })
       .connectWith(stream, async (ctx) => {
-        await ctx.request(acp.methods.agent.initialize, {
+        const init = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
         });
-        return ctx.buildSession(run.workspaceRoot).withSession(async (session) => {
-          this.options.onReady?.(run.agent);
-          const turn = session.prompt(run.prompt);
-          const failed = turn.then(() => new Promise<never>(() => {}));
-          for (;;) {
-            const message = await Promise.race([session.nextUpdate(), failed]);
-            if (message.kind === "stop") return agentEnd(message.stopReason);
-            const update = message.update;
-            if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
-              callbacks.output(update.content.text);
-            } else if (update.sessionUpdate === "tool_call") {
-              this.options.onActivity?.(run.taskId, update.title);
+        if (launch.authMethod) {
+          await ctx
+            .request(acp.methods.agent.authenticate, { methodId: launch.authMethod })
+            .catch(signInFailed);
+        }
+        // Browser tools go only to agents that say they can use HTTP tool servers.
+        const mcpServers = init.agentCapabilities?.mcpCapabilities?.http
+          ? (this.options.toolServers?.(run) ?? [])
+          : [];
+        return ctx
+          .buildSession({ cwd: run.workspaceRoot, mcpServers })
+          .withSession(async (session) => {
+            this.options.onReady?.(run.agent);
+            const turn = session.prompt(run.prompt);
+            const failed = turn.then(() => new Promise<never>(() => {}));
+            for (;;) {
+              const message = await Promise.race([session.nextUpdate(), failed]);
+              if (message.kind === "stop") return agentEnd(message.stopReason);
+              const update = message.update;
+              if (
+                update.sessionUpdate === "agent_message_chunk" &&
+                update.content.type === "text"
+              ) {
+                callbacks.output(update.content.text);
+              } else if (update.sessionUpdate === "tool_call") {
+                this.options.onActivity?.(run.taskId, update.title);
+              }
             }
-          }
-        });
+          });
       });
   }
 }
 
-/** `initialize` + `session/new`, nothing else. */
-async function openSession(child: ChildProcess, cwd: string): Promise<Probe> {
+/** A rejected `authenticate` means the agent can't sign in: treat it as "needs sign-in". */
+function signInFailed(error: unknown): never {
+  throw Object.assign(new Error(`Sign-in failed: ${messageOf(error)}`), { code: AUTH_REQUIRED });
+}
+
+/** `initialize` (+ `authenticate`) + `session/new`, nothing else. */
+async function openSession(child: ChildProcess, cwd: string, authMethod?: string): Promise<Probe> {
   if (!child.stdin || !child.stdout) return { state: "unavailable", detail: "No stdio" };
   const stream = acp.ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
@@ -228,6 +293,11 @@ async function openSession(child: ChildProcess, cwd: string): Promise<Probe> {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
       });
+      if (authMethod) {
+        await ctx
+          .request(acp.methods.agent.authenticate, { methodId: authMethod })
+          .catch(signInFailed);
+      }
       await ctx.buildSession(cwd).withSession(async () => {});
     });
     return { state: "ready" };

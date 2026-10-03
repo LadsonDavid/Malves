@@ -1,7 +1,6 @@
-import type { Command } from "@malves/core";
 import type { AgentInfo, AgentState } from "@malves/protocol";
 import type { Probe } from "./adapters/acp/host.js";
-import { agentLabel, signInHint } from "./agents.js";
+import type { AgentProfile } from "./agents.js";
 
 /**
  * Which agents can take a task right now, so the phone can say "needs sign-in"
@@ -16,12 +15,11 @@ export class AgentStatus {
   private checking: Promise<void> | undefined;
 
   constructor(
-    private readonly agents: ReadonlyMap<string, Command>,
-    private readonly probe: (command: Command) => Promise<Probe>,
+    private readonly profiles: ReadonlyMap<string, AgentProfile>,
+    private readonly probe: (name: string, profile: AgentProfile) => Promise<Probe>,
   ) {
-    for (const name of agents.keys()) {
-      this.info.set(name, { name, label: agentLabel(name), state: "checking" });
-    }
+    for (const [name, p] of profiles)
+      this.info.set(name, { name, label: p.label, state: "checking" });
   }
 
   list(): AgentInfo[] {
@@ -36,10 +34,12 @@ export class AgentStatus {
   /** Asks every agent at once. Calls made while a check is running share it. */
   checkAll(): Promise<void> {
     if (this.checking) return this.checking;
-    for (const name of this.agents.keys()) this.set(name, "checking");
+    for (const name of this.profiles.keys()) this.set(name, "checking");
     this.checking = Promise.all(
-      [...this.agents].map(async ([name, command]) => {
-        const result = await this.probe(command);
+      [...this.profiles].map(async ([name, profile]) => {
+        // Not installed: say so, without trying to start it.
+        if (profile.missing) return this.set(name, "unavailable", profile.missing);
+        const result = await this.probe(name, profile);
         this.set(name, result.state, result.detail);
       }),
     )
@@ -53,9 +53,14 @@ export class AgentStatus {
   /** Records what was learned, e.g. a task that failed because the agent isn't signed in. */
   set(name: string, state: AgentState, detail?: string): void {
     const current = this.info.get(name);
-    if (!current) return;
+    const profile = this.profiles.get(name);
+    if (!current || !profile) return;
     const hint =
-      state === "needs_sign_in" ? signInHint(name) : state === "unavailable" ? detail : undefined;
+      state === "needs_sign_in"
+        ? profile.signInHint || undefined
+        : state === "unavailable"
+          ? detail
+          : undefined;
     const next: AgentInfo = { name, label: current.label, state, ...(hint ? { hint } : {}) };
     if (current.state === next.state && current.hint === next.hint) return;
     this.info.set(name, next);

@@ -130,6 +130,15 @@ export class Tasks {
     });
   }
 
+  /**
+   * Asks the user on behalf of a running task — e.g. the browser gate. Same
+   * rules as the agent's own questions: the task waits, and silence stops it
+   * (R3). Resolves with the chosen choice id, or `null` if the task must not act.
+   */
+  ask(taskId: string, decision: Decision): Promise<string | null> {
+    return this.decide(taskId, decision);
+  }
+
   /** Tasks that were active when the runner last stopped can't be resumed: mark them failed. */
   recover(): void {
     for (const task of this.tasks.values()) {

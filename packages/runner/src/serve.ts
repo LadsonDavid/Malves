@@ -1,16 +1,27 @@
 import { hostname } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
+import { BrowserBridge } from "./adapters/browser/bridge.js";
+import { BrowserTools } from "./adapters/browser/tools.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
-import { lanAddresses, resolveFolder, runnerKeys, tailscaleAddress } from "./system.js";
+import {
+  extensionToken,
+  lanAddresses,
+  resolveFolder,
+  runnerKeys,
+  tailscaleAddress,
+} from "./system.js";
 import type { Runner } from "./wire.js";
 
 const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
   pair text       the same code as text, to paste into an emulator
   agents          check which agents are ready (e.g. after signing in)
+  extension       how to connect Chrome, and its code
+  extension new   replace the Chrome code (shuts out the old one)
   devices         list paired phones
   revoke <id>     unpair a phone immediately (lost phone)
   add <folder>    register a project folder the phone can start tasks in
@@ -50,6 +61,46 @@ export async function serve(
     for (const ip of lanAddresses()) say(`  • on the same Wi-Fi: malves serve --host ${ip}`);
   }
 
+  // Chrome: the extension connects to 127.0.0.1 only; agents get the gated tools.
+  let token = extensionToken(dir);
+  let bridge = new BrowserBridge({ token });
+  const tools = new BrowserTools(runner, {
+    get connected() {
+      return bridge.connected;
+    },
+    call: (op, args) => bridge.call(op, args),
+  });
+  await tools.start();
+  runner.useBrowserTools(tools);
+  const startBridge = async () => {
+    try {
+      await bridge.start();
+      bridge.onChange((on) => say(on ? "Chrome connected." : "Chrome disconnected."));
+    } catch (error) {
+      say(
+        `Chrome bridge couldn't start: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  await startBridge();
+
+  const showExtension = () => {
+    const folder = fileURLToPath(new URL("../../extension", import.meta.url));
+    say(
+      [
+        "",
+        "Connect Chrome (once):",
+        "  1. In Chrome, open chrome://extensions and turn on Developer mode.",
+        `  2. Click "Load unpacked" and choose: ${folder}`,
+        "  3. Click the malves icon in Chrome's toolbar and paste this code:",
+        "",
+        `     ${token}`,
+        "",
+        `Chrome is ${bridge.connected ? "connected" : "not connected yet"}.`,
+      ].join("\n"),
+    );
+  };
+
   const showPairing = () => {
     const offer = server.offerPairing();
     qrcode.generate(JSON.stringify(offer), { small: true }, (qr) => say(`\n${qr}`));
@@ -64,6 +115,16 @@ export async function serve(
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    extension: ([mode]) => {
+      if (mode !== "new") return showExtension();
+      token = extensionToken(dir, true);
+      void bridge.close().then(async () => {
+        bridge = new BrowserBridge({ token });
+        await startBridge();
+        say("New Chrome code made; the old one no longer works.");
+        showExtension();
+      });
+    },
     pair: ([mode]) => {
       if (mode !== "text") return showPairing();
       // For emulators and screens that can't scan: paste this into the app.
@@ -112,6 +173,8 @@ export async function serve(
   say("\nStopping…");
   await runner.tasks.stopAll();
   await server.close();
+  await tools.close();
+  await bridge.close();
   terminal.close();
   return 0;
 }

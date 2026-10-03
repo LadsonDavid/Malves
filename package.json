@@ -8,8 +8,8 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && pnpm --filter @malves/app exec tsc --noEmit",
+    "build": "tsc -b && pnpm --filter @malves/extension build",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p packages/extension/tsconfig.test.json && pnpm --filter @malves/app exec tsc --noEmit",
     "test": "vitest run",
     "lint": "biome check .",
     "format": "biome format --write ."
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/node": "^22.18.0",
+    "happy-dom": "20.14.5",
     "typescript": "~5.9.3",
     "vitest": "^4.0.0"
   }

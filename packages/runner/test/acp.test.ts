@@ -151,6 +151,29 @@ describe("checking whether an agent is ready", () => {
     expect(await new AcpHost().probe(demo, tmpdir())).toEqual({ state: "needs_sign_in" });
   }, 20_000);
 
+  it("an agent that needs an explicit API-key sign-in is ready once malves picks that method", async () => {
+    process.env.MALVES_DEMO_AUTH = "key";
+    const host = new AcpHost();
+    expect(await host.probe(demo, tmpdir(), { authMethod: "demo-key" })).toEqual({
+      state: "ready",
+    });
+    expect(await host.probe(demo, tmpdir())).toEqual({ state: "needs_sign_in" });
+  }, 20_000);
+
+  it("a sign-in method the agent rejects counts as 'needs sign-in'", async () => {
+    process.env.MALVES_DEMO_AUTH = "key";
+    const result = await new AcpHost().probe(demo, tmpdir(), { authMethod: "oauth-personal" });
+    expect(result).toEqual({ state: "needs_sign_in" });
+  }, 20_000);
+
+  it("a missing API key means 'needs sign-in' — without even starting the agent", async () => {
+    // If it tried to start this program, the answer would be "unavailable".
+    const result = await new AcpHost().probe(command("malves-no-such-program"), tmpdir(), {
+      requiresEnv: "MALVES_TEST_KEY_THAT_IS_NOT_SET",
+    });
+    expect(result).toEqual({ state: "needs_sign_in" });
+  });
+
   it("a missing program isn't available, and says why", async () => {
     const result = await new AcpHost().probe(command("malves-no-such-program"), tmpdir());
     expect(result.state).toBe("unavailable");
