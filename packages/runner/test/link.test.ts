@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { command, createCore, type Notifier } from "@malves/core";
 import {
   type AgentInfo,
+  type AgentSessionInfo,
   CLOSE,
   generateKeyPair,
   type KeyPair,
@@ -58,6 +59,7 @@ function fakeAgents(initial: AgentInfo[]) {
 async function runner(
   agentList: AgentInfo[] = [{ name: "demo", label: "Demo", state: "ready" }],
   leads?: LeadSource,
+  listSessions?: (agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>,
 ) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-link-")));
   const site = path.join(dir, "site");
@@ -82,6 +84,7 @@ async function runner(
     computer: "test-pc",
     agents: fakeAgents(agentList),
     leads,
+    listSessions,
   });
   await server.start();
   // Same order as `malves serve` shutting down: stop tasks, then close the log.
@@ -295,6 +298,65 @@ describe("phone link, end to end", () => {
       "the task to finish",
     );
     expect(readFileSync(path.join(r.site, "malves-demo.txt"), "utf8")).toContain("make the file");
+  }, 20_000);
+
+  it("the phone lists an agent's earlier conversations, and replies to a finished task", async () => {
+    const asked: string[] = [];
+    const saved = [{ id: "s-9", title: "fix the footer", updated_at: "2026-10-03T10:00:00Z" }];
+    const r = await runner(undefined, undefined, async (agent, workspaceId) => {
+      asked.push(`${agent}@${workspaceId}`);
+      return saved;
+    });
+    // Let the demo agent keep its conversations between runs, like a real agent.
+    process.env.MALVES_DEMO_SESSIONS = path.join(r.site, "..", "demo-sessions.json");
+    cleanup.push(() => delete process.env.MALVES_DEMO_SESSIONS);
+    const p = await pairedPhone(r);
+    expect(await p.client.listSessions({ workspaceId: r.ws.id, agent: "demo" })).toMatchObject({
+      ok: true,
+      sessions: saved,
+    });
+    expect(asked).toEqual([`demo@${r.ws.id}`]);
+
+    // A real task with the demo agent, then a reply over the link continues it.
+    const auto = r.core.log.subscribe((e) => {
+      if (e.type === "question.opened") {
+        setImmediate(() =>
+          r.core.questions.answer({
+            questionId: e.data.question_id,
+            choiceId: "reject",
+            commandId: e.data.question_id,
+          }),
+        );
+      }
+    });
+    cleanup.push(auto);
+    const first =
+      (await p.client.createTask({ workspaceId: r.ws.id, agent: "demo", prompt: "x" })).result ??
+      "";
+    const done = await r.core.tasks.whenFinished(first);
+    expect(await p.client.reply("t-unknown", "more")).toMatchObject({
+      ok: false,
+      error: "Unknown task: t-unknown",
+    });
+
+    const replied = await p.client.reply(first, "and more");
+    expect(replied).toMatchObject({ ok: true });
+    await waitFor(
+      () =>
+        p.events.some((e) => e.type === "task.created" && e.data.resume_session === done.sessionId),
+      "the reply task",
+    );
+    expect(await r.core.tasks.whenFinished(replied.result ?? "")).toMatchObject({
+      state: "done",
+      sessionId: done.sessionId,
+    });
+    // The phone learns each task's conversation, so it can offer Reply.
+    const sessions = () => p.events.filter((e) => e.type === "task.session");
+    await waitFor(() => sessions().length === 2, "both tasks' sessions");
+    expect(sessions().map((e) => e.type === "task.session" && e.data.session_id)).toEqual([
+      done.sessionId,
+      done.sessionId,
+    ]);
   }, 20_000);
 
   it("resumes from the last event it saw, and never sees device events", async () => {

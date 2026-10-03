@@ -223,3 +223,62 @@ describe("tasks", () => {
     expect(restarted.workspaces.list()).toEqual([c.ws]);
   });
 });
+
+describe("continuing a conversation", () => {
+  /** An agent that opens session `s-<n>` for a new task, or the one it was asked to continue. */
+  function withSessions() {
+    const c = withWorkspace();
+    let opened = 0;
+    let release: () => void = () => {};
+    const hold = new Promise<void>((r) => {
+      release = r;
+    });
+    c.host.script = async ({ callbacks }) => {
+      const run = c.host.runs.at(-1);
+      callbacks.session(run?.resume ?? `s-${++opened}`);
+      if (run?.prompt === "slow") await hold;
+      return "completed";
+    };
+    return { ...c, release };
+  }
+
+  it("remembers the agent's session, and a reply continues it with the same agent and project", async () => {
+    const c = withSessions();
+    const first = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "fix it" });
+    expect(await c.tasks.whenFinished(first)).toMatchObject({ state: "done", sessionId: "s-1" });
+
+    const reply = c.tasks.reply(first, "now add a test");
+    expect(c.tasks.get(reply)).toMatchObject({
+      workspaceId: c.ws.id,
+      agent: "demo",
+      resume: "s-1",
+    });
+    await c.tasks.whenFinished(reply);
+    expect(c.host.runs.at(-1)).toMatchObject({ prompt: "now add a test", resume: "s-1" });
+    expect(c.tasks.get(reply)?.sessionId).toBe("s-1");
+  });
+
+  it("a reply waits for the task to finish, and needs a conversation to continue", async () => {
+    const c = withSessions();
+    const running = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "slow" });
+    await flush();
+    expect(() => c.tasks.reply(running, "more")).toThrow(/Wait for this task to finish/);
+    c.release();
+    await c.tasks.whenFinished(running);
+
+    c.host.script = async () => "completed"; // an agent that never reports a session
+    const plain = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    await c.tasks.whenFinished(plain);
+    expect(() => c.tasks.reply(plain, "more")).toThrow(/didn't keep a conversation/);
+  });
+
+  it("never runs two tasks in one conversation at once", async () => {
+    const c = withSessions();
+    const first = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    await c.tasks.whenFinished(first);
+    c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "slow", resume: "s-1" });
+    await flush();
+    expect(() => c.tasks.reply(first, "again")).toThrow(/already running in another task/);
+    c.release();
+  });
+});

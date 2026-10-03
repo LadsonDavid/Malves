@@ -13,7 +13,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   `node --env-file=.env …`). Browser (Chrome extension, ARCHITECTURE §5) built,
   awaiting a real test. Cursor waits on the CLI install. Lead engine built
   (signalstack `/api/leads` → `serve --leads <url>` → app Leads screen), awaiting a
-  real-data test. Next: continuing existing agent sessions, then step 3 (push).
+  real-data test. Continuing conversations built (Reply, and resume an
+  earlier session; ARCHITECTURE §3). Next: step 3 (push).
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before

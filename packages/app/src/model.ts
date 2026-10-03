@@ -33,6 +33,10 @@ export type Task = {
   state: TaskState;
   reason?: string;
   result?: string;
+  /** The earlier conversation this task continued. */
+  resume?: string;
+  /** The conversation it ran in; Reply continues it. */
+  sessionId?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -106,6 +110,7 @@ function apply(model: Model, event: LoggedEvent): Model {
         workspaceId,
         agent,
         prompt,
+        ...(event.data.resume_session ? { resume: event.data.resume_session } : {}),
         state: "queued",
         createdAt: event.at,
         updatedAt: event.at,
@@ -122,6 +127,11 @@ function apply(model: Model, event: LoggedEvent): Model {
           ...(event.data.reason === undefined ? {} : { reason: event.data.reason }),
         };
       });
+    case "task.session":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        sessionId: event.data.session_id,
+      }));
     case "task.result":
       return updateTask(model, event.data.task_id, (task) => ({
         ...task,
@@ -204,4 +214,25 @@ export function researchPrompt(lead: Lead): string {
     "Reply with 5 short bullet points: what they sell, who they sell to, anything recent, how my reason above fits, and one question I could ask them.",
     "Only read pages. Don't fill in or submit any forms, and don't sign in anywhere.",
   ].join("\n");
+}
+
+/** Within this long, a conversation may still be open in the IDE or terminal. */
+export const MAYBE_OPEN_MS = 10 * 60_000;
+
+/** "just now", "5 min ago", "3 h ago", "2 days ago" — for an ISO time from the computer. */
+export function ago(iso: string | undefined, now = Date.now()): string {
+  const at = iso ? Date.parse(iso) : Number.NaN;
+  if (Number.isNaN(at)) return "";
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+export function mayStillBeOpen(iso: string | undefined, now = Date.now()): boolean {
+  const at = iso ? Date.parse(iso) : Number.NaN;
+  return !Number.isNaN(at) && now - at < MAYBE_OPEN_MS;
 }

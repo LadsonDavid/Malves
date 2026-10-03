@@ -20,6 +20,8 @@ afterEach(() => {
   for (const close of opened.splice(0)) close();
   delete process.env.MALVES_DEMO_FILE;
   delete process.env.MALVES_DEMO_AUTH;
+  delete process.env.MALVES_DEMO_SESSIONS;
+  delete process.env.MALVES_DEMO_RESUME;
 });
 
 function setup(questionTimeoutMs = 10_000) {
@@ -42,7 +44,7 @@ function setup(questionTimeoutMs = 10_000) {
   });
   mkdirSync(site);
   const ws = core.workspaces.register("site", site);
-  return { ...core, dir, site, ws, store };
+  return { ...core, dir, site, ws, store, host };
 }
 
 function answerNext(core: ReturnType<typeof setup>, choiceId: string) {
@@ -178,5 +180,52 @@ describe("checking whether an agent is ready", () => {
     const result = await new AcpHost().probe(command("malves-no-such-program"), tmpdir());
     expect(result.state).toBe("unavailable");
     expect(result.detail).toMatch(/Could not start it/);
+  }, 20_000);
+});
+
+describe("continuing an agent's earlier conversation", () => {
+  const demo = command(process.execPath, [demoAgent]);
+
+  async function firstConversation() {
+    const c = setup();
+    process.env.MALVES_DEMO_SESSIONS = path.join(c.dir, "demo-sessions.json");
+    answerNext(c, "reject");
+    const id = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "fix the footer" });
+    const task = await c.tasks.whenFinished(id);
+    return { c, task };
+  }
+
+  it("lists this project's conversations, and a reply continues the same one", async () => {
+    const { c, task } = await firstConversation();
+    expect(task.sessionId).toBeTruthy();
+
+    const listed = await c.host.listSessions("demo", demo, c.ws.path);
+    expect(listed.map((s) => [s.sessionId, s.title])).toEqual([[task.sessionId, "fix the footer"]]);
+    expect(await c.host.listSessions("demo", demo, c.dir)).toEqual([]); // another folder
+
+    answerNext(c, "reject");
+    const reply = await c.tasks.whenFinished(c.tasks.reply(task.id, "and the header"));
+    expect(reply).toMatchObject({ state: "done", sessionId: task.sessionId });
+    expect(reply.result).toContain("Turn 2 of this conversation.");
+  }, 30_000);
+
+  it("an agent that can only `load` replays the past first; the user doesn't get it twice", async () => {
+    const { c, task } = await firstConversation();
+    process.env.MALVES_DEMO_RESUME = "load-only";
+    answerNext(c, "reject");
+    const reply = await c.tasks.whenFinished(c.tasks.reply(task.id, "again"));
+    expect(reply.result).toContain("Turn 2 of this conversation.");
+    expect(reply.result).not.toContain("replayed");
+  }, 30_000);
+
+  it("a conversation the agent doesn't know fails plainly, without doing anything", async () => {
+    const c = setup();
+    process.env.MALVES_DEMO_SESSIONS = path.join(c.dir, "demo-sessions.json");
+    const id = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x", resume: "nope" });
+    expect(await c.tasks.whenFinished(id)).toMatchObject({
+      state: "failed",
+      reason: expect.stringContaining("Unknown session"),
+    });
+    expect(existsSync(path.join(c.site, "malves-demo.txt"))).toBe(false);
   }, 20_000);
 });

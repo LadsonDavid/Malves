@@ -127,12 +127,33 @@ export class LinkClient {
     this.rejectPending(new Error("The link was closed"));
   }
 
-  createTask(input: { workspaceId: string; agent: string; prompt: string }): Promise<Ack> {
+  /** `resume`: an agent session id from `listSessions`, to continue it. */
+  createTask(input: {
+    workspaceId: string;
+    agent: string;
+    prompt: string;
+    resume?: string | undefined;
+  }): Promise<Ack> {
     return this.send({
       type: "task.create",
       workspace_id: input.workspaceId,
       agent: input.agent,
       prompt: input.prompt,
+      ...(input.resume ? { resume: input.resume } : {}),
+    });
+  }
+
+  /** Continues a finished task's conversation with the same agent. */
+  reply(taskId: string, prompt: string): Promise<Ack> {
+    return this.send({ type: "task.reply", task_id: taskId, prompt });
+  }
+
+  /** The agent's saved sessions in a project; they come back in `ack.sessions`. */
+  listSessions(input: { workspaceId: string; agent: string }): Promise<Ack> {
+    return this.send({
+      type: "sessions.list",
+      workspace_id: input.workspaceId,
+      agent: input.agent,
     });
   }
 

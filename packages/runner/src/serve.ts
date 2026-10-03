@@ -58,6 +58,7 @@ export async function serve(
     keys: runnerKeys(dir),
     computer,
     agents: runner.agents,
+    listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     leads: leadsUrl ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY }) : undefined,
   });
   const url = await server.start();
