@@ -65,6 +65,7 @@ export function agentProfiles(home = malvesHome()): Map<string, AgentProfile> {
       },
     ],
     ["antigravity", antigravity(home)],
+    ["cursor", cursor()],
     ...freeModels(),
   ]);
 }
@@ -131,6 +132,49 @@ function antigravity(home: string): AgentProfile {
       ? {}
       : { missing: `Google's Antigravity ACP server isn't installed in ${dir}.` }),
   };
+}
+
+/**
+ * Cursor's CLI speaks ACP itself (`agent acp`). It signs in on its own
+ * (`agent login`, or CURSOR_API_KEY). Started only as a real executable: a
+ * `.cmd` or `.ps1` wrapper would need a shell (§8).
+ */
+function cursor(): AgentProfile {
+  const hint = "On the computer, run `agent login` in a terminal (or set CURSOR_API_KEY).";
+  const found = findProgram(["agent", "cursor-agent"]);
+  if (found.program) {
+    return { label: "Cursor", command: command(found.program, ["acp"]), signInHint: hint };
+  }
+  return {
+    label: "Cursor",
+    command: command("agent", ["acp"]),
+    signInHint: hint,
+    missing: found.script
+      ? `Cursor's CLI is installed as a script (${found.script}), which malves can't start without a shell. Please report this; malves needs to learn its real program.`
+      : "Cursor's CLI isn't installed. Install it (Windows PowerShell: irm 'https://cursor.com/install?win32=true' | iex), then run `agent login`.",
+  };
+}
+
+/** The first real executable with one of these names on PATH or in ~/.local/bin. */
+function findProgram(names: string[]): { program?: string; script?: string } {
+  const windows = process.platform === "win32";
+  const dirs = [
+    ...(process.env.PATH ?? "").split(path.delimiter),
+    path.join(homedir(), ".local", "bin"),
+  ].filter(Boolean);
+  let script: string | undefined;
+  for (const dir of dirs) {
+    for (const name of names) {
+      const program = path.join(dir, windows ? `${name}.exe` : name);
+      if (existsSync(program)) return { program };
+      if (windows) {
+        for (const ext of [".cmd", ".ps1", ".bat"]) {
+          if (existsSync(path.join(dir, name + ext))) script ??= path.join(dir, name + ext);
+        }
+      }
+    }
+  }
+  return script ? { script } : {};
 }
 
 /** Agent name → how to start it, for the core. */

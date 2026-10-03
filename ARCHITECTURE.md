@@ -465,7 +465,8 @@ Each step ends in something demoable:
 4. Cursor wrapper and Antigravity. R5. **Antigravity built:** Google's official
    `agy_acp_server` (installed under the data folder, signature checked), own
    `GEMINI_HOME`, API-key sign-in only. **Cursor:** speaks ACP natively
-   (`agent acp`); waiting for the CLI to be installed.
+   (`agent acp`); profile built — found as a real program on PATH or in
+   ~/.local/bin (never a `.cmd`). Awaiting a test once the CLI is installed.
 5. Browser gate. R6. **Built** as a Chrome extension (§5); awaiting a real test.
 6. Budget guard. R8. **Built** (§6): Claude and Codex on free models through
    the guard; awaiting a test against a real freellmapi.
