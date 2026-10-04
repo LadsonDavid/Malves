@@ -1,8 +1,8 @@
-import type { AgentInfo, AgentSessionInfo, LinkClient } from "@malves/protocol";
+import type { AgentInfo, AgentSessionInfo, LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
-import { ago, type Model, mayStillBeOpen, pickAgent } from "../model";
-import { Banner, Button, Card, Section, styles } from "../ui";
+import { ago, type Model, mayStillBeOpen, pickAgent, recentPrompts, workspaceName } from "../model";
+import { Banner, Button, buzz, Card, Choices, Section, styles } from "../ui";
 
 type Props = {
   model: Model;
@@ -11,6 +11,10 @@ type Props = {
   lastAgent: string | undefined;
   onCreated: (agent: string) => void;
   onClose: () => void;
+  status: LinkStatus;
+  /** Opens the task just started, so the user sees it begin. */
+  onOpenTask: (taskId: string) => void;
+  say: (message: string) => void;
 };
 
 const STATE_WORDS: Record<AgentInfo["state"], string> = {
@@ -21,7 +25,16 @@ const STATE_WORDS: Record<AgentInfo["state"], string> = {
 };
 
 /** Three steps (R4): describe it, pick where and with what, go. */
-export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: Props) {
+export function NewTaskScreen({
+  model,
+  client,
+  lastAgent,
+  onCreated,
+  onClose,
+  status,
+  onOpenTask,
+  say,
+}: Props) {
   const [workspaceId, setWorkspaceId] = useState(model.workspaces[0]?.id);
   const [chosen, setChosen] = useState<string>();
   const [prompt, setPrompt] = useState("");
@@ -41,6 +54,7 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
     (a) => a.state === "needs_sign_in" || a.state === "unavailable",
   );
   const stillChecking = model.agents.some((a) => a.state === "checking");
+  const previous = recentPrompts(model);
   // A conversation belongs to one agent in one project: changing either forgets the choice.
   const key = `${agent}@${workspaceId}`;
   const shown = earlier?.key === key ? earlier.list : undefined;
@@ -63,18 +77,31 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
 
   const start = async () => {
     if (!client || !workspaceId || !agent) return;
+    const request = client.createTask({
+      workspaceId,
+      agent,
+      prompt: prompt.trim(),
+      resume: continuing?.id,
+    });
+    // Offline: it waits in the queue; don't keep the user on a spinner.
+    if (status !== "online") {
+      void request
+        .then((ack) => !ack.ok && say(ack.error ?? "The computer couldn't start that task."))
+        .catch(() => {});
+      onCreated(agent);
+      say("Queued — it starts as soon as your computer is reachable.");
+      onClose();
+      return;
+    }
     setSending(true);
     setProblem(undefined);
     try {
-      const ack = await client.createTask({
-        workspaceId,
-        agent,
-        prompt: prompt.trim(),
-        resume: continuing?.id,
-      });
+      const ack = await request;
       if (ack.ok) {
+        buzz();
         onCreated(agent);
-        onClose();
+        if (ack.result) onOpenTask(ack.result);
+        else onClose();
       } else setProblem(ack.error ?? "The computer couldn't start that task.");
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -95,15 +122,44 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>New task</Text>
+      <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
+        <Text style={styles.title}>New task</Text>
+        <Button title="Cancel" kind="plain" onPress={onClose} />
+      </View>
 
       <TextInput
-        style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
+        style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
         multiline
         autoFocus
         placeholder={continuing ? "What next?" : "What should the agent do?"}
         value={prompt}
         onChangeText={setPrompt}
+      />
+      {prompt === "" && previous.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.muted}>Recent requests — tap to use again:</Text>
+          <Choices
+            options={previous.map((p) => ({
+              value: p,
+              label: p.length > 40 ? `${p.slice(0, 40)}…` : p,
+            }))}
+            value={""}
+            onChange={setPrompt}
+          />
+        </View>
+      ) : null}
+
+      <Text style={styles.muted}>
+        {workspaceId && agent
+          ? `In ${workspaceName(model, workspaceId)} with ${model.agents.find((a) => a.name === agent)?.label ?? agent}${continuing ? ` · continuing “${continuing.title || "untitled"}”` : ""}. Change below.`
+          : "Pick a project and an agent below."}
+      </Text>
+      {problem ? <Banner tone="bad">{problem}</Banner> : null}
+      <Button
+        title={sending ? "Sending…" : continuing ? "Continue" : "Start"}
+        busy={sending}
+        disabled={!client || !workspaceId || !agent || prompt.trim() === ""}
+        onPress={() => void start()}
       />
 
       <Section title="Project">
@@ -200,15 +256,6 @@ export function NewTaskScreen({ model, client, lastAgent, onCreated, onClose }: 
             ))
           : null}
       </Section>
-
-      {problem ? <Banner tone="bad">{problem}</Banner> : null}
-      <Button
-        title={sending ? "Sending…" : continuing ? "Continue" : "Start"}
-        busy={sending}
-        disabled={!client || !workspaceId || !agent || prompt.trim() === ""}
-        onPress={() => void start()}
-      />
-      <Button title="Cancel" kind="plain" onPress={onClose} />
     </ScrollView>
   );
 }

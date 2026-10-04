@@ -63,13 +63,21 @@ export type Model = {
   push: string | null;
   /** Whether Chrome is connected on the computer; null until the computer says. */
   chrome: boolean | null;
+  /** What each task's agent has been doing, newest last. Live only: lost on restart. */
+  activity: Record<string, Activity[]>;
 };
+
+export type Activity = { text: string; at: number };
+
+/** Lines of live activity kept per task. */
+const MAX_ACTIVITY = 50;
 
 export type Action =
   | { type: "welcome"; welcome: Welcome }
   | { type: "event"; event: LoggedEvent }
   | { type: "agents"; agents: AgentInfo[] }
   | { type: "chrome"; connected: boolean }
+  | { type: "activity"; taskId: string; text: string; at: number }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
   | { type: "reset" };
 
@@ -82,6 +90,7 @@ export const emptyModel: Model = {
   leads: null,
   push: null,
   chrome: null,
+  activity: {},
 };
 
 export function reduce(model: Model, action: Action): Model {
@@ -90,6 +99,16 @@ export function reduce(model: Model, action: Action): Model {
       return { ...model, agents: action.agents };
     case "chrome":
       return { ...model, chrome: action.connected };
+    case "activity": {
+      const lines = [
+        ...(model.activity[action.taskId] ?? []),
+        { text: action.text, at: action.at },
+      ];
+      return {
+        ...model,
+        activity: { ...model.activity, [action.taskId]: lines.slice(-MAX_ACTIVITY) },
+      };
+    }
     case "leads":
       return { ...model, leads: { list: action.leads, fetchedAt: action.fetchedAt } };
     case "reset":
@@ -223,6 +242,89 @@ export function running(model: Model): Task[] {
   return Object.values(model.tasks)
     .filter((t) => !FINISHED.includes(t.state))
     .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Which tasks the history shows. */
+export type TaskFilter = "all" | "active" | "done" | "unfinished";
+
+/** Every task, newest first, narrowed by `filter`. */
+export function history(model: Model, filter: TaskFilter = "all"): Task[] {
+  const keep: Record<TaskFilter, (t: Task) => boolean> = {
+    all: () => true,
+    active: (t) => !FINISHED.includes(t.state),
+    done: (t) => t.state === "done",
+    unfinished: (t) => t.state === "failed" || t.state === "stopped",
+  };
+  return Object.values(model.tasks)
+    .filter(keep[filter])
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** The open questions of one task, oldest first. */
+export function questionsFor(model: Model, taskId: string): Question[] {
+  return needsYou(model).filter((q) => q.taskId === taskId);
+}
+
+/** The last few different prompts, newest first, to start again in one tap. */
+export function recentPrompts(model: Model, limit = 5): string[] {
+  const seen = new Set<string>();
+  for (const t of history(model)) {
+    const prompt = t.prompt.trim();
+    if (prompt && prompt.length <= 300 && !seen.has(prompt)) seen.add(prompt);
+    if (seen.size >= limit) break;
+  }
+  return [...seen];
+}
+
+export function isFinished(task: Task): boolean {
+  return FINISHED.includes(task.state);
+}
+
+/** A task's state in plain words. */
+export const STATE_WORDS: Record<TaskState, string> = {
+  queued: "Starting",
+  running: "Working",
+  waiting: "Needs you",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+};
+
+/** How long a task ran (or has been running): "45 s", "3 min", "1 h 20 min". */
+export function duration(task: Task, now = Date.now()): string {
+  const end = isFinished(task) ? task.updatedAt : now;
+  const seconds = Math.max(0, Math.round((end - task.createdAt) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** Time left on a question: "4:05", or "1 h 10 min" for long ones. */
+export function countdown(expiresAt: number, now = Date.now()): string {
+  const seconds = Math.max(0, Math.round((expiresAt - now) / 1000));
+  if (seconds >= 3600)
+    return `${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Where a `malves://` link (from a notification) should open. */
+export type Target = { tab: "leads" } | { taskId: string } | undefined;
+
+export function parseLink(url: string | null | undefined): Target {
+  const match = url?.match(/^malves:\/\/([a-z]+)(?:\/([^/?#]+))?/i);
+  if (!match) return undefined;
+  if (match[1] === "leads") return { tab: "leads" };
+  if (match[1] === "task" && match[2]) return { taskId: decodeURIComponent(match[2]) };
+  return undefined;
+}
+
+/** A ready-to-send email to a lead's contact, with the suggested opener as its start. */
+export function mailtoFor(lead: Lead): string | undefined {
+  if (!lead.contact?.email) return undefined;
+  const first = lead.contact.name.split(" ")[0] ?? "";
+  const body = `Hi ${first},\n\n${lead.opener}\n`;
+  return `mailto:${lead.contact.email}?subject=${encodeURIComponent(lead.name)}&body=${encodeURIComponent(body)}`;
 }
 
 export function recent(model: Model, limit = 10): Task[] {

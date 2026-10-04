@@ -554,7 +554,8 @@ packages/
 
 - **Desktop tray app** — "stop everything" is `malves stop` in the terminal.
 - **App state library** — React's own state is enough.
-- **Navigation library (Expo Router)** — three screens switch on one piece of state.
+- **Navigation library (Expo Router)** — four tabs and a small stack of screens
+  (new task, task) are plain React state, with Android's back button handled.
 - **Runner web framework** — two local routes don't need one.
 
 ### Check before committing
