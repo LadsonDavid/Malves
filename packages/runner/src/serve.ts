@@ -11,6 +11,7 @@ import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
+import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import {
   extensionToken,
   lanAddresses,
@@ -99,6 +100,7 @@ export async function serve(
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
+    transcriber: transcriberFromEnv(),
     leads,
   });
   const say = (line: string) => console.log(line);

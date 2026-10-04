@@ -110,6 +110,24 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/** One piece of a voice recording for precise mode (in order, ≤ 96 KB of audio each). */
+export const VoiceChunk = z.object({
+  type: z.literal("voice.chunk"),
+  command_id: Id,
+  upload_id: Id,
+  index: z.number().int().min(0).max(100),
+  data: z.string().max(131_072),
+});
+
+/** Transcribe a finished recording with Whisper (answered in `ack.result`). */
+export const VoiceTranscribe = z.object({
+  type: z.literal("voice.transcribe"),
+  command_id: Id,
+  upload_id: Id,
+  /** e.g. "en", "ta". */
+  language: z.string().min(2).max(8),
+});
+
 /** Breakglass: stop every running task now (§8). */
 export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), command_id: Id });
 
@@ -128,6 +146,8 @@ export const Command = z.discriminatedUnion("type", [
   AnswerCommand,
   TaskStop,
   TasksStopAll,
+  VoiceChunk,
+  VoiceTranscribe,
   AgentsCheck,
   LeadsRefresh,
 ]);
@@ -163,6 +183,8 @@ export const Welcome = z.object({
   push: z.object({ subscribe: z.string().max(300) }).optional(),
   /** Whether the Chrome extension is connected, so browser tasks can work. */
   chrome: z.boolean().optional(),
+  /** Whether precise (Whisper) dictation is set up on the computer. */
+  transcribe: z.boolean().optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
 
