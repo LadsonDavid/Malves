@@ -63,6 +63,8 @@ export type Model = {
   push: string | null;
   /** Whether Chrome is connected on the computer; null until the computer says. */
   chrome: boolean | null;
+  /** Whether precise (Whisper) dictation is set up on the computer. */
+  transcribe: boolean;
   /** What each task's agent has been doing, newest last. Live only: lost on restart. */
   activity: Record<string, Activity[]>;
 };
@@ -90,6 +92,7 @@ export const emptyModel: Model = {
   leads: null,
   push: null,
   chrome: null,
+  transcribe: false,
   activity: {},
 };
 
@@ -121,6 +124,7 @@ export function reduce(model: Model, action: Action): Model {
         agents: action.welcome.agents,
         push: action.welcome.push?.subscribe ?? null,
         chrome: action.welcome.chrome ?? null,
+        transcribe: action.welcome.transcribe ?? false,
       };
     case "event":
       return apply(model, action.event);

@@ -31,6 +31,17 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "The microphone is used only while you talk to malves: to dictate tasks and answer agents.",
+          "speechRecognitionPermission": "Speech recognition turns what you say into text for malves.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as"
+          ]
+        }
       ]
     ],
     "scheme": "malves"

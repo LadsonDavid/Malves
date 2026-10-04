@@ -4,6 +4,7 @@ import { ScrollView, Text, View } from "react-native";
 import { countdown, type Model, type Question, workspaceName } from "../model";
 import { Banner, Button, buzz, Card, Chip, color, styles } from "../ui";
 import { useNow } from "../useNow";
+import { useVoice } from "../voice/VoiceProvider";
 
 const TOO_LATE: Record<string, string> = {
   closed: "Too late — this question already closed.",
@@ -30,6 +31,7 @@ export function QuestionCard({
   onOpenTask?: (() => void) | undefined;
 }) {
   const now = useNow(1000);
+  const voice = useVoice();
   const [sending, setSending] = useState<string>();
   const [queued, setQueued] = useState<string>();
   const [problem, setProblem] = useState<string>();
@@ -107,6 +109,25 @@ export function QuestionCard({
             onPress={() => void choose(c.id, c.label)}
           />
         ))}
+      </View>
+      <View style={styles.row}>
+        {voice.canListen ? (
+          <Button
+            title="🎤 Answer by voice"
+            kind="plain"
+            disabled={voice.mode || sending !== undefined}
+            onPress={() => voice.answer(question)}
+          />
+        ) : null}
+        <Button
+          title="🔊 Read aloud"
+          kind="plain"
+          onPress={() =>
+            voice.readAloud(
+              `${question.text}. Choices: ${question.choices.map((c) => c.label).join(", ")}.`,
+            )
+          }
+        />
       </View>
       {queued ? (
         <Banner tone="info">

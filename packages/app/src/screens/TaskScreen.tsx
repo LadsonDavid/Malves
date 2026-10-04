@@ -6,6 +6,7 @@ import { StateChip } from "../components/TaskRow";
 import { duration, isFinished, type Model, modelLine, questionsFor, workspaceName } from "../model";
 import { Banner, Button, buzz, Card, Section, styles } from "../ui";
 import { useNow } from "../useNow";
+import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
   taskId: string;
@@ -27,6 +28,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
   const [busy, setBusy] = useState<"stop" | "reply" | "again" | "diff">();
   const [problem, setProblem] = useState<string>();
   const [diff, setDiff] = useState<string>();
+  const voice = useVoice();
 
   if (!task) {
     return (
@@ -145,6 +147,13 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
             <Text style={styles.body} selectable>
               {task.result}
             </Text>
+            <Button
+              title={voice.phase === "speaking" ? "■ Stop reading" : "🔊 Read aloud"}
+              kind="plain"
+              onPress={() =>
+                voice.phase === "speaking" ? voice.hush() : voice.readAloud(task.result ?? "")
+              }
+            />
           </Card>
         </Section>
       ) : finished ? (

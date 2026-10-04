@@ -3,7 +3,9 @@ import { useState } from "react";
 import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { ago, type Model, running } from "../model";
 import { PushCard } from "../PushCard";
-import { Banner, Button, buzz, Card, Chip, Section, styles, type Tone } from "../ui";
+import { Banner, Button, buzz, Card, Chip, Choices, Section, styles, type Tone } from "../ui";
+import type { Lang } from "../voice/engine";
+import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
   model: Model;
@@ -26,6 +28,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
   const [checking, setChecking] = useState(false);
   const [stopping, setStopping] = useState(false);
   const active = running(model);
+  const voice = useVoice();
 
   const checkAgain = async () => {
     if (!client) return;
@@ -98,6 +101,57 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
 
       <Section title="Notifications">
         <PushCard link={model.push} />
+      </Section>
+
+      <Section title="Voice">
+        <Card>
+          <Text style={styles.muted}>Language you speak</Text>
+          <Choices<Lang>
+            options={[
+              { value: "en-IN", label: "English (India)" },
+              { value: "en-US", label: "English (US)" },
+              { value: "ta-IN", label: "தமிழ்" },
+            ]}
+            value={voice.settings.lang}
+            onChange={(lang) => voice.setSettings({ ...voice.settings, lang })}
+          />
+          <Text style={styles.muted}>Dictation accuracy</Text>
+          <Choices<"fast" | "precise">
+            options={[
+              { value: "fast", label: "Fast (live)" },
+              { value: "precise", label: "Precise (Whisper)" },
+            ]}
+            value={voice.settings.precise ? "precise" : "fast"}
+            onChange={(v) => voice.setSettings({ ...voice.settings, precise: v === "precise" })}
+          />
+          {voice.settings.precise && !voice.canBePrecise ? (
+            <Text style={styles.muted}>
+              Precise mode needs Android 13+ and freellmapi on the computer (MALVES_MODELS_URL and
+              MALVES_MODELS_KEY). Until then, dictation uses the fast mode.
+            </Text>
+          ) : (
+            <Text style={styles.muted}>
+              Precise mode sends your recording to Whisper through your freellmapi, after you finish
+              talking. Commands and answers always use the fast mode.
+            </Text>
+          )}
+          {!voice.canListen ? (
+            <Text style={styles.muted}>
+              Listening needs the malves app (APK); Expo Go can only read aloud.
+            </Text>
+          ) : null}
+          <Button
+            title="🔊 Test the voice"
+            kind="plain"
+            onPress={() =>
+              voice.readAloud(
+                voice.settings.lang === "ta-IN"
+                  ? "வணக்கம். நான் malves. உங்கள் agents க்கு உதவ தயாராக உள்ளேன்."
+                  : "Hello. I'm malves. Ready when your agents need you.",
+              )
+            }
+          />
+        </Card>
       </Section>
 
       <Section title="Chrome">

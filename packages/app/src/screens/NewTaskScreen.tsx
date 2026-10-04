@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { ago, type Model, mayStillBeOpen, pickAgent, recentPrompts, workspaceName } from "../model";
 import { Banner, Button, buzz, Card, Choices, Section, styles } from "../ui";
+import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
   model: Model;
@@ -55,6 +56,16 @@ export function NewTaskScreen({
   );
   const stillChecking = model.agents.some((a) => a.state === "checking");
   const previous = recentPrompts(model);
+  const voice = useVoice();
+  const [dictating, setDictating] = useState(false);
+  const dictate = async () => {
+    if (dictating) return voice.stopDictation();
+    setDictating(true);
+    const before = prompt.trim();
+    // Spoken words are added after anything already typed.
+    await voice.dictate((text) => setPrompt(before ? `${before} ${text}` : text));
+    setDictating(false);
+  };
   // A conversation belongs to one agent in one project: changing either forgets the choice.
   const key = `${agent}@${workspaceId}`;
   const shown = earlier?.key === key ? earlier.list : undefined;
@@ -135,6 +146,26 @@ export function NewTaskScreen({
         value={prompt}
         onChangeText={setPrompt}
       />
+      {voice.canListen ? (
+        <View style={{ gap: 6 }}>
+          <Button
+            title={
+              dictating
+                ? voice.phase === "working"
+                  ? "⏳ Improving with Whisper…"
+                  : "■ Done talking"
+                : "🎤 Dictate"
+            }
+            kind={dictating ? "danger" : "plain"}
+            disabled={voice.phase === "working"}
+            onPress={() => void dictate()}
+          />
+          {dictating && voice.phase === "listening" ? (
+            <Text style={styles.muted}>Listening — pause as you like; tap Done when finished.</Text>
+          ) : null}
+          {voice.problem && !dictating ? <Banner tone="bad">{voice.problem}</Banner> : null}
+        </View>
+      ) : null}
       {prompt === "" && previous.length > 0 ? (
         <View style={{ gap: 6 }}>
           <Text style={styles.muted}>Recent requests — tap to use again:</Text>

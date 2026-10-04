@@ -76,7 +76,7 @@ public issue before it's decided, not after.
 | Piece | State |
 |---|---|
 | Desktop runner | Works. Runs Claude Code, Codex, Antigravity and Cursor through ACP (Cursor: once its CLI is installed) |
-| Android app | Home, Tasks, Leads and Settings tabs. Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; email leads; stop everything from Settings. Follows the phone's dark mode |
+| Android app | Home, Tasks, Leads and Settings tabs. Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; email leads; stop everything from Settings. Follows the phone's dark mode. **Voice:** talk to it in English or Tamil — answer questions, start tasks ("ask Claude to fix the footer"), hear results; hands-free mode reads questions aloud as they arrive (APK) |
 | Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |

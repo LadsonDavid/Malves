@@ -15,6 +15,7 @@ import { TasksScreen } from "./src/screens/TasksScreen";
 import { forgetPairing, loadPairing, type Pairing, savePairing } from "./src/storage";
 import { Button, color, isDark, styles } from "./src/ui";
 import { type Connection, useLink } from "./src/useLink";
+import { VoiceProvider } from "./src/voice/VoiceProvider";
 
 type Screen = "loading" | "pair" | "pairing" | "app";
 /** Screens shown on top of the tabs; Back closes the top one. */
@@ -210,35 +211,37 @@ function Main() {
     );
 
   return (
-    <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
-      <StatusBar style={isDark ? "light" : "dark"} />
-      <View style={{ flex: 1 }}>{content}</View>
-      {notice ? (
-        <View
-          accessibilityLiveRegion="polite"
-          style={{
-            position: "absolute",
-            left: 16,
-            right: 16,
-            bottom: (screen === "app" && !top ? 64 : 16) + insets.bottom,
-            backgroundColor: color.text,
-            borderRadius: 10,
-            padding: 12,
-          }}
-        >
-          <Text style={{ color: color.page, fontSize: 15 }}>{notice}</Text>
-        </View>
-      ) : null}
-      {screen === "app" && !top ? (
-        <TabBar
-          current={tab}
-          onChange={(t) => setTab(t)}
-          badges={{ home: needsYou(model).length, tasks: running(model).length }}
-          bottomInset={insets.bottom}
-        />
-      ) : (
-        <View style={{ height: insets.bottom }} />
-      )}
-    </View>
+    <VoiceProvider model={model} client={client} status={status} lastAgent={lastAgent}>
+      <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <View style={{ flex: 1 }}>{content}</View>
+        {notice ? (
+          <View
+            accessibilityLiveRegion="polite"
+            style={{
+              position: "absolute",
+              left: 16,
+              right: 16,
+              bottom: (screen === "app" && !top ? 64 : 16) + insets.bottom,
+              backgroundColor: color.text,
+              borderRadius: 10,
+              padding: 12,
+            }}
+          >
+            <Text style={{ color: color.page, fontSize: 15 }}>{notice}</Text>
+          </View>
+        ) : null}
+        {screen === "app" && !top ? (
+          <TabBar
+            current={tab}
+            onChange={(t) => setTab(t)}
+            badges={{ home: needsYou(model).length, tasks: running(model).length }}
+            bottomInset={insets.bottom}
+          />
+        ) : (
+          <View style={{ height: insets.bottom }} />
+        )}
+      </View>
+    </VoiceProvider>
   );
 }

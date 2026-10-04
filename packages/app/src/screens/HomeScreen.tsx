@@ -6,6 +6,7 @@ import { TaskRow } from "../components/TaskRow";
 import { ago, type Model, needsYou, recent, running } from "../model";
 import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, Section, styles } from "../ui";
+import { VoiceBar } from "../voice/VoiceBar";
 
 type Props = {
   model: Model;
@@ -72,6 +73,8 @@ export function HomeScreen({
       ) : null}
 
       {status === "online" ? <PushCard link={model.push} quiet /> : null}
+
+      {status !== "rejected" ? <VoiceBar /> : null}
 
       <Section title={questions.length > 0 ? `Needs you (${questions.length})` : "Needs you"}>
         {questions.length === 0 ? (
