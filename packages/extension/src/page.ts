@@ -90,9 +90,14 @@ export function snapshotPage(): PageSnapshot {
   const elements: PageElement[] = [];
   for (const el of Array.from(document.querySelectorAll(SELECTOR))) {
     if (elements.length >= 300) break;
+    // Only what a person can see and use. Invisible decoys (transparent,
+    // aria-hidden, unclickable) would mislead the agent, or be used to trick it.
     if (
-      typeof el.checkVisibility === "function" &&
-      !el.checkVisibility({ visibilityProperty: true })
+      (typeof el.checkVisibility === "function" &&
+        !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) ||
+      el.closest('[aria-hidden="true"], [inert]') ||
+      getComputedStyle(el).pointerEvents === "none" ||
+      getComputedStyle(el).opacity === "0"
     ) {
       continue;
     }

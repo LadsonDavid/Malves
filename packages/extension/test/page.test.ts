@@ -41,6 +41,18 @@ describe("reading a page", () => {
     expect(snap.elements.map((e) => e.label)).toEqual(["Shown"]);
   });
 
+  it("skips invisible decoys a person can't see or use", () => {
+    // Like DuckDuckGo's: a hidden input next to the real search box.
+    const snap = page(`
+      <input aria-hidden="true" tabindex="-1" style="position:absolute;width:0;height:0;opacity:0;pointer-events:none">
+      <div aria-hidden="true"><button>Behind a dialog</button></div>
+      <div inert><button>Inert</button></div>
+      <button style="pointer-events:none">Unclickable</button>
+      <textarea aria-label="Search with DuckDuckGo" name="q"></textarea>
+    `);
+    expect(snap.elements.map((e) => e.label)).toEqual(["Search with DuckDuckGo"]);
+  });
+
   it("keeps the same ref for an element across snapshots", () => {
     const first = page(`<button>Go</button>`);
     expect(snapshotPage().elements[0]?.ref).toBe(first.elements[0]?.ref);
