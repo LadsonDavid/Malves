@@ -119,6 +119,7 @@ export async function serve(
     if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
   });
   const url = await server.start();
+  const stopActivity = runner.onActivity((taskId, text) => server.activity(taskId, text));
   relay?.start();
   const stopDigest =
     leads && pushOn && push
@@ -281,6 +282,7 @@ export async function serve(
   relay?.close();
   await server.close();
   stopRenewing();
+  stopActivity();
   stopDigest();
   await push?.close();
   await tools.close();

@@ -106,6 +106,8 @@ describe("notifications through the ntfy app", () => {
       message: "Write index.html?",
       priority: 5,
     });
+    // Tapping the notification opens malves at this task.
+    expect((note as { click?: string } | undefined)?.click).toBe("malves://task/t1");
     expect(note?.actions?.map((a) => [a.action, a.label, a.method, a.clear])).toEqual([
       ["http", "Allow", "POST", true],
       ["http", "Skip", "POST", true],

@@ -119,6 +119,17 @@ export class LinkServer {
     };
   }
 
+  /** Tells every phone what a running task's agent is doing (not logged). */
+  activity(taskId: string, text: string): void {
+    const message: RunnerMessage = {
+      type: "activity",
+      task_id: taskId,
+      text: text.slice(0, 500),
+      at: Date.now(),
+    };
+    for (const s of this.sessions) s.send(message);
+  }
+
   /** Tells every phone whether Chrome is connected (and every phone that connects later). */
   setChrome(connected: boolean): void {
     this.chrome = connected;
@@ -303,6 +314,9 @@ export class LinkServer {
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
         }
+        case "tasks.stop_all":
+          await this.core.tasks.stopAll();
+          return ack(true);
         case "agents.check":
           // The new states reach every phone through `subscribeAgents`.
           await this.o.agents.checkAll();

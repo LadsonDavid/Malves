@@ -110,6 +110,9 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/** Breakglass: stop every running task now (§8). */
+export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), command_id: Id });
+
 /** Re-check which agents are ready, e.g. right after signing in on the computer. */
 export const AgentsCheck = z.object({ type: z.literal("agents.check"), command_id: Id });
 
@@ -124,6 +127,7 @@ export const Command = z.discriminatedUnion("type", [
   ChangesDiff,
   AnswerCommand,
   TaskStop,
+  TasksStopAll,
   AgentsCheck,
   LeadsRefresh,
 ]);
@@ -161,6 +165,14 @@ export const Welcome = z.object({
   chrome: z.boolean().optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
+
+/** What a running task's agent is doing right now, e.g. "Read index.html". Live only, never logged. */
+export const ActivityMessage = z.object({
+  type: z.literal("activity"),
+  task_id: Id,
+  text: z.string().max(500),
+  at: z.number().int(),
+});
 
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
@@ -202,6 +214,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
   ChromeMessage,
+  ActivityMessage,
   LeadsMessage,
   EventMessage,
   Ack,
