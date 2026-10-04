@@ -9,6 +9,7 @@ import {
   type Command,
   FINAL_CLOSE_CODES,
   type Hello,
+  type IdeInfo,
   LINK_VERSION,
   RunnerMessage,
   SealedFrame,
@@ -65,6 +66,8 @@ export type LinkClientOptions = {
   onWelcome?: (welcome: Welcome) => void;
   /** Agent readiness changed on the computer. */
   onAgents?: (agents: AgentInfo[]) => void;
+  /** IDE windows on the computer changed. */
+  onIdes?: (ides: IdeInfo[]) => void;
   /** A running task's agent did something (live only). */
   onActivity?: (taskId: string, text: string, at: number) => void;
   /** Chrome connected or disconnected on the computer. */
@@ -193,6 +196,32 @@ export class LinkClient {
     return this.send({ type: "voice.transcribe", upload_id: uploadId, language });
   }
 
+  /** Asks an open IDE's own agent to do something; `ack.result` says what happened. */
+  ideAgent(ideId: string, prompt: string): Promise<Ack> {
+    return this.send({ type: "ide.agent", ide_id: ideId, prompt });
+  }
+
+  /** Opens a finished task's changes in an open IDE. */
+  ideOpenChanges(ideId: string, taskId: string): Promise<Ack> {
+    return this.send({ type: "ide.open_changes", ide_id: ideId, task_id: taskId });
+  }
+
+  /** Reopens an agent conversation in the IDE's terminal. */
+  ideResume(input: {
+    ideId: string;
+    workspaceId: string;
+    agent: string;
+    sessionId: string;
+  }): Promise<Ack> {
+    return this.send({
+      type: "ide.resume",
+      ide_id: input.ideId,
+      workspace_id: input.workspaceId,
+      agent: input.agent,
+      session_id: input.sessionId,
+    });
+  }
+
   /** Stops every running task on the computer. */
   stopAll(): Promise<Ack> {
     return this.send({ type: "tasks.stop_all" });
@@ -281,6 +310,9 @@ export class LinkClient {
         break;
       case "activity":
         this.o.onActivity?.(message.task_id, message.text, message.at);
+        break;
+      case "ides":
+        this.o.onIdes?.(message.ides);
         break;
       case "chrome":
         this.o.onChrome?.(message.connected);

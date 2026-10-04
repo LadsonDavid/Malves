@@ -22,7 +22,9 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   `.env.example`. App UX overhaul: tabs (Home/Tasks/Leads/Settings), task screen with
   live activity, notification taps open the task (APK only), dark mode, stop-all.
   Voice (APK): en-IN/en-US/Tamil, rule-based commands, hands-free mode, precise
-  dictation via Whisper/freellmapi (ARCHITECTURE "Voice").
+  dictation via Whisper/freellmapi (ARCHITECTURE "Voice"). IDE companion extension
+  (`packages/ide`, ARCHITECTURE "Desktop IDEs"): start the IDE's agent, open changes,
+  reopen conversations, answer questions in the IDE — awaiting a real IDE test.
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
@@ -64,6 +66,7 @@ Set these locally in every new environment. Never commit here as
 | Unanswered question → **stop**, never proceed | R3 |
 | Push is a hint; the event log is the truth | Lost pushes never break anything |
 | Push via the ntfy app, with the runner as its server over Tailscale | `expo-unified-push` has no answer buttons (R1) and needs a custom build |
+| Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API; UI automation stays ruled out |
 
 ## Ruled out — don't re-propose
 

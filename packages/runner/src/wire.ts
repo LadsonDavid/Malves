@@ -27,6 +27,8 @@ export type Runner = Core & {
   usePush(push: Notifier): void;
   /** A finished task's changes as a diff, for "View changes". */
   diff(taskId: string): string;
+  /** A finished task's changed files and their repo, for "Open in IDE". */
+  changedFiles(taskId: string): { root: string; files: string[] } | undefined;
   /** Live "what is the agent doing" for each task; returns a function that stops listening. */
   onActivity(listener: (taskId: string, text: string) => void): () => void;
   /** Meters free-model agents through this guard (§6). */
@@ -105,6 +107,7 @@ export function openRunner(o: RunnerOptions): Runner {
         return () => activity.delete(listener);
       },
       diff: (taskId) => changes.diff(taskId),
+      changedFiles: (taskId) => changes.files(taskId),
       async listSessions(agent, workspaceId) {
         const profile = profiles.get(agent);
         if (!profile) throw new Error(`Unknown agent: ${agent}`);

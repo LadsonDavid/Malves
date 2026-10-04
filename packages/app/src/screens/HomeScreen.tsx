@@ -3,7 +3,7 @@ import { useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { QuestionCard } from "../components/QuestionCard";
 import { TaskRow } from "../components/TaskRow";
-import { ago, type Model, needsYou, recent, running } from "../model";
+import { ago, ideName, type Model, needsYou, recent, running } from "../model";
 import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, Section, styles } from "../ui";
 import { VoiceBar } from "../voice/VoiceBar";
@@ -18,6 +18,7 @@ type Props = {
   onNewTask: () => void;
   onOpenTask: (taskId: string) => void;
   onAllTasks: () => void;
+  onOpenIde: (ideId: string) => void;
   onPairAgain: () => void;
 };
 
@@ -34,6 +35,7 @@ export function HomeScreen({
   onNewTask,
   onOpenTask,
   onAllTasks,
+  onOpenIde,
   onPairAgain,
 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
@@ -95,6 +97,24 @@ export function HomeScreen({
       <Button title="New task" onPress={onNewTask} disabled={status === "rejected"} />
 
       {firstRun ? <FirstRun model={model} /> : null}
+
+      {status === "online" && model.ides.length > 0 ? (
+        <Section title="At your desk">
+          {model.ides.map((ide) => (
+            <Card
+              key={ide.id}
+              onPress={() => onOpenIde(ide.id)}
+              label={`${ide.app}, open with ${ide.projects.map((p) => p.name).join(", ")}`}
+            >
+              <Text style={[styles.body, { fontWeight: "600" }]}>{ideName(model, ide)}</Text>
+              <Text style={styles.muted} numberOfLines={1}>
+                {ide.projects.map((p) => p.name).join(", ") || "No folder open"} · ask its agent,
+                continue its conversations
+              </Text>
+            </Card>
+          ))}
+        </Section>
+      ) : null}
 
       {active.length > 0 ? (
         <Section title={`Running (${active.length})`}>

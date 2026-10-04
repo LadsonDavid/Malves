@@ -288,6 +288,35 @@ The phone can be used by voice, in English (India or US) and Tamil:
   the runner in pieces over the encrypted link, and the runner transcribes it
   with Whisper through freellmapi. The audio is kept in memory only until then.
 
+### Desktop IDEs
+
+malves runs the agents' headless forms (ACP over stdio). The desktop IDEs —
+VS Code, Cursor, Antigravity, Windsurf, all VS Code forks — are reached by one
+companion extension (`packages/ide`, installed from `malves.vsix`) through
+**public extension APIs only**:
+
+- It connects to the runner on `127.0.0.1:7721` with a secret it reads from the
+  malves data folder (same user, no setup). Requests with an Origin header —
+  web pages — are refused.
+- The phone sees which IDE windows are open and which projects they show
+  (names only, no paths), and can: start the IDE's own agent (VS Code:
+  `workbench.action.chat.open` in agent mode; Cursor: its documented prompt
+  deeplink, which only pre-fills — Enter is pressed at the desk; others say
+  they can't); open a task's changed files as diffs; and reopen a Claude Code /
+  Codex conversation in the IDE's terminal (`claude --resume <id>`, ids
+  restricted to safe characters, and the extension only types commands of
+  that exact shape).
+- Agent questions also show in the IDE with answer buttons (first answer wins,
+  as everywhere).
+- **Hand-off:** Claude Code's and Codex's IDE extensions share their
+  conversations with the CLI, so malves lists them per project and continues
+  them from the phone (session/resume), or reopens them at the desk.
+
+**Limit (by choice):** the IDE's own agent panel — its approvals, its replies —
+can't be driven from the phone. The only way would be UI automation through the
+IDE's debugging port, which breaks with each IDE update and lets any local
+program control the IDE. Still ruled out (re-checked October 2026).
+
 ## 5. Browser tasks: a Chrome extension, like Claude in Chrome
 
 **Owner's decisions (2026-10-02):** work like Claude in Chrome — in the user's

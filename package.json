@@ -8,9 +8,9 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @malves/extension build",
+    "build": "tsc -b && pnpm --filter @malves/extension build && pnpm --filter malves-ide build",
     "malves": "node --env-file-if-exists=.env packages/runner/dist/main.js",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p packages/extension/tsconfig.test.json && pnpm --filter @malves/app exec tsc --noEmit",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p packages/extension/tsconfig.test.json && tsc -p packages/ide/tsconfig.json && pnpm --filter @malves/app exec tsc --noEmit",
     "test": "vitest run",
     "lint": "biome check .",
     "format": "biome format --write ."

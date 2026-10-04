@@ -3,7 +3,16 @@ import { useState } from "react";
 import { Alert, ScrollView, Share, Text, TextInput, View } from "react-native";
 import { QuestionCard } from "../components/QuestionCard";
 import { StateChip } from "../components/TaskRow";
-import { duration, isFinished, type Model, modelLine, questionsFor, workspaceName } from "../model";
+import {
+  duration,
+  ideName,
+  idesFor,
+  isFinished,
+  type Model,
+  modelLine,
+  questionsFor,
+  workspaceName,
+} from "../model";
 import { Banner, Button, buzz, Card, Section, styles } from "../ui";
 import { useNow } from "../useNow";
 import { useVoice } from "../voice/VoiceProvider";
@@ -174,6 +183,20 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
               busy={busy === "diff"}
               onPress={() => void viewChanges()}
             />
+            {idesFor(model, task.workspaceId).map((ide) => (
+              <Button
+                key={ide.id}
+                title={`Open changes in ${ideName(model, ide)}`}
+                kind="plain"
+                onPress={() =>
+                  void run(
+                    "diff",
+                    (c) => c.ideOpenChanges(ide.id, task.id),
+                    `Opened in ${ideName(model, ide)}`,
+                  )
+                }
+              />
+            ))}
             {diff !== undefined ? (
               <ScrollView horizontal style={{ maxHeight: 420 }}>
                 <Text style={styles.mono} selectable>

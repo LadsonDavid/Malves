@@ -8,6 +8,7 @@ import {
   Command,
   FirstFrame,
   Hello,
+  type IdeInfo,
   type KeyPair,
   LINK_VERSION,
   type LoggedEvent,
@@ -35,6 +36,8 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** IDE windows with malves' extension, and what the phone may ask of them. */
+  ide?: IdeControl | undefined;
   /** Precise dictation through Whisper, when freellmapi is set up. */
   transcriber?: Transcriber | undefined;
   /** A finished task's changes as a diff. */
@@ -48,6 +51,15 @@ export type LinkServerOptions = {
   handshakeTimeoutMs?: number;
   heartbeatMs?: number;
 };
+
+/** The phone's view of open IDEs (see `IdeBridge`). */
+export interface IdeControl {
+  list(): IdeInfo[];
+  onChange(listener: () => void): () => void;
+  agent(ideId: string, prompt: string): Promise<string>;
+  openChanges(ideId: string, taskId: string): Promise<string>;
+  resume(ideId: string, workspaceId: string, agent: string, sessionId: string): Promise<string>;
+}
 
 /** Which agents exist and whether each is ready — see `AgentStatus`. */
 export interface AgentDirectory {
@@ -84,6 +96,7 @@ export class LinkServer {
 
   /** Starts listening. Resolves with the URL phones connect to. */
   async start(): Promise<string> {
+    this.o.ide?.onChange(() => this.idesChanged());
     const wss = new WebSocketServer({
       host: this.o.host,
       port: this.o.port,
@@ -122,6 +135,12 @@ export class LinkServer {
       code,
       computer: this.o.computer,
     };
+  }
+
+  /** Tells every phone which IDE windows are open now. */
+  private idesChanged(): void {
+    const ides = this.o.ide?.list() ?? [];
+    for (const s of this.sessions) s.send({ type: "ides", ides });
   }
 
   /** Tells every phone what a running task's agent is doing (not logged). */
@@ -258,6 +277,7 @@ export class LinkServer {
       ...(push ? { push: { subscribe: push } } : {}),
       ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
       ...(this.o.transcriber ? { transcribe: true } : {}),
+      ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
     };
   }
 
@@ -319,6 +339,24 @@ export class LinkServer {
           // Every phone gets them, not just the one that asked.
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
+        }
+        case "ide.agent":
+        case "ide.open_changes":
+        case "ide.resume": {
+          const ide = this.o.ide;
+          if (!ide) return ack(false, { error: "No IDE is connected to malves." });
+          const result =
+            command.type === "ide.agent"
+              ? await ide.agent(command.ide_id, command.prompt)
+              : command.type === "ide.open_changes"
+                ? await ide.openChanges(command.ide_id, command.task_id)
+                : await ide.resume(
+                    command.ide_id,
+                    command.workspace_id,
+                    command.agent,
+                    command.session_id,
+                  );
+          return ack(true, { result });
         }
         case "voice.chunk":
           if (!this.o.transcriber) return ack(false, { error: PRECISE_OFF });

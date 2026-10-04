@@ -6,6 +6,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { type Tab, TabBar } from "./src/components/TabBar";
 import { needsYou, parseLink, running, type Target } from "./src/model";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { IdeScreen } from "./src/screens/IdeScreen";
 import { LeadsScreen } from "./src/screens/LeadsScreen";
 import { NewTaskScreen } from "./src/screens/NewTaskScreen";
 import { PairScreen } from "./src/screens/PairScreen";
@@ -19,7 +20,7 @@ import { VoiceProvider } from "./src/voice/VoiceProvider";
 
 type Screen = "loading" | "pair" | "pairing" | "app";
 /** Screens shown on top of the tabs; Back closes the top one. */
-type Overlay = { kind: "new" } | { kind: "task"; id: string };
+type Overlay = { kind: "new" } | { kind: "task"; id: string } | { kind: "ide"; id: string };
 
 /** e.g. "Pixel 8" — shown in `devices` on the computer. */
 function phoneName(): string {
@@ -183,6 +184,17 @@ function Main() {
         onOpenTask={(id) => setStack((s) => [...s.slice(0, -1), { kind: "task", id }])}
         say={say}
       />
+    ) : top?.kind === "ide" ? (
+      <IdeScreen
+        key={top.id}
+        ideId={top.id}
+        model={model}
+        client={client}
+        status={status}
+        onBack={back}
+        onOpenTask={openTask}
+        say={say}
+      />
     ) : tab === "tasks" ? (
       <TasksScreen model={model} client={client} onOpenTask={openTask} />
     ) : tab === "leads" ? (
@@ -206,6 +218,7 @@ function Main() {
         onNewTask={() => open({ kind: "new" })}
         onOpenTask={openTask}
         onAllTasks={() => setTab("tasks")}
+        onOpenIde={(id) => open({ kind: "ide", id })}
         onPairAgain={unpair}
       />
     );
