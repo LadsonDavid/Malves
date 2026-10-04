@@ -110,6 +110,27 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/** One piece of a voice recording for precise mode (in order, ≤ 96 KB of audio each). */
+export const VoiceChunk = z.object({
+  type: z.literal("voice.chunk"),
+  command_id: Id,
+  upload_id: Id,
+  index: z.number().int().min(0).max(100),
+  data: z.string().max(131_072),
+});
+
+/** Transcribe a finished recording with Whisper (answered in `ack.result`). */
+export const VoiceTranscribe = z.object({
+  type: z.literal("voice.transcribe"),
+  command_id: Id,
+  upload_id: Id,
+  /** e.g. "en", "ta". */
+  language: z.string().min(2).max(8),
+});
+
+/** Breakglass: stop every running task now (§8). */
+export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), command_id: Id });
+
 /** Re-check which agents are ready, e.g. right after signing in on the computer. */
 export const AgentsCheck = z.object({ type: z.literal("agents.check"), command_id: Id });
 
@@ -124,6 +145,9 @@ export const Command = z.discriminatedUnion("type", [
   ChangesDiff,
   AnswerCommand,
   TaskStop,
+  TasksStopAll,
+  VoiceChunk,
+  VoiceTranscribe,
   AgentsCheck,
   LeadsRefresh,
 ]);
@@ -159,8 +183,18 @@ export const Welcome = z.object({
   push: z.object({ subscribe: z.string().max(300) }).optional(),
   /** Whether the Chrome extension is connected, so browser tasks can work. */
   chrome: z.boolean().optional(),
+  /** Whether precise (Whisper) dictation is set up on the computer. */
+  transcribe: z.boolean().optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
+
+/** What a running task's agent is doing right now, e.g. "Read index.html". Live only, never logged. */
+export const ActivityMessage = z.object({
+  type: z.literal("activity"),
+  task_id: Id,
+  text: z.string().max(500),
+  at: z.number().int(),
+});
 
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
@@ -202,6 +236,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
   ChromeMessage,
+  ActivityMessage,
   LeadsMessage,
   EventMessage,
   Ack,

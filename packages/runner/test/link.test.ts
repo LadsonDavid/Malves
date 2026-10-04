@@ -105,6 +105,7 @@ type Phone = {
   /** Every live agent update received. */
   agentUpdates: AgentInfo[][];
   leads: Lead[][];
+  activity: string[];
   welcome?: Welcome;
 };
 
@@ -124,6 +125,7 @@ function phone(
     statuses: [],
     agentUpdates: [],
     leads: [],
+    activity: [],
     client: undefined as never,
   };
   p.client = new LinkClient({
@@ -140,6 +142,7 @@ function phone(
     onStatus: (s) => p.statuses.push(s),
     onAgents: (agents) => p.agentUpdates.push(agents),
     onLeads: (leads) => p.leads.push(leads),
+    onActivity: (taskId, text) => p.activity.push(`${taskId}: ${text}`),
     maxBackoffMs: 200,
   });
   p.client.connect();
@@ -249,6 +252,23 @@ describe("phone link, end to end", () => {
     });
     expect(p.leads).toEqual([]);
   });
+
+  it("live activity reaches every phone; 'stop all' stops every running task", async () => {
+    const r = await runner();
+    const p = await pairedPhone(r);
+    r.server.activity("t1", "Read index.html");
+    await waitFor(() => p.activity.length > 0, "the activity");
+    expect(p.activity).toEqual(["t1: Read index.html"]);
+
+    // The demo agent waits on its question, so both tasks stay running.
+    const a = await p.client.createTask({ workspaceId: r.ws.id, agent: "demo", prompt: "a" });
+    const b = await p.client.createTask({ workspaceId: r.ws.id, agent: "demo", prompt: "b" });
+    await waitFor(() => r.core.questions.pending().length === 2, "both tasks to ask");
+    expect(await p.client.stopAll()).toMatchObject({ ok: true });
+    for (const id of [a.result, b.result]) {
+      expect(r.core.tasks.get(id ?? "")?.state).toBe("stopped");
+    }
+  }, 20_000);
 
   it("refuses a wrong pairing code, and a code that was already used", async () => {
     const r = await runner();

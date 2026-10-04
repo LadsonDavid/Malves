@@ -10,7 +10,14 @@ const NTFY_ON_PLAY = "https://play.google.com/store/apps/details?id=io.heckel.nt
  * Tailscale. One tap here subscribes it. The card comes back if the computer
  * changes the link (e.g. after revoking a phone), since the old one stops working.
  */
-export function PushCard({ link }: { link: string | null }) {
+export function PushCard({
+  link,
+  quiet = false,
+}: {
+  link: string | null;
+  /** Show nothing unless there's something to set up (the home screen). */
+  quiet?: boolean;
+}) {
   const [done, setDone] = useState<string | null>();
   const [missingApp, setMissingApp] = useState(false);
 
@@ -19,6 +26,7 @@ export function PushCard({ link }: { link: string | null }) {
   }, []);
 
   if (done === undefined) return null;
+  if (quiet && (!link || done === link)) return null;
   if (!link) {
     return (
       <Text style={styles.muted}>

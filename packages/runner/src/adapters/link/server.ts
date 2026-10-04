@@ -20,6 +20,7 @@ import {
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import type { LeadSource } from "../leads/signalstack.js";
+import type { Transcriber } from "../voice/whisper.js";
 
 export type LinkServerOptions = {
   /** A concrete address: the Tailscale IP, a LAN IP, or 127.0.0.1. */
@@ -34,6 +35,8 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** Precise dictation through Whisper, when freellmapi is set up. */
+  transcriber?: Transcriber | undefined;
   /** A finished task's changes as a diff. */
   diff?: ((taskId: string) => string) | undefined;
   /** Where phones reach this computer when it isn't `host` itself: the relay (topology B). */
@@ -54,6 +57,8 @@ export interface AgentDirectory {
 }
 
 const PAGE = 500;
+const PRECISE_OFF =
+  "Precise mode needs freellmapi on the computer (MALVES_MODELS_URL and MALVES_MODELS_KEY).";
 const MAX_FRAME_BYTES = 256 * 1024;
 /** Remembered command results, so a re-sent command is answered, not re-run. */
 const REMEMBERED_COMMANDS = 1000;
@@ -117,6 +122,17 @@ export class LinkServer {
       code,
       computer: this.o.computer,
     };
+  }
+
+  /** Tells every phone what a running task's agent is doing (not logged). */
+  activity(taskId: string, text: string): void {
+    const message: RunnerMessage = {
+      type: "activity",
+      task_id: taskId,
+      text: text.slice(0, 500),
+      at: Date.now(),
+    };
+    for (const s of this.sessions) s.send(message);
   }
 
   /** Tells every phone whether Chrome is connected (and every phone that connects later). */
@@ -241,6 +257,7 @@ export class LinkServer {
       last_seq: this.core.log.lastSeq,
       ...(push ? { push: { subscribe: push } } : {}),
       ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
+      ...(this.o.transcriber ? { transcribe: true } : {}),
     };
   }
 
@@ -303,6 +320,18 @@ export class LinkServer {
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
         }
+        case "voice.chunk":
+          if (!this.o.transcriber) return ack(false, { error: PRECISE_OFF });
+          this.o.transcriber.add(command.upload_id, command.index, command.data);
+          return ack(true);
+        case "voice.transcribe":
+          if (!this.o.transcriber) return ack(false, { error: PRECISE_OFF });
+          return ack(true, {
+            result: await this.o.transcriber.transcribe(command.upload_id, command.language),
+          });
+        case "tasks.stop_all":
+          await this.core.tasks.stopAll();
+          return ack(true);
         case "agents.check":
           // The new states reach every phone through `subscribeAgents`.
           await this.o.agents.checkAll();

@@ -65,6 +65,8 @@ export type LinkClientOptions = {
   onWelcome?: (welcome: Welcome) => void;
   /** Agent readiness changed on the computer. */
   onAgents?: (agents: AgentInfo[]) => void;
+  /** A running task's agent did something (live only). */
+  onActivity?: (taskId: string, text: string, at: number) => void;
   /** Chrome connected or disconnected on the computer. */
   onChrome?: (connected: boolean) => void;
   /** This week's leads arrived (after `refreshLeads`). */
@@ -172,6 +174,30 @@ export class LinkClient {
     return this.send({ type: "task.stop", task_id: taskId });
   }
 
+  /**
+   * Precise dictation: sends a recording (base64 WAV) in pieces, then asks the
+   * computer to transcribe it with Whisper. The text is in `ack.result`.
+   */
+  async transcribe(audioBase64: string, language: string): Promise<Ack> {
+    const uploadId = randomToken(12);
+    const size = 131_072;
+    for (let i = 0, index = 0; i < audioBase64.length; i += size, index++) {
+      const ack = await this.send({
+        type: "voice.chunk",
+        upload_id: uploadId,
+        index,
+        data: audioBase64.slice(i, i + size),
+      });
+      if (!ack.ok) return ack;
+    }
+    return this.send({ type: "voice.transcribe", upload_id: uploadId, language });
+  }
+
+  /** Stops every running task on the computer. */
+  stopAll(): Promise<Ack> {
+    return this.send({ type: "tasks.stop_all" });
+  }
+
   /** Asks the computer to re-check which agents are ready (e.g. after signing in). */
   checkAgents(): Promise<Ack> {
     return this.send({ type: "agents.check" });
@@ -252,6 +278,9 @@ export class LinkClient {
         this.o.onWelcome?.(message);
         this.o.onStatus?.("online");
         for (const { command } of this.pending.values()) this.transmit(command);
+        break;
+      case "activity":
+        this.o.onActivity?.(message.task_id, message.text, message.at);
         break;
       case "chrome":
         this.o.onChrome?.(message.connected);

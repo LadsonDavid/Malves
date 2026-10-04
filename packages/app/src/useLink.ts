@@ -48,6 +48,7 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
       },
       onAgents: (agents) => dispatch({ type: "agents", agents }),
       onChrome: (connected) => dispatch({ type: "chrome", connected }),
+      onActivity: (taskId, text, at) => dispatch({ type: "activity", taskId, text, at }),
       onLeads: (leads, fetchedAt) => dispatch({ type: "leads", leads, fetchedAt }),
       onEvent: (event) => dispatch({ type: "event", event }),
       onStatus: (next, why) => {

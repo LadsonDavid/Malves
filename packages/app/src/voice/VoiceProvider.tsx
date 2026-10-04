@@ -1,0 +1,567 @@
+import type { LinkClient, LinkStatus } from "@malves/protocol";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  isFinished,
+  type Model,
+  needsYou,
+  pickAgent,
+  type Question,
+  running,
+  workspaceName,
+} from "../model";
+import { buzz } from "../ui";
+import {
+  canListen,
+  canRecord,
+  type Heard,
+  type Lang,
+  listen,
+  readAudio,
+  speak,
+  stopListening,
+  stopSpeaking,
+} from "./engine";
+import { type Intent, type Context as IntentContext, interpret } from "./intent";
+import { COMMAND_HINTS, phrases } from "./phrases";
+import {
+  DEFAULT_VOICE,
+  loadVoiceSettings,
+  saveVoiceSettings,
+  type VoiceSettings,
+} from "./settings";
+
+/**
+ * Voice mode: malves reads questions aloud, listens, and acts — hands-free
+ * until "stop listening", or one turn at a time with the mic buttons.
+ *
+ * Safety, as everywhere in malves:
+ * - silence never answers anything; an unclear or unsure sentence is asked again;
+ * - a high-risk answer is read back and needs "confirm";
+ * - starting or stopping a task is read back and needs "start"/"confirm".
+ */
+export type Phase = "idle" | "speaking" | "listening" | "working";
+
+type Pending =
+  | { kind: "answer"; question: Question; choiceId: string; label: string }
+  | { kind: "task"; workspaceId: string; agent: string; prompt: string }
+  | { kind: "stop"; taskId: string };
+
+type Voice = {
+  canListen: boolean;
+  /** Precise dictation: the phone can record, and the computer can transcribe. */
+  canBePrecise: boolean;
+  settings: VoiceSettings;
+  setSettings: (settings: VoiceSettings) => void;
+  mode: boolean;
+  phase: Phase;
+  /** What malves heard (live while you speak). */
+  heard: string;
+  /** What malves last said. */
+  said: string;
+  problem: string | undefined;
+  toggleMode: () => void;
+  /** One turn: a command, or an answer to the oldest question. */
+  talk: () => void;
+  /** One turn answering this question. */
+  answer: (question: Question) => void;
+  readAloud: (text: string) => void;
+  /** Dictation into a text box; `onText` gets the words live, then the final text. */
+  dictate: (onText: (text: string) => void) => Promise<void>;
+  stopDictation: () => void;
+  /** Stops talking and listening at once. */
+  hush: () => void;
+};
+
+const VoiceContext = createContext<Voice | undefined>(undefined);
+
+export function useVoice(): Voice {
+  const voice = useContext(VoiceContext);
+  if (!voice) throw new Error("useVoice outside VoiceProvider");
+  return voice;
+}
+
+/** Silence this long ends hands-free mode. */
+const IDLE_MS = 2 * 60_000;
+/** Below this, the recognizer wasn't sure: ask again. */
+const SURE = 0.4;
+/** How much of a result is read at once; "more" reads the next part. */
+const READ_CHUNK = 500;
+
+export function VoiceProvider({
+  model,
+  client,
+  status,
+  lastAgent,
+  children,
+}: {
+  model: Model;
+  client: LinkClient | undefined;
+  status: LinkStatus;
+  lastAgent: string | undefined;
+  children: ReactNode;
+}) {
+  const [settings, setSettingsState] = useState<VoiceSettings>(DEFAULT_VOICE);
+  const [mode, setMode] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [heard, setHeard] = useState("");
+  const [said, setSaid] = useState("");
+  const [problem, setProblem] = useState<string>();
+
+  // The conversation runs across awaits: it reads the latest state from here.
+  const live = useRef({
+    model,
+    client,
+    status,
+    lastAgent,
+    settings,
+    mode: false,
+    /** Bumped to abandon whatever turn is in progress. */
+    turn: 0,
+    pending: undefined as Pending | undefined,
+    lastSaid: "",
+    reading: { text: "", offset: 0 },
+    /** Questions already read out or answered, so they aren't read twice. */
+    handled: new Set<string>(),
+    quietSince: Date.now(),
+  });
+  Object.assign(live.current, { model, client, status, lastAgent, settings });
+
+  useEffect(() => {
+    void loadVoiceSettings().then(setSettingsState);
+  }, []);
+  const setSettings = useCallback((next: VoiceSettings) => {
+    setSettingsState(next);
+    void saveVoiceSettings(next);
+  }, []);
+
+  const P = () => phrases(live.current.settings.lang);
+  /** Agent text (questions, results) is English: read it in the matching English voice. */
+  const englishVoice = (): Lang => (live.current.settings.lang === "en-US" ? "en-US" : "en-IN");
+
+  const sayIt = async (text: string, lang: Lang = P().voice) => {
+    setPhase("speaking");
+    setSaid(text);
+    live.current.lastSaid = text;
+    await speak(text, lang);
+  };
+
+  const hints = (question?: Question) => [
+    ...live.current.model.agents.map((a) => a.label),
+    ...live.current.model.workspaces.map((w) => w.name),
+    ...(question?.choices.map((c) => c.label) ?? []),
+    ...COMMAND_HINTS,
+  ];
+
+  const stopMode = async (announce = true) => {
+    live.current.mode = false;
+    live.current.pending = undefined;
+    setMode(false);
+    stopListening();
+    if (announce) await sayIt(P().off);
+    setPhase("idle");
+  };
+
+  /** Listens once and acts on what was heard. */
+  const turn = async (
+    awaiting: IntentContext["awaiting"],
+    question?: Question,
+    id = live.current.turn,
+  ): Promise<void> => {
+    if (id !== live.current.turn) return;
+    if (!canListen()) {
+      setProblem("Listening needs the malves app (APK). In Expo Go, malves can only read aloud.");
+      setPhase("idle");
+      return;
+    }
+    setPhase("listening");
+    setHeard("");
+    let result: Heard;
+    try {
+      result = await listen({
+        lang: live.current.settings.lang,
+        hints: hints(question),
+        onPartial: setHeard,
+      });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+      await stopMode(false);
+      return;
+    }
+    if (id !== live.current.turn) return;
+    setHeard(result.text);
+    if (!result.text) {
+      // Silence: hands-free keeps listening for a while; nothing is ever answered by it.
+      if (live.current.mode && Date.now() - live.current.quietSince < IDLE_MS) {
+        return turn(awaiting, question, id);
+      }
+      if (live.current.mode) return stopMode();
+      setPhase("idle");
+      return;
+    }
+    live.current.quietSince = Date.now();
+    if (result.confidence !== undefined && result.confidence < SURE) {
+      await sayIt(P().unsure(result.text));
+      return turn(awaiting, question, id);
+    }
+    const intent = interpret(result.text, {
+      awaiting,
+      ...(question ? { choices: question.choices } : {}),
+      agents: live.current.model.agents.filter((a) => a.state === "ready"),
+      workspaces: live.current.model.workspaces,
+    });
+    await act(intent, awaiting, question, id);
+  };
+
+  /** Reads a question and waits for the answer. */
+  const ask = async (question: Question, id: number) => {
+    const { model: m } = live.current;
+    live.current.handled.add(question.id);
+    const agent =
+      m.agents.find((a) => a.name === m.tasks[question.taskId]?.agent)?.label ?? "The agent";
+    await sayIt(P().asks(agent));
+    if (id !== live.current.turn) return;
+    await sayIt(question.text, englishVoice());
+    if (id !== live.current.turn) return;
+    await sayIt(
+      `${question.risk === "high" ? `${P().highRisk} ` : ""}${P().say(question.choices.map((c) => c.label))}`,
+    );
+    await turn("answer", question, id);
+  };
+
+  /** After an action: next question, or (hands-free) the next command. */
+  const next = async (id: number) => {
+    if (id !== live.current.turn) return;
+    if (!live.current.mode) {
+      setPhase("idle");
+      return;
+    }
+    const waiting = needsYou(live.current.model).find((q) => !live.current.handled.has(q.id));
+    if (waiting) return ask(waiting, id);
+    return turn("command", undefined, id);
+  };
+
+  const send = async (
+    run: (
+      c: LinkClient,
+    ) => Promise<{ ok: boolean; error?: string | undefined; result?: string | undefined }>,
+    success: string,
+  ) => {
+    const c = live.current.client;
+    if (!c) return;
+    setPhase("working");
+    const offline = live.current.status !== "online";
+    const sending = run(c);
+    if (offline) {
+      void sending.catch(() => {});
+      await sayIt(P().offline);
+      return;
+    }
+    try {
+      const ack = await sending;
+      if (ack.ok) {
+        buzz();
+        await sayIt(success);
+      } else await sayIt(P().problem(ack.error ?? ack.result ?? "not applied"));
+    } catch (error) {
+      await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
+    }
+  };
+
+  const readNext = async () => {
+    const r = live.current.reading;
+    if (!r.text || r.offset >= r.text.length) return sayIt(r.text ? P().end : P().noResult);
+    let end = Math.min(r.text.length, r.offset + READ_CHUNK);
+    // Stop at a sentence end where possible.
+    const stop = r.text.lastIndexOf(". ", end);
+    if (end < r.text.length && stop > r.offset + 100) end = stop + 1;
+    const part = r.text.slice(r.offset, end);
+    r.offset = end;
+    await sayIt(part, englishVoice());
+    if (r.offset < r.text.length) await sayIt(P().more);
+  };
+
+  const lastFinished = () =>
+    Object.values(live.current.model.tasks)
+      .filter(isFinished)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+
+  const act = async (
+    intent: Intent,
+    awaiting: IntentContext["awaiting"],
+    question: Question | undefined,
+    id: number,
+  ): Promise<void> => {
+    const L = live.current;
+    const p = P();
+    switch (intent.kind) {
+      case "answer": {
+        if (!question) break;
+        if (question.risk === "high") {
+          L.pending = { kind: "answer", question, choiceId: intent.choiceId, label: intent.label };
+          await sayIt(p.confirmAnswer(intent.label));
+          return turn("confirm", undefined, id);
+        }
+        await send((c) => c.answer({ questionId: question.id, choiceId: intent.choiceId }), p.done);
+        return next(id);
+      }
+      case "confirm": {
+        const pending = L.pending;
+        L.pending = undefined;
+        if (!pending) {
+          await sayIt(p.sorry);
+          return next(id);
+        }
+        if (pending.kind === "answer") {
+          await send(
+            (c) => c.answer({ questionId: pending.question.id, choiceId: pending.choiceId }),
+            p.done,
+          );
+        } else if (pending.kind === "task") {
+          await send(
+            (c) =>
+              c.createTask({
+                workspaceId: pending.workspaceId,
+                agent: pending.agent,
+                prompt: pending.prompt,
+              }),
+            p.started,
+          );
+        } else {
+          await send((c) => c.stopTask(pending.taskId), p.stopped);
+        }
+        return next(id);
+      }
+      case "cancel":
+        L.pending = undefined;
+        await sayIt(p.cancelled);
+        return next(id);
+      case "newTask": {
+        const workspaceId = intent.workspaceId ?? L.model.workspaces[0]?.id;
+        const agent = intent.agent ?? pickAgent(L.model.agents, L.lastAgent);
+        if (!workspaceId) await sayIt(p.noProject);
+        else if (!agent) await sayIt(p.noAgent);
+        else {
+          L.pending = { kind: "task", workspaceId, agent, prompt: intent.prompt };
+          const label = L.model.agents.find((a) => a.name === agent)?.label ?? agent;
+          await sayIt(p.startTask(intent.prompt, workspaceName(L.model, workspaceId), label));
+          return turn("confirm", undefined, id);
+        }
+        return next(id);
+      }
+      case "needs": {
+        const waiting = needsYou(L.model);
+        if (waiting[0]) return ask(waiting[0], id);
+        await sayIt(p.nothing);
+        return next(id);
+      }
+      case "running": {
+        const active = running(L.model);
+        await sayIt(p.running(active.length));
+        for (const t of active.slice(0, 3)) {
+          const now = L.model.activity[t.id]?.at(-1)?.text;
+          await sayIt(`${t.prompt.slice(0, 80)}${now ? `. Now: ${now}` : ""}.`, englishVoice());
+        }
+        return next(id);
+      }
+      case "result": {
+        const task = lastFinished();
+        L.reading = { text: task?.result ?? "", offset: 0 };
+        await readNext();
+        return next(id);
+      }
+      case "more":
+        await readNext();
+        return next(id);
+      case "stopTask": {
+        const active = running(L.model);
+        if (active.length === 0) await sayIt(p.running(0));
+        else if (active.length > 1) await sayIt(p.stopWhich);
+        else if (active[0]) {
+          L.pending = { kind: "stop", taskId: active[0].id };
+          await sayIt(p.confirmStop(active[0].prompt.slice(0, 80)));
+          return turn("confirm", undefined, id);
+        }
+        return next(id);
+      }
+      case "reply": {
+        const task = lastFinished();
+        if (!task?.sessionId) await sayIt(p.nothingToReply);
+        else await send((c) => c.reply(task.id, intent.text), p.sent);
+        return next(id);
+      }
+      case "runAgain": {
+        const task = lastFinished();
+        if (!task) await sayIt(p.nothingToReply);
+        else {
+          await send(
+            (c) =>
+              c.createTask({
+                workspaceId: task.workspaceId,
+                agent: task.agent,
+                prompt: task.prompt,
+              }),
+            p.started,
+          );
+        }
+        return next(id);
+      }
+      case "leads": {
+        if (!L.model.leads && L.client) {
+          setPhase("working");
+          await L.client.refreshLeads().catch(() => undefined);
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const leads = L.model.leads?.list ?? [];
+        if (leads.length === 0) await sayIt(p.noLeads);
+        else {
+          await sayIt(p.leads(leads.length, leads.filter((l) => l.tier === "hot").length));
+          for (const lead of leads.slice(0, 3)) {
+            await sayIt(`${lead.name}. ${lead.why}`, englishVoice());
+          }
+        }
+        return next(id);
+      }
+      case "repeat":
+        await sayIt(L.lastSaid);
+        return awaiting === "command" ? next(id) : turn(awaiting, question, id);
+      case "help":
+        await sayIt(p.help);
+        return awaiting === "command" ? next(id) : turn(awaiting, question, id);
+      case "stopListening":
+        return stopMode();
+      case "unknown":
+        await sayIt(p.sorry);
+        if (question && awaiting === "answer")
+          await sayIt(p.say(question.choices.map((c) => c.label)));
+        // A question or a confirmation is asked again; a one-off command just ends.
+        if (awaiting !== "command" || L.mode) return turn(awaiting, question, id);
+        setPhase("idle");
+        return;
+    }
+    return next(id);
+  };
+
+  /** Abandons the current turn and starts a new one. */
+  const fresh = () => {
+    live.current.turn += 1;
+    live.current.pending = undefined;
+    stopListening();
+    stopSpeaking();
+    setProblem(undefined);
+    return live.current.turn;
+  };
+
+  const toggleMode = () => {
+    if (live.current.mode) {
+      fresh();
+      void stopMode();
+      return;
+    }
+    const id = fresh();
+    live.current.mode = true;
+    live.current.quietSince = Date.now();
+    live.current.handled.clear();
+    setMode(true);
+    void (async () => {
+      const waiting = needsYou(live.current.model);
+      await sayIt(P().on(waiting.length));
+      if (waiting.length === 0) await sayIt(P().commandHint);
+      await next(id);
+    })();
+  };
+
+  const talk = () => {
+    const id = fresh();
+    const first = needsYou(live.current.model)[0];
+    void (first ? turn("answer", first, id) : turn("command", undefined, id));
+  };
+
+  const answer = (question: Question) => {
+    const id = fresh();
+    void turn("answer", question, id);
+  };
+
+  const readAloud = (text: string) => {
+    fresh();
+    void sayIt(text, englishVoice()).then(() => setPhase("idle"));
+  };
+
+  const hush = () => {
+    fresh();
+    if (live.current.mode) void stopMode(false);
+    setPhase("idle");
+  };
+
+  // Hands-free: a new question is read out as soon as it arrives.
+  const waitingIds = needsYou(model)
+    .map((q) => q.id)
+    .join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the set of waiting questions changes; the rest is read from `live`
+  useEffect(() => {
+    if (!live.current.mode || live.current.pending) return;
+    const unread = needsYou(live.current.model).find((q) => !live.current.handled.has(q.id));
+    if (!unread) return;
+    live.current.turn += 1;
+    stopListening();
+    void ask(unread, live.current.turn);
+  }, [waitingIds]);
+
+  const dictate = async (onText: (text: string) => void) => {
+    fresh();
+    const { settings: s, model: m, client: c } = live.current;
+    const precise = s.precise && canRecord() && m.transcribe && c !== undefined;
+    setPhase("listening");
+    try {
+      const result = await listen({
+        lang: s.lang,
+        hints: hints(),
+        long: true,
+        record: precise,
+        onPartial: onText,
+      });
+      onText(result.text);
+      if (precise && result.audioUri && c) {
+        setPhase("working");
+        const audio = await readAudio(result.audioUri);
+        const ack = await c.transcribe(audio, s.lang.slice(0, 2));
+        if (ack.ok && ack.result) onText(ack.result);
+        else
+          setProblem(
+            ack.error ?? "Precise mode didn't return any text; kept what the phone heard.",
+          );
+      }
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPhase("idle");
+    }
+  };
+
+  const value: Voice = {
+    canListen: canListen(),
+    canBePrecise: canRecord() && model.transcribe,
+    settings,
+    setSettings,
+    mode,
+    phase,
+    heard,
+    said,
+    problem,
+    toggleMode,
+    talk,
+    answer,
+    readAloud,
+    dictate,
+    stopDictation: stopListening,
+    hush,
+  };
+  return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
+}

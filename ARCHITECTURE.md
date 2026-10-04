@@ -264,6 +264,30 @@ app already does buttons and background delivery well.
 
 ---
 
+### Voice
+
+The phone can be used by voice, in English (India or US) and Tamil:
+
+- **Listening** uses Android's speech recognizer (`expo-speech-recognition`;
+  APK only): words appear live, the agent and project names and the command
+  words are passed as hints, and a low-confidence result is asked again.
+- **Speaking** uses Expo Speech: questions, results, running tasks and leads
+  are read aloud. Agent text is read in English; malves' own phrases follow the
+  chosen language.
+- **Commands** are fixed rules on the phone, not a model, so the same words
+  always do the same thing ("allow", "option two", "ask Claude to … in
+  <project>", "what's running", "read the result", "stop listening", and Tamil
+  or Tanglish equivalents). Any "no" word makes an answer a no, so a mishearing
+  can only deny.
+- **Safety** follows the questions rules: silence answers nothing; high-risk
+  answers, new tasks and stopping a task are read back and need "confirm" or
+  "start".
+- **Hands-free mode** reads each new question as it arrives and keeps
+  listening until "stop listening" or two minutes of silence.
+- **Precise dictation** (optional) records the prompt (Android 13+), sends it to
+  the runner in pieces over the encrypted link, and the runner transcribes it
+  with Whisper through freellmapi. The audio is kept in memory only until then.
+
 ## 5. Browser tasks: a Chrome extension, like Claude in Chrome
 
 **Owner's decisions (2026-10-02):** work like Claude in Chrome — in the user's
@@ -554,7 +578,8 @@ packages/
 
 - **Desktop tray app** — "stop everything" is `malves stop` in the terminal.
 - **App state library** — React's own state is enough.
-- **Navigation library (Expo Router)** — three screens switch on one piece of state.
+- **Navigation library (Expo Router)** — four tabs and a small stack of screens
+  (new task, task) are plain React state, with Android's back button handled.
 - **Runner web framework** — two local routes don't need one.
 
 ### Check before committing

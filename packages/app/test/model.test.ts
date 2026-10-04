@@ -3,15 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   type Action,
   ago,
+  countdown,
+  duration,
   emptyModel,
+  history,
+  mailtoFor,
   mayStillBeOpen,
   modelLine,
   needsYou,
+  parseLink,
   pickAgent,
+  questionsFor,
   recent,
+  recentPrompts,
   reduce,
   researchPrompt,
   running,
+  type Task,
 } from "../src/model";
 
 const demoReady: AgentInfo = { name: "demo", label: "Demo", state: "ready" };
@@ -275,5 +283,89 @@ describe("Chrome on the computer", () => {
       { type: "chrome", connected: true },
     );
     expect(m.chrome).toBe(true);
+  });
+});
+
+describe("task screen and history", () => {
+  it("keeps the last 50 live steps per task, newest last", () => {
+    let m = play(created("t1"));
+    for (let i = 0; i < 60; i++)
+      m = reduce(m, { type: "activity", taskId: "t1", text: `step ${i}`, at: i });
+    expect(m.activity.t1).toHaveLength(50);
+    expect(m.activity.t1?.at(-1)?.text).toBe("step 59");
+    expect(reduce(m, { type: "reset" }).activity).toEqual({});
+  });
+
+  it("filters the history, newest first", () => {
+    const m = play(
+      event(
+        {
+          type: "task.created",
+          data: { task_id: "a", workspace_id: "ws1", agent: "demo", prompt: "one" },
+        },
+        1,
+      ),
+      event(
+        {
+          type: "task.created",
+          data: { task_id: "b", workspace_id: "ws1", agent: "demo", prompt: "two" },
+        },
+        2,
+      ),
+      event(
+        {
+          type: "task.created",
+          data: { task_id: "c", workspace_id: "ws1", agent: "demo", prompt: "one" },
+        },
+        3,
+      ),
+      state("a", "done"),
+      event({ type: "task.updated", data: { task_id: "b", state: "failed", reason: "x" } }),
+    );
+    expect(history(m).map((t) => t.id)).toEqual(["c", "b", "a"]);
+    expect(history(m, "active").map((t) => t.id)).toEqual(["c"]);
+    expect(history(m, "done").map((t) => t.id)).toEqual(["a"]);
+    expect(history(m, "unfinished").map((t) => t.id)).toEqual(["b"]);
+    // Recent requests: each different prompt once, newest first.
+    expect(recentPrompts(m)).toEqual(["one", "two"]);
+  });
+
+  it("finds a task's own open questions", () => {
+    const m = play(created("t1"), created("t2"), opened("q1", "t1", 10), opened("q2", "t2", 5));
+    expect(questionsFor(m, "t1").map((q) => q.id)).toEqual(["q1"]);
+  });
+
+  it("says how long a task took, and how long a question has left", () => {
+    const task = { createdAt: 0, updatedAt: 200_000, state: "done" } as Task;
+    expect(duration(task)).toBe("3 min");
+    expect(duration({ ...task, state: "running" }, 45_000)).toBe("45 s");
+    expect(duration({ ...task, state: "running" }, 4_900_000)).toBe("1 h 21 min");
+    expect(countdown(245_000, 0)).toBe("4:05");
+    expect(countdown(4_000_000, 0)).toBe("1 h 6 min");
+    expect(countdown(0, 5)).toBe("0:00");
+  });
+});
+
+describe("links into the app, and lead emails", () => {
+  it("opens a task or Leads from a notification link, and ignores anything else", () => {
+    expect(parseLink("malves://task/t_ab12")).toEqual({ taskId: "t_ab12" });
+    expect(parseLink("malves://leads")).toEqual({ tab: "leads" });
+    expect(parseLink("https://evil.example/task/1")).toBeUndefined();
+    expect(parseLink("malves://settings")).toBeUndefined();
+    expect(parseLink(null)).toBeUndefined();
+  });
+
+  it("writes an email to the lead's contact, starting with the opener", () => {
+    const lead = {
+      name: "Hot Co",
+      opener: "Saw you were comparing tools",
+      contact: { name: "Ada Lovelace", title: "VP", email: "ada@hot.example", status: "valid" },
+    } as Lead;
+    const url = mailtoFor(lead) ?? "";
+    expect(url.startsWith("mailto:ada@hot.example?subject=Hot%20Co&body=")).toBe(true);
+    expect(decodeURIComponent(url.split("body=")[1] ?? "")).toBe(
+      "Hi Ada,\n\nSaw you were comparing tools\n",
+    );
+    expect(mailtoFor({ ...lead, contact: null })).toBeUndefined();
   });
 });

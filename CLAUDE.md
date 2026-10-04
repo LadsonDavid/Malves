@@ -19,7 +19,11 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   awaiting a real freellmapi test. Also built: review & commit a task's changes,
   weekly leads digest, Cursor profile (waits on its CLI), Chrome/last-seen on the
   phone, relay (`packages/relay`, topology B), APK workflow + `pnpm malves` +
-  `.env.example`. All awaiting real-world tests; see README "Where it stands".
+  `.env.example`. App UX overhaul: tabs (Home/Tasks/Leads/Settings), task screen with
+  live activity, notification taps open the task (APK only), dark mode, stop-all.
+  Voice (APK): en-IN/en-US/Tamil, rule-based commands, hands-free mode, precise
+  dictation via Whisper/freellmapi (ARCHITECTURE "Voice").
+  All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before

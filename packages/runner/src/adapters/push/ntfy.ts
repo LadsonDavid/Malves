@@ -110,7 +110,13 @@ export class NtfyPush implements Notifier {
 
   /** A plain notification with no buttons, e.g. the weekly leads digest. Phones not connected now miss it. */
   notify(title: string, message: string): void {
-    this.broadcast({ ...this.event("message"), title, message, priority: 3 });
+    this.broadcast({
+      ...this.event("message"),
+      title,
+      message,
+      priority: 3,
+      click: "malves://leads",
+    });
   }
 
   async close(): Promise<void> {
@@ -186,6 +192,7 @@ export class NtfyPush implements Notifier {
       title: `${KIND_TITLE[q.kind]} · ${q.risk} risk`,
       message: `${q.text.slice(0, 2000)}${more}`,
       priority: q.risk === "high" ? 5 : 4,
+      click: `malves://task/${encodeURIComponent(q.task_id)}`,
       actions: buttons,
     };
   }

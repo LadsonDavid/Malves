@@ -27,6 +27,8 @@ export type Runner = Core & {
   usePush(push: Notifier): void;
   /** A finished task's changes as a diff, for "View changes". */
   diff(taskId: string): string;
+  /** Live "what is the agent doing" for each task; returns a function that stops listening. */
+  onActivity(listener: (taskId: string, text: string) => void): () => void;
   /** Meters free-model agents through this guard (§6). */
   useGuard(guard: BudgetGuard): void;
   /** The agent's saved conversations in a workspace, newest first, to continue one. */
@@ -47,8 +49,12 @@ export function openRunner(o: RunnerOptions): Runner {
     let browserTools: BrowserTools | undefined;
     let push: Notifier | undefined;
     let guard: BudgetGuard | undefined;
+    const activity = new Set<(taskId: string, text: string) => void>();
     const host = new AcpHost({
-      ...(o.onActivity ? { onActivity: o.onActivity } : {}),
+      onActivity: (taskId, text) => {
+        o.onActivity?.(taskId, text);
+        for (const listener of activity) listener(taskId, text);
+      },
       onSignInNeeded: (agent) => status?.set(agent, "needs_sign_in"),
       onReady: (agent) => status?.set(agent, "ready"),
       signInMessage: (agent) => signInMessage(agent, profiles),
@@ -93,6 +99,10 @@ export function openRunner(o: RunnerOptions): Runner {
       },
       useGuard(g) {
         guard = g;
+      },
+      onActivity(listener) {
+        activity.add(listener);
+        return () => activity.delete(listener);
       },
       diff: (taskId) => changes.diff(taskId),
       async listSessions(agent, workspaceId) {
