@@ -288,6 +288,38 @@ The phone can be used by voice, in English (India or US) and Tamil:
   the runner in pieces over the encrypted link, and the runner transcribes it
   with Whisper through freellmapi. The audio is kept in memory only until then.
 
+### Malves, the assistant
+
+When it's set up, what you say goes to **Malves**, an assistant that
+understands loose speech, mixed English and Tamil, and missing context. The
+fixed rules above stay as the fallback when it's off or unreachable.
+
+- **Brain:** an OpenAI-compatible endpoint with tool calls — freellmapi on a
+  free Oracle Cloud VM, reached over Tailscale, so it costs nothing and doesn't
+  load the laptop (`MALVES_MODELS_URL`, `MALVES_MODELS_KEY`). The runner
+  gives it the agents, projects, tasks, waiting questions and recalled
+  memories; untrusted text (prompts, agent questions) is marked `<data>` and
+  never treated as instructions.
+- **The brain proposes, the code decides.** It can only call tools (start,
+  stop, reply to and re-run tasks; answer questions; ask an IDE's agent; read
+  tasks and leads; remember, recall, forget). The runner's policy then acts at
+  once only on a "no", a low-risk answer, a lookup or a memory change.
+  Everything else is held and **read back in words the code writes** (not the
+  brain), and needs a yes — said, matched by fixed rules, or tapped on
+  **Confirm**. A held action expires after three minutes. Silence answers
+  nothing; the safety rules aren't something it can change.
+- **Hearing:** Android's recognizer with up to four guesses, all sent to the
+  brain. When Android isn't sure, the recording goes to Whisper on the
+  computer for a second listen.
+- **Speaking:** the phone's own voices (Indian English, Tamil; chosen in
+  Settings). Replies in Tamil script are read in the Tamil voice.
+- **Memory:** Markdown notes in an Obsidian vault (`MALVES_VAULT`, the source
+  of truth: Facts, Preferences, People, Projects, Lessons, Skills) with an
+  embeddings index in SQLite beside it. A note that says the same thing as a
+  newer one is closed (`valid_to`), not deleted. Edits made in Obsidian are
+  picked up; Settings → Malves' memory lists the notes and deletes any of them.
+  Each day's conversation is logged in `Conversations/`.
+
 ### Desktop IDEs
 
 malves runs the agents' headless forms (ACP over stdio). The desktop IDEs —
@@ -468,6 +500,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 7 | Two deployment topologies |
 | 8 | Browser tasks through the same questions pipeline, via the gate |
 | 9 | Budget guard with a quality floor |
+| 10 | Malves, the assistant: a hosted brain proposes tool calls; runner code decides, reads risky actions back in its own words and needs a yes; memory is an Obsidian vault |
 
 ---
 

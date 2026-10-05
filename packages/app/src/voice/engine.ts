@@ -33,14 +33,24 @@ export function canRecord(): boolean {
   }
 }
 
-/** Says `text`; resolves when it's finished or stopped. */
-export function speak(text: string, language: Lang): Promise<void> {
+/** The phone's voices for a language (e.g. Indian English, Tamil), for the voice picker. */
+export async function voicesFor(language: Lang): Promise<Array<{ id: string; name: string }>> {
+  const prefix = language.toLowerCase();
+  const all = await Speech.getAvailableVoicesAsync().catch(() => []);
+  return all
+    .filter((v) => v.language.toLowerCase().replace("_", "-").startsWith(prefix))
+    .map((v) => ({ id: v.identifier, name: v.name }));
+}
+
+/** Says `text` (in `voice` when given); resolves when it's finished or stopped. */
+export function speak(text: string, language: Lang, voice?: string): Promise<void> {
   return new Promise((resolve) => {
     const done = () => resolve();
     // Long texts are cut to what the phone can say in one go.
     const max = Number.isFinite(Speech.maxSpeechInputLength) ? Speech.maxSpeechInputLength : 4000;
     Speech.speak(text.slice(0, max), {
       language,
+      ...(voice ? { voice } : {}),
       rate: 1.0,
       onDone: done,
       onStopped: done,
@@ -55,6 +65,8 @@ export function stopSpeaking(): void {
 
 export type Heard = {
   text: string;
+  /** The recognizer's other guesses, best first (they help Malves' brain). */
+  alternatives: string[];
   /** 0–1 when the recognizer gives one; undefined when it doesn't. */
   confidence: number | undefined;
   /** The recording (WAV), when `record` was asked for and the phone can do it. */
@@ -89,6 +101,7 @@ export async function listen(o: ListenOptions): Promise<Heard> {
     let partial = "";
     let confidence: number | undefined;
     let audioUri: string | undefined;
+    let alternatives: string[] = [];
     let settled = false;
     const subs = [
       module.addListener("result", (event) => {
@@ -96,6 +109,10 @@ export async function listen(o: ListenOptions): Promise<Heard> {
         if (!best) return;
         if (event.isFinal) {
           segments.push(best.transcript.trim());
+          alternatives = event.results
+            .slice(1, 4)
+            .map((r) => r.transcript.trim())
+            .filter(Boolean);
           partial = "";
           if (best.confidence > 0) confidence = best.confidence;
         } else partial = best.transcript;
@@ -125,14 +142,14 @@ export async function listen(o: ListenOptions): Promise<Heard> {
       active = undefined;
       if (error) return reject(error);
       const text = [...segments, partial].filter(Boolean).join(" ").trim();
-      resolve({ text, confidence, audioUri });
+      resolve({ text, alternatives, confidence, audioUri });
     };
     active = { stop: () => module.stop() };
     module.start({
       lang: o.lang,
       interimResults: true,
       continuous: o.long ?? false,
-      maxAlternatives: 1,
+      maxAlternatives: 4,
       contextualStrings: o.hints.slice(0, 100),
       ...(o.record && canRecord() ? { recordingOptions: { persist: true } } : {}),
       androidIntentOptions: {

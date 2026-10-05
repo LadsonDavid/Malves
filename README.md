@@ -77,6 +77,7 @@ public issue before it's decided, not after.
 |---|---|
 | Desktop runner | Works. Runs Claude Code, Codex, Antigravity and Cursor through ACP (Cursor: once its CLI is installed) |
 | Android app | Home, Tasks, Leads and Settings tabs. Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; email leads; stop everything from Settings. Follows the phone's dark mode. **Voice:** talk to it in English or Tamil — answer questions, start tasks ("ask Claude to fix the footer"), hear results; hands-free mode reads questions aloud as they arrive (APK) |
+| Malves, the assistant | Talk naturally — sloppy, mixed English and Tamil is fine. It starts and checks on tasks, answers questions, and remembers what you tell it (notes in your Obsidian vault). Anything risky is read back and needs your yes. Its brain runs on freellmapi on a free cloud VM, not your laptop |
 | Desktop IDEs | One extension for VS Code, Cursor, Antigravity and Windsurf: from the phone, start the IDE's own agent, open a task's changes there, continue your Claude Code / Codex IDE conversations (or reopen them at the desk); agent questions also appear in the IDE |
 | Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
