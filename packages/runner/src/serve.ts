@@ -5,6 +5,8 @@ import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
+import { IdeBridge } from "./adapters/ide/bridge.js";
+import { ideControl } from "./adapters/ide/control.js";
 import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
@@ -12,8 +14,10 @@ import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
+import { agentProfiles } from "./agents.js";
 import {
   extensionToken,
+  ideToken,
   lanAddresses,
   pushTopic,
   resolveFolder,
@@ -29,6 +33,7 @@ const HELP = `Commands while serving:
   push            notifications: status and how to set them up
   push new        new notification topic (cuts off every subscribed phone)
   extension       how to connect Chrome, and its code
+  ide             how to connect VS Code, Cursor, Antigravity or Windsurf
   extension new   replace the Chrome code (shuts out the old one)
   devices         list paired phones
   revoke <id>     unpair a phone immediately (lost phone)
@@ -90,6 +95,25 @@ export async function serve(
   const leads = leadsUrl
     ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY })
     : undefined;
+  // IDEs (VS Code, Cursor, Antigravity, Windsurf) with malves' extension connect here.
+  const profiles = agentProfiles(dir);
+  const label = (agent: string) => profiles.get(agent)?.label ?? agent;
+  const ides = new IdeBridge(runner, { token: ideToken(dir), agentLabel: label });
+  const idesOn = await ides
+    .start()
+    .then(() => true)
+    .catch((error: unknown) => {
+      console.log(
+        `IDE bridge couldn't start: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    });
+  let ideNames = "";
+  ides.onChange((list) => {
+    const now = list.map((w) => w.app).join(", ");
+    if (now !== ideNames) console.log(now ? `IDEs connected: ${now}.` : "No IDE connected.");
+    ideNames = now;
+  });
   const server = new LinkServer(runner, {
     host,
     port,
@@ -101,6 +125,14 @@ export async function serve(
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
     transcriber: transcriberFromEnv(),
+    ide: idesOn
+      ? ideControl(ides, {
+          workspaces: () => runner.workspaces.list(),
+          workspace: (id) => runner.workspaces.get(id),
+          changedFiles: (taskId) => runner.changedFiles(taskId),
+          agentLabel: label,
+        })
+      : undefined,
     leads,
   });
   const say = (line: string) => console.log(line);
@@ -217,6 +249,26 @@ export async function serve(
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    ide: () => {
+      const vsix = fileURLToPath(new URL("../../ide/malves.vsix", import.meta.url));
+      say(
+        [
+          "",
+          "Connect an IDE (VS Code, Cursor, Antigravity, Windsurf) — once per IDE:",
+          "  1. Build the extension (once): pnpm --filter malves-ide package",
+          "  2. In the IDE: Extensions panel → ⋯ → Install from VSIX… and choose:",
+          `     ${vsix}`,
+          '  3. It connects by itself while malves serve runs (look for "malves" in the status bar).',
+          "",
+          `Connected now: ${
+            ides
+              .list()
+              .map((w) => `${w.app} (${w.folders.map((f) => path.basename(f)).join(", ")})`)
+              .join("; ") || "none"
+          }.`,
+        ].join("\n"),
+      );
+    },
     push: ([mode]) => {
       if (mode === "new" && push) {
         push.renew(pushTopic(dir, true));
@@ -284,6 +336,7 @@ export async function serve(
   relay?.close();
   await server.close();
   stopRenewing();
+  await ides.close();
   stopActivity();
   stopDigest();
   await push?.close();

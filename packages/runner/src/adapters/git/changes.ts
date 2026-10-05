@@ -50,6 +50,12 @@ export class GitChanges {
     this.unsubscribe();
   }
 
+  /** The task's changed files (repo-relative) and the repo they're in. */
+  files(taskId: string): { root: string; files: string[] } | undefined {
+    const known = this.changed.get(taskId);
+    return known && { root: known.root, files: [...known.files] };
+  }
+
   /** The task's changes as a diff, for "View changes". */
   diff(taskId: string): string {
     const known = this.changed.get(taskId);

@@ -7,6 +7,8 @@ import {
   duration,
   emptyModel,
   history,
+  ideName,
+  idesFor,
   mailtoFor,
   mayStillBeOpen,
   modelLine,
@@ -367,5 +369,29 @@ describe("links into the app, and lead emails", () => {
       "Hi Ada,\n\nSaw you were comparing tools\n",
     );
     expect(mailtoFor({ ...lead, contact: null })).toBeUndefined();
+  });
+});
+
+describe("IDEs at your desk", () => {
+  const welcome = (ides: unknown[]) =>
+    ({ computer: "pc", workspaces: [], agents: [], ides }) as never;
+  const cursor = { id: "i1", app: "Cursor", projects: [{ name: "malves", workspace_id: "ws1" }] };
+  const code = { id: "i2", app: "Visual Studio Code", projects: [{ name: "site" }] };
+
+  it("knows which IDE windows are open, and which show a project", () => {
+    const m = play({ type: "welcome", welcome: welcome([cursor, code]) });
+    expect(idesFor(m, "ws1").map((i) => i.id)).toEqual(["i1"]);
+    expect(idesFor(m, "ws9")).toEqual([]);
+    expect(reduce(m, { type: "ides", ides: [code] }).ides).toEqual([code]);
+  });
+
+  it("names a window by its app, and by project when there are two of one IDE", () => {
+    const m = play({ type: "welcome", welcome: welcome([cursor, code]) });
+    expect(ideName(m, cursor)).toBe("Cursor");
+    const twins = play({
+      type: "welcome",
+      welcome: welcome([cursor, { ...cursor, id: "i3", projects: [{ name: "website" }] }]),
+    });
+    expect(ideName(twins, cursor)).toBe("Cursor (malves)");
   });
 });

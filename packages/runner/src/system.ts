@@ -102,6 +102,11 @@ export function extensionToken(dir: string, renew = false): string {
   return secret(dir, "extension-token.json", renew);
 }
 
+/** The secret malves' IDE extension proves itself with; it reads it from this folder. */
+export function ideToken(dir: string): string {
+  return secret(dir, "ide-token.json", false);
+}
+
 /**
  * The secret ntfy topic phones subscribe to for notifications. `renew` replaces
  * it, so a phone subscribed with the old one gets nothing more.

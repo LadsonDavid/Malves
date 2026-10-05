@@ -110,6 +110,33 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/** Ask an open IDE's own agent to do something (VS Code starts it; Cursor pre-fills it). */
+export const IdeAgent = z.object({
+  type: z.literal("ide.agent"),
+  command_id: Id,
+  ide_id: Id,
+  prompt: z.string().min(1).max(8_000),
+});
+
+/** Open a finished task's changed files, as diffs, in an open IDE. */
+export const IdeOpenChanges = z.object({
+  type: z.literal("ide.open_changes"),
+  command_id: Id,
+  ide_id: Id,
+  task_id: Id,
+});
+
+/** Back at the desk: reopen an agent conversation in the IDE's terminal. */
+export const IdeResume = z.object({
+  type: z.literal("ide.resume"),
+  command_id: Id,
+  ide_id: Id,
+  workspace_id: Id,
+  agent: Id,
+  // Only letters, digits and . _ : - — it ends up on a terminal command line.
+  session_id: z.string().regex(/^[\w.:-]{1,128}$/),
+});
+
 /** One piece of a voice recording for precise mode (in order, ≤ 96 KB of audio each). */
 export const VoiceChunk = z.object({
   type: z.literal("voice.chunk"),
@@ -148,6 +175,9 @@ export const Command = z.discriminatedUnion("type", [
   TasksStopAll,
   VoiceChunk,
   VoiceTranscribe,
+  IdeAgent,
+  IdeOpenChanges,
+  IdeResume,
   AgentsCheck,
   LeadsRefresh,
 ]);
@@ -171,6 +201,15 @@ export const AgentInfo = z.object({
 });
 export type AgentInfo = z.infer<typeof AgentInfo>;
 
+/** An IDE window open on the computer, and the projects it shows (names only, no paths). */
+export const IdeInfo = z.object({
+  id: Id,
+  /** e.g. "Visual Studio Code", "Cursor", "Antigravity". */
+  app: z.string().max(60),
+  projects: z.array(z.object({ name: z.string().max(200), workspace_id: Id.optional() })).max(20),
+});
+export type IdeInfo = z.infer<typeof IdeInfo>;
+
 export const Welcome = z.object({
   type: z.literal("welcome"),
   v: z.number().int(),
@@ -185,6 +224,8 @@ export const Welcome = z.object({
   chrome: z.boolean().optional(),
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: z.boolean().optional(),
+  /** IDE windows open on the computer, with malves' IDE extension. */
+  ides: z.array(IdeInfo).max(20).optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
 
@@ -195,6 +236,9 @@ export const ActivityMessage = z.object({
   text: z.string().max(500),
   at: z.number().int(),
 });
+
+/** Sent when IDE windows open, close or change project. */
+export const IdesMessage = z.object({ type: z.literal("ides"), ides: z.array(IdeInfo).max(20) });
 
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
@@ -236,6 +280,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
   ChromeMessage,
+  IdesMessage,
   ActivityMessage,
   LeadsMessage,
   EventMessage,

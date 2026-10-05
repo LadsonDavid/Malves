@@ -1,6 +1,7 @@
 import type {
   AgentInfo,
   Choice,
+  IdeInfo,
   Lead,
   LoggedEvent,
   QuestionKind,
@@ -65,6 +66,8 @@ export type Model = {
   chrome: boolean | null;
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: boolean;
+  /** IDE windows open on the computer (with malves' IDE extension). */
+  ides: IdeInfo[];
   /** What each task's agent has been doing, newest last. Live only: lost on restart. */
   activity: Record<string, Activity[]>;
 };
@@ -79,6 +82,7 @@ export type Action =
   | { type: "event"; event: LoggedEvent }
   | { type: "agents"; agents: AgentInfo[] }
   | { type: "chrome"; connected: boolean }
+  | { type: "ides"; ides: IdeInfo[] }
   | { type: "activity"; taskId: string; text: string; at: number }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
   | { type: "reset" };
@@ -93,6 +97,7 @@ export const emptyModel: Model = {
   push: null,
   chrome: null,
   transcribe: false,
+  ides: [],
   activity: {},
 };
 
@@ -102,6 +107,8 @@ export function reduce(model: Model, action: Action): Model {
       return { ...model, agents: action.agents };
     case "chrome":
       return { ...model, chrome: action.connected };
+    case "ides":
+      return { ...model, ides: action.ides };
     case "activity": {
       const lines = [
         ...(model.activity[action.taskId] ?? []),
@@ -125,6 +132,7 @@ export function reduce(model: Model, action: Action): Model {
         push: action.welcome.push?.subscribe ?? null,
         chrome: action.welcome.chrome ?? null,
         transcribe: action.welcome.transcribe ?? false,
+        ides: action.welcome.ides ?? [],
       };
     case "event":
       return apply(model, action.event);
@@ -406,4 +414,16 @@ export function modelLine(task: Task, agents: AgentInfo[]): string {
 
 function formatTokens(n: number): string {
   return n < 1000 ? String(n) : `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+}
+
+/** The open IDE windows showing this project. */
+export function idesFor(model: Model, workspaceId: string): IdeInfo[] {
+  return model.ides.filter((ide) => ide.projects.some((p) => p.workspace_id === workspaceId));
+}
+
+/** "Cursor", or "Cursor (malves)" when several windows of one IDE are open. */
+export function ideName(model: Model, ide: IdeInfo): string {
+  const twins = model.ides.filter((i) => i.app === ide.app).length;
+  const first = ide.projects[0]?.name;
+  return twins > 1 && first ? `${ide.app} (${first})` : ide.app;
 }
