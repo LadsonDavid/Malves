@@ -36,6 +36,8 @@ export type LinkServerOptions = {
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
+  /** Malves, the assistant, when its brain is set up. */
+  assistant?: AssistantPort | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
   ide?: IdeControl | undefined;
   /** Precise dictation through Whisper, when freellmapi is set up. */
@@ -51,6 +53,22 @@ export type LinkServerOptions = {
   handshakeTimeoutMs?: number;
   heartbeatMs?: number;
 };
+
+/** Malves, the assistant (see `Assistant`), and its memory. */
+export interface AssistantPort {
+  say(
+    conversationId: string,
+    text: string,
+    alternatives: string[],
+  ): Promise<NonNullable<Ack["assistant"]>>;
+  confirm(
+    conversationId: string,
+    pendingId: string,
+    yes: boolean,
+  ): Promise<NonNullable<Ack["assistant"]>>;
+  memories(): Promise<NonNullable<Ack["memories"]>>;
+  forget(memoryId: string): boolean;
+}
 
 /** The phone's view of open IDEs (see `IdeBridge`). */
 export interface IdeControl {
@@ -69,6 +87,8 @@ export interface AgentDirectory {
 }
 
 const PAGE = 500;
+const ASSISTANT_OFF =
+  "Malves' brain isn't set up on the computer (MALVES_MODELS_URL, MALVES_MODELS_KEY, MALVES_VAULT).";
 const PRECISE_OFF =
   "Precise mode needs freellmapi on the computer (MALVES_MODELS_URL and MALVES_MODELS_KEY).";
 const MAX_FRAME_BYTES = 256 * 1024;
@@ -278,6 +298,7 @@ export class LinkServer {
       ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
+      ...(this.o.assistant ? { assistant: true } : {}),
     };
   }
 
@@ -340,6 +361,28 @@ export class LinkServer {
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
         }
+        case "assistant.say":
+        case "assistant.confirm": {
+          const assistant = this.o.assistant;
+          if (!assistant) return ack(false, { error: ASSISTANT_OFF });
+          const answer =
+            command.type === "assistant.say"
+              ? await assistant.say(
+                  command.conversation_id,
+                  command.text,
+                  command.alternatives ?? [],
+                )
+              : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
+          return ack(true, { assistant: answer });
+        }
+        case "memory.list":
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          return ack(true, { memories: await this.o.assistant.memories() });
+        case "memory.forget":
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          return this.o.assistant.forget(command.memory_id)
+            ? ack(true)
+            : ack(false, { error: "That memory is already gone." });
         case "ide.agent":
         case "ide.open_changes":
         case "ide.resume": {

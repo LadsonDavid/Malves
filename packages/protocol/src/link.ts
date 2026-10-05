@@ -110,6 +110,34 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/** Something said to Malves, the assistant. Android's other guesses help it understand. */
+export const AssistantSay = z.object({
+  type: z.literal("assistant.say"),
+  command_id: Id,
+  conversation_id: Id,
+  text: z.string().min(1).max(2000),
+  alternatives: z.array(z.string().max(500)).max(5).optional(),
+});
+
+/** Yes or no to the action Malves read back (Confirm / Cancel buttons). */
+export const AssistantConfirm = z.object({
+  type: z.literal("assistant.confirm"),
+  command_id: Id,
+  conversation_id: Id,
+  pending_id: Id,
+  yes: z.boolean(),
+});
+
+/** What Malves remembers (answered in `ack.memories`). */
+export const MemoryList = z.object({ type: z.literal("memory.list"), command_id: Id });
+
+/** Delete one memory for good. */
+export const MemoryForget = z.object({
+  type: z.literal("memory.forget"),
+  command_id: Id,
+  memory_id: Id,
+});
+
 /** Ask an open IDE's own agent to do something (VS Code starts it; Cursor pre-fills it). */
 export const IdeAgent = z.object({
   type: z.literal("ide.agent"),
@@ -175,6 +203,10 @@ export const Command = z.discriminatedUnion("type", [
   TasksStopAll,
   VoiceChunk,
   VoiceTranscribe,
+  AssistantSay,
+  AssistantConfirm,
+  MemoryList,
+  MemoryForget,
   IdeAgent,
   IdeOpenChanges,
   IdeResume,
@@ -224,6 +256,8 @@ export const Welcome = z.object({
   chrome: z.boolean().optional(),
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: z.boolean().optional(),
+  /** Whether Malves, the assistant, is set up (its brain reachable). */
+  assistant: z.boolean().optional(),
   /** IDE windows open on the computer, with malves' IDE extension. */
   ides: z.array(IdeInfo).max(20).optional(),
 });
@@ -266,6 +300,27 @@ export const Ack = z.object({
   error: z.string().optional(),
   /** The answer to `sessions.list`. */
   sessions: z.array(AgentSessionInfo).optional(),
+  /** Malves' answer to `assistant.say` / `assistant.confirm`. */
+  assistant: z
+    .object({
+      reply: z.string(),
+      pending: z.object({ id: Id, summary: z.string() }).optional(),
+      did: z.array(z.string()),
+      offline: z.boolean().optional(),
+    })
+    .optional(),
+  /** The answer to `memory.list`. */
+  memories: z
+    .array(
+      z.object({
+        id: z.string(),
+        kind: z.string(),
+        title: z.string(),
+        text: z.string(),
+        since: z.string(),
+      }),
+    )
+    .optional(),
 });
 export type Ack = z.infer<typeof Ack>;
 

@@ -196,6 +196,36 @@ export class LinkClient {
     return this.send({ type: "voice.transcribe", upload_id: uploadId, language });
   }
 
+  /** Says something to Malves; the reply is in `ack.assistant`. */
+  assistantSay(conversationId: string, text: string, alternatives: string[] = []): Promise<Ack> {
+    return this.send({
+      type: "assistant.say",
+      conversation_id: conversationId,
+      text,
+      ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
+    });
+  }
+
+  /** Yes or no to the action Malves read back. */
+  assistantConfirm(conversationId: string, pendingId: string, yes: boolean): Promise<Ack> {
+    return this.send({
+      type: "assistant.confirm",
+      conversation_id: conversationId,
+      pending_id: pendingId,
+      yes,
+    });
+  }
+
+  /** What Malves remembers, in `ack.memories`. */
+  memoryList(): Promise<Ack> {
+    return this.send({ type: "memory.list" });
+  }
+
+  /** Deletes one memory for good. */
+  memoryForget(memoryId: string): Promise<Ack> {
+    return this.send({ type: "memory.forget", memory_id: memoryId });
+  }
+
   /** Asks an open IDE's own agent to do something; `ack.result` says what happened. */
   ideAgent(ideId: string, prompt: string): Promise<Ack> {
     return this.send({ type: "ide.agent", ide_id: ideId, prompt });
