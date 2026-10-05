@@ -25,6 +25,10 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   dictation via Whisper/freellmapi (ARCHITECTURE "Voice"). IDE companion extension
   (`packages/ide`, ARCHITECTURE "Desktop IDEs"): start the IDE's agent, open changes,
   reopen conversations, answer questions in the IDE — awaiting a real IDE test.
+  Malves the assistant (ARCHITECTURE "Malves, the assistant"): brain on freellmapi
+  on an Oracle Cloud VM over Tailscale, memory in an Obsidian vault, phone voice
+  routed to it with rule fallback, Confirm/Cancel, voice picker, memory screen —
+  runner side tested live, phone side awaiting a real test.
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
@@ -66,6 +70,9 @@ Set these locally in every new environment. Never commit here as
 | Unanswered question → **stop**, never proceed | R3 |
 | Push is a hint; the event log is the truth | Lost pushes never break anything |
 | Push via the ntfy app, with the runner as its server over Tailscale | `expo-unified-push` has no answer buttons (R1) and needs a custom build |
+| Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
+| Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
+| Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
 | Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API; UI automation stays ruled out |
 
 ## Ruled out — don't re-propose

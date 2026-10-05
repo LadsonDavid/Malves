@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
+import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
 import { IdeBridge } from "./adapters/ide/bridge.js";
@@ -114,6 +115,22 @@ export async function serve(
     if (now !== ideNames) console.log(now ? `IDEs connected: ${now}.` : "No IDE connected.");
     ideNames = now;
   });
+  const ideCtl = idesOn
+    ? ideControl(ides, {
+        workspaces: () => runner.workspaces.list(),
+        workspace: (id) => runner.workspaces.get(id),
+        changedFiles: (taskId) => runner.changedFiles(taskId),
+        agentLabel: label,
+      })
+    : undefined;
+  // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
+  const malves = assistantFromEnv({
+    core: runner,
+    dataDir: dir,
+    agents: () => runner.agents.list(),
+    ide: ideCtl,
+    leads: leads ? () => leads.fetch() : undefined,
+  });
   const server = new LinkServer(runner, {
     host,
     port,
@@ -125,14 +142,8 @@ export async function serve(
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
     transcriber: transcriberFromEnv(),
-    ide: idesOn
-      ? ideControl(ides, {
-          workspaces: () => runner.workspaces.list(),
-          workspace: (id) => runner.workspaces.get(id),
-          changedFiles: (taskId) => runner.changedFiles(taskId),
-          agentLabel: label,
-        })
-      : undefined,
+    ide: ideCtl,
+    assistant: malves?.port,
     leads,
   });
   const say = (line: string) => console.log(line);
@@ -161,6 +172,11 @@ export async function serve(
       : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
+  say(
+    malves
+      ? `Malves (assistant): on — memory in ${process.env.MALVES_VAULT}.`
+      : "Malves (assistant): off (set MALVES_MODELS_URL, MALVES_MODELS_KEY and MALVES_VAULT).",
+  );
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
   say(
     pushOn
@@ -336,6 +352,7 @@ export async function serve(
   relay?.close();
   await server.close();
   stopRenewing();
+  malves?.close();
   await ides.close();
   stopActivity();
   stopDigest();

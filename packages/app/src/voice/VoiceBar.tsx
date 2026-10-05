@@ -53,8 +53,27 @@ export function VoiceBar() {
       ) : null}
       {voice.said ? (
         <Text style={styles.muted} numberOfLines={3}>
-          malves: {voice.said}
+          Malves: {voice.said}
         </Text>
+      ) : null}
+      {voice.pending ? (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.body}>{voice.pending.summary}</Text>
+          <View style={styles.row}>
+            <Button
+              title="Confirm"
+              kind="primary"
+              hint="Malves does what it just read back"
+              onPress={() => voice.confirmPending(true)}
+            />
+            <Button
+              title="Cancel"
+              kind="plain"
+              hint="Nothing happens"
+              onPress={() => voice.confirmPending(false)}
+            />
+          </View>
+        </View>
       ) : null}
       {voice.problem ? <Banner tone="bad">{voice.problem}</Banner> : null}
       {!busy && !voice.heard ? (

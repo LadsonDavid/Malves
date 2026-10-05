@@ -42,6 +42,11 @@ import {
  * Voice mode: malves reads questions aloud, listens, and acts — hands-free
  * until "stop listening", or one turn at a time with the mic buttons.
  *
+ * When Malves (the assistant) is set up on the computer, what you say goes to
+ * its brain, which understands loose speech; the fixed rules below are the
+ * fallback when it's off or unreachable. When Android isn't sure what it
+ * heard, the recording goes to Whisper on the computer for a second opinion.
+ *
  * Safety, as everywhere in malves:
  * - silence never answers anything; an unclear or unsure sentence is asked again;
  * - a high-risk answer is read back and needs "confirm";
@@ -67,6 +72,9 @@ type Voice = {
   /** What malves last said. */
   said: string;
   problem: string | undefined;
+  /** An action Malves read back and is waiting on (Confirm / Cancel buttons). */
+  pending: { id: string; summary: string } | undefined;
+  confirmPending: (yes: boolean) => void;
   toggleMode: () => void;
   /** One turn: a command, or an answer to the oldest question. */
   talk: () => void;
@@ -92,6 +100,8 @@ export function useVoice(): Voice {
 const IDLE_MS = 2 * 60_000;
 /** Below this, the recognizer wasn't sure: ask again. */
 const SURE = 0.4;
+/** Said in hands-free mode, these never need the brain. */
+const LOCAL_ONLY = new Set<Intent["kind"]>(["stopListening", "repeat", "more", "help"]);
 /** How much of a result is read at once; "more" reads the next part. */
 const READ_CHUNK = 500;
 
@@ -114,6 +124,9 @@ export function VoiceProvider({
   const [heard, setHeard] = useState("");
   const [said, setSaid] = useState("");
   const [problem, setProblem] = useState<string>();
+  const [pending, setPendingState] = useState<{ id: string; summary: string }>();
+  // One conversation per app session: Malves keeps its short-term context per id.
+  const conversationId = useRef(`app-${Date.now().toString(36)}`).current;
 
   // The conversation runs across awaits: it reads the latest state from here.
   const live = useRef({
@@ -126,6 +139,8 @@ export function VoiceProvider({
     /** Bumped to abandon whatever turn is in progress. */
     turn: 0,
     pending: undefined as Pending | undefined,
+    /** Malves' read-back action, decided on the computer. */
+    brainPending: undefined as { id: string; summary: string } | undefined,
     lastSaid: "",
     reading: { text: "", offset: 0 },
     /** Questions already read out or answered, so they aren't read twice. */
@@ -150,7 +165,68 @@ export function VoiceProvider({
     setPhase("speaking");
     setSaid(text);
     live.current.lastSaid = text;
-    await speak(text, lang);
+    await speak(text, lang, live.current.settings.voices[lang]);
+  };
+
+  const setBrainPending = (next: { id: string; summary: string } | undefined) => {
+    live.current.brainPending = next;
+    setPendingState(next);
+  };
+
+  /** Malves' brain is there to talk to. */
+  const brainOn = () =>
+    live.current.model.assistant && live.current.status === "online" && !!live.current.client;
+
+  /** Tamil script is read in the Tamil voice; English and Tanglish in the English one. */
+  const voiceFor = (text: string): Lang =>
+    /[\u0B80-\u0BFF]/.test(text) ? "ta-IN" : englishVoice();
+
+  /** Whisper's reading of a recording, or undefined. */
+  const whisper = async (uri: string): Promise<string | undefined> => {
+    const c = live.current.client;
+    if (!c) return undefined;
+    try {
+      const ack = await c.transcribe(await readAudio(uri), live.current.settings.lang.slice(0, 2));
+      return ack.ok && ack.result?.trim() ? ack.result.trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * Sends what was said to Malves and speaks its reply. False when the brain
+   * couldn't answer, so the caller falls back to the rules.
+   */
+  const think = async (text: string, alternatives: string[], id: number): Promise<boolean> => {
+    const c = live.current.client;
+    if (!c) return false;
+    setPhase("working");
+    // A short filler if the brain is slow, so silence doesn't feel like a hang.
+    const slow = setTimeout(() => {
+      if (id === live.current.turn) void sayIt(P().oneSec);
+    }, 1500);
+    let reply: Awaited<ReturnType<LinkClient["assistantSay"]>>["assistant"];
+    try {
+      const ack = await c.assistantSay(conversationId, text, alternatives);
+      reply = ack.ok ? ack.assistant : undefined;
+    } catch {
+      reply = undefined;
+    } finally {
+      clearTimeout(slow);
+    }
+    if (id !== live.current.turn) return true;
+    if (!reply || reply.offline) return false;
+    setBrainPending(reply.pending);
+    if (reply.did.length > 0) buzz();
+    await sayIt(reply.reply, voiceFor(reply.reply));
+    return true;
+  };
+
+  /** After Malves spoke: its read-back or its question gets an answer, else carry on. */
+  const afterThink = (id: number) => {
+    const L = live.current;
+    if (L.brainPending || L.lastSaid.trim().endsWith("?")) return turn("command", undefined, id);
+    return next(id);
   };
 
   const hints = (question?: Question) => [
@@ -188,6 +264,7 @@ export function VoiceProvider({
       result = await listen({
         lang: live.current.settings.lang,
         hints: hints(question),
+        record: canRecord() && live.current.model.transcribe && live.current.status === "online",
         onPartial: setHeard,
       });
     } catch (error) {
@@ -207,16 +284,36 @@ export function VoiceProvider({
       return;
     }
     live.current.quietSince = Date.now();
+    let text = result.text;
     if (result.confidence !== undefined && result.confidence < SURE) {
-      await sayIt(P().unsure(result.text));
-      return turn(awaiting, question, id);
+      // Not sure: Whisper gets a second listen; the brain copes with the rest.
+      const better = result.audioUri ? await whisper(result.audioUri) : undefined;
+      if (id !== live.current.turn) return;
+      if (better) {
+        text = better;
+        setHeard(text);
+      } else if (!brainOn()) {
+        await sayIt(P().unsure(result.text));
+        return turn(awaiting, question, id);
+      }
     }
-    const intent = interpret(result.text, {
+    const intent = interpret(text, {
       awaiting,
       ...(question ? { choices: question.choices } : {}),
       agents: live.current.model.agents.filter((a) => a.state === "ready"),
       workspaces: live.current.model.workspaces,
     });
+    // Phone-only commands stay local; a local read-back waits for its own yes/no.
+    const toBrain =
+      brainOn() &&
+      (awaiting === "command"
+        ? !LOCAL_ONLY.has(intent.kind)
+        : awaiting === "answer" && intent.kind === "unknown");
+    if (toBrain) {
+      const alternatives = result.alternatives.filter((a) => a !== text);
+      if (text !== result.text) alternatives.unshift(result.text);
+      if (await think(text, alternatives, id)) return afterThink(id);
+    }
     await act(intent, awaiting, question, id);
   };
 
@@ -453,6 +550,7 @@ export function VoiceProvider({
   const fresh = () => {
     live.current.turn += 1;
     live.current.pending = undefined;
+    // A pending Malves action survives: it has its own buttons and expires on the computer.
     stopListening();
     stopSpeaking();
     setProblem(undefined);
@@ -491,7 +589,31 @@ export function VoiceProvider({
 
   const readAloud = (text: string) => {
     fresh();
-    void sayIt(text, englishVoice()).then(() => setPhase("idle"));
+    void sayIt(text, voiceFor(text)).then(() => setPhase("idle"));
+  };
+
+  const confirmPending = (yes: boolean) => {
+    const target = live.current.brainPending;
+    const c = live.current.client;
+    if (!target || !c) return;
+    const id = fresh();
+    setBrainPending(undefined);
+    void (async () => {
+      setPhase("working");
+      try {
+        const ack = await c.assistantConfirm(conversationId, target.id, yes);
+        if (id !== live.current.turn) return;
+        const reply = ack.assistant;
+        if (reply) {
+          setBrainPending(reply.pending);
+          if (reply.did.length > 0) buzz();
+          await sayIt(reply.reply, voiceFor(reply.reply));
+        } else await sayIt(P().problem(ack.error ?? "not applied"));
+      } catch (error) {
+        await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
+      }
+      await next(id);
+    })();
   };
 
   const hush = () => {
@@ -555,6 +677,8 @@ export function VoiceProvider({
     heard,
     said,
     problem,
+    pending,
+    confirmPending,
     toggleMode,
     talk,
     answer,

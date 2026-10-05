@@ -22,6 +22,7 @@ export function phrases(lang: Lang) {
       confirmAnswer: (label: string) =>
         `நீங்கள் "${label}" என்று சொன்னீர்கள். இது அதிக ஆபத்து. உறுதி என்று சொல்லுங்கள், அல்லது ரத்து.`,
       done: "முடிந்தது.",
+      oneSec: "ஒரு நொடி.",
       cancelled: "ரத்து செய்யப்பட்டது.",
       nothing: "இப்போது எதுவும் காத்திருக்கவில்லை.",
       commandHint: "ஒரு கட்டளை சொல்லுங்கள். உதாரணம்: புதிய பணி, அல்லது என்ன நடக்கிறது.",
@@ -62,6 +63,7 @@ export function phrases(lang: Lang) {
     confirmAnswer: (label: string) =>
       `You said ${label}. This is high risk. Say confirm, or cancel.`,
     done: "Done.",
+    oneSec: "One sec.",
     cancelled: "Cancelled.",
     nothing: "Nothing else needs you.",
     commandHint: "Say a command, like: ask Claude to fix the footer, or what's running.",

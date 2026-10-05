@@ -66,6 +66,8 @@ export type Model = {
   chrome: boolean | null;
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: boolean;
+  /** Whether Malves, the assistant, is set up on the computer. */
+  assistant: boolean;
   /** IDE windows open on the computer (with malves' IDE extension). */
   ides: IdeInfo[];
   /** What each task's agent has been doing, newest last. Live only: lost on restart. */
@@ -97,6 +99,7 @@ export const emptyModel: Model = {
   push: null,
   chrome: null,
   transcribe: false,
+  assistant: false,
   ides: [],
   activity: {},
 };
@@ -132,6 +135,7 @@ export function reduce(model: Model, action: Action): Model {
         push: action.welcome.push?.subscribe ?? null,
         chrome: action.welcome.chrome ?? null,
         transcribe: action.welcome.transcribe ?? false,
+        assistant: action.welcome.assistant ?? false,
         ides: action.welcome.ides ?? [],
       };
     case "event":

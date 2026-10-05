@@ -1,10 +1,10 @@
 import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { ago, type Model, running } from "../model";
 import { PushCard } from "../PushCard";
 import { Banner, Button, buzz, Card, Chip, Choices, Section, styles, type Tone } from "../ui";
-import type { Lang } from "../voice/engine";
+import { type Lang, voicesFor } from "../voice/engine";
 import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
@@ -29,6 +29,10 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
   const [stopping, setStopping] = useState(false);
   const active = running(model);
   const voice = useVoice();
+  const [phoneVoices, setPhoneVoices] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    void voicesFor(voice.settings.lang).then(setPhoneVoices);
+  }, [voice.settings.lang]);
 
   const checkAgain = async () => {
     if (!client) return;
@@ -115,6 +119,27 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             value={voice.settings.lang}
             onChange={(lang) => voice.setSettings({ ...voice.settings, lang })}
           />
+          {phoneVoices.length > 1 ? (
+            <>
+              <Text style={styles.muted}>Malves' voice (from your phone)</Text>
+              <Choices<string>
+                options={[
+                  { value: "", label: "Phone default" },
+                  ...phoneVoices.slice(0, 8).map((v, i) => ({
+                    value: v.id,
+                    label: `Voice ${i + 1}${/network/i.test(v.id) ? " (online)" : ""}`,
+                  })),
+                ]}
+                value={voice.settings.voices[voice.settings.lang] ?? ""}
+                onChange={(id) =>
+                  voice.setSettings({
+                    ...voice.settings,
+                    voices: { ...voice.settings.voices, [voice.settings.lang]: id || undefined },
+                  })
+                }
+              />
+            </>
+          ) : null}
           <Text style={styles.muted}>Dictation accuracy</Text>
           <Choices<"fast" | "precise">
             options={[
@@ -146,12 +171,16 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             onPress={() =>
               voice.readAloud(
                 voice.settings.lang === "ta-IN"
-                  ? "வணக்கம். நான் malves. உங்கள் agents க்கு உதவ தயாராக உள்ளேன்."
-                  : "Hello. I'm malves. Ready when your agents need you.",
+                  ? "வணக்கம் Ladson. நான் Malves. என்ன செய்யலாம்?"
+                  : "Hi Ladson, Malves here. What are we building today?",
               )
             }
           />
         </Card>
+      </Section>
+
+      <Section title="Malves' memory">
+        <MemoryCard model={model} client={client} online={status === "online"} say={say} />
       </Section>
 
       <Section title="Chrome">
@@ -223,5 +252,97 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         <Button title="Unpair this phone" kind="plain" onPress={unpair} />
       </Section>
     </ScrollView>
+  );
+}
+
+type Memory = NonNullable<Awaited<ReturnType<LinkClient["memoryList"]>>["memories"]>[number];
+
+/** What Malves remembers about you, from its notes on the computer; anything can be deleted. */
+function MemoryCard({
+  model,
+  client,
+  online,
+  say,
+}: {
+  model: Model;
+  client: LinkClient | undefined;
+  online: boolean;
+  say: (message: string) => void;
+}) {
+  const [memories, setMemories] = useState<Memory[]>();
+  const [loading, setLoading] = useState(false);
+
+  if (!model.assistant) {
+    return (
+      <Card>
+        <Text style={styles.muted}>
+          Malves isn't set up on the computer. Set MALVES_MODELS_URL, MALVES_MODELS_KEY and
+          MALVES_VAULT in .env, then restart malves serve.
+        </Text>
+      </Card>
+    );
+  }
+
+  const load = async () => {
+    if (!client) return;
+    setLoading(true);
+    try {
+      const ack = await client.memoryList();
+      if (ack.ok) setMemories(ack.memories ?? []);
+      else say(ack.error ?? "Couldn't load the memories.");
+    } catch {
+      say("Couldn't reach the computer.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const forget = (m: Memory) =>
+    Alert.alert("Forget this?", m.text, [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Forget",
+        style: "destructive",
+        onPress: () => {
+          if (!client) return;
+          void client
+            .memoryForget(m.id)
+            .then((ack) => {
+              if (ack.ok) setMemories((list) => list?.filter((x) => x.id !== m.id));
+              else say(ack.error ?? "Couldn't forget it.");
+            })
+            .catch(() => say("Couldn't reach the computer."));
+        },
+      },
+    ]);
+
+  return (
+    <Card>
+      <Text style={styles.muted}>
+        Notes in your Obsidian vault on the computer. Edit them there, or delete them here.
+      </Text>
+      {memories?.length === 0 ? <Text style={styles.body}>Nothing remembered yet.</Text> : null}
+      {memories?.map((m) => (
+        <View
+          key={m.id}
+          style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.body}>{m.text}</Text>
+            <Text style={styles.muted}>
+              {m.kind} · since {m.since.slice(0, 10)}
+            </Text>
+          </View>
+          <Button title="Forget" kind="plain" onPress={() => forget(m)} />
+        </View>
+      ))}
+      <Button
+        title={memories ? "Refresh" : "Show what Malves remembers"}
+        kind="plain"
+        busy={loading}
+        disabled={!client || !online}
+        onPress={() => void load()}
+      />
+    </Card>
   );
 }
