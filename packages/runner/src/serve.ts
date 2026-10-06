@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
+import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
 import { IdeBridge } from "./adapters/ide/bridge.js";
@@ -169,6 +170,16 @@ export async function serve(
   const stopDigest =
     leads && pushOn && push
       ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
+      : () => {};
+  const stopWatcher =
+    pushOn && push
+      ? startWatcher({
+          subscribe: (listener) => runner.log.subscribe(listener),
+          task: (id) => runner.tasks.get(id),
+          label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+          notify: (title, message, click) => push.notify(title, message, click),
+          quietHours: process.env.MALVES_QUIET_HOURS,
+        })
       : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
@@ -356,6 +367,7 @@ export async function serve(
   await ides.close();
   stopActivity();
   stopDigest();
+  stopWatcher();
   await push?.close();
   await tools.close();
   await bridge.close();

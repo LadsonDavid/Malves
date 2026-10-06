@@ -156,6 +156,9 @@ export function VoiceProvider({
     /** Questions already read out or answered, so they aren't read twice. */
     handled: new Set<string>(),
     quietSince: Date.now(),
+    /** When hands-free mode was turned on: only tasks finishing after that are announced. */
+    modeSince: Date.now(),
+    announced: new Set<string>(),
   });
   Object.assign(live.current, { model, client, status, lastAgent, settings });
 
@@ -578,6 +581,7 @@ export function VoiceProvider({
     const id = fresh();
     live.current.mode = true;
     live.current.quietSince = Date.now();
+    live.current.modeSince = Date.now();
     live.current.handled.clear();
     setMode(true);
     void (async () => {
@@ -647,6 +651,40 @@ export function VoiceProvider({
     stopListening();
     void ask(unread, live.current.turn);
   }, [waitingIds]);
+
+  // Hands-free: a task that finishes or fails is announced, then listening resumes.
+  const finishedIds = Object.values(model.tasks)
+    .filter((t) => t.state === "done" || t.state === "failed")
+    .map((t) => t.id)
+    .join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the set of finished tasks changes; the rest is read from `live`
+  useEffect(() => {
+    const L = live.current;
+    if (!L.mode || L.pending || L.brainPending) return;
+    const fresh = Object.values(L.model.tasks).filter(
+      (t) =>
+        (t.state === "done" || t.state === "failed") &&
+        t.updatedAt >= L.modeSince &&
+        !L.announced.has(t.id),
+    );
+    if (fresh.length === 0) return;
+    for (const t of fresh) L.announced.add(t.id);
+    L.turn += 1;
+    const id = L.turn;
+    stopListening();
+    void (async () => {
+      for (const t of fresh.slice(0, 3)) {
+        const who = L.model.agents.find((a) => a.name === t.agent)?.label ?? t.agent;
+        const what = t.prompt.slice(0, 80);
+        await sayIt(
+          t.state === "done" ? `${who} finished: ${what}.` : `${who} couldn't finish: ${what}.`,
+          englishVoice(),
+        );
+        if (id !== L.turn) return;
+      }
+      await next(id);
+    })();
+  }, [finishedIds]);
 
   const dictate = async (onText: (text: string) => void) => {
     fresh();

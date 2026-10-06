@@ -108,14 +108,14 @@ export class NtfyPush implements Notifier {
     this.broadcast(this.messageFor(question));
   }
 
-  /** A plain notification with no buttons, e.g. the weekly leads digest. Phones not connected now miss it. */
-  notify(title: string, message: string): void {
+  /** A plain notification with no buttons (the leads digest, a finished task); tapping opens `click`. Phones not connected now miss it. */
+  notify(title: string, message: string, click = "malves://leads"): void {
     this.broadcast({
       ...this.event("message"),
       title,
       message,
       priority: 3,
-      click: "malves://leads",
+      click,
     });
   }
 

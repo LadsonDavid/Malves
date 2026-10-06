@@ -126,6 +126,31 @@ function setup(script: Turn[], agents?: AgentInfo[]) {
 }
 
 describe("Malves, the assistant", () => {
+  it("learns a lesson only with his yes, then brings it to every later turn", async () => {
+    const s = setup([
+      {
+        calls: [
+          [
+            "learn",
+            { kind: "lesson", title: "Run tests", text: "Ask the agent to run the tests first." },
+          ],
+        ],
+      },
+      { content: "Sure." },
+    ]);
+    const proposed = await s.assistant.say("c1", "next time make it run the tests first");
+    expect(proposed.pending?.summary).toContain("Save this lesson");
+    expect(await s.memory.list()).toHaveLength(0);
+
+    const saved = await s.assistant.say("c1", "yes");
+    expect(saved.did).toEqual(["Noted. I'll do that from now on."]);
+    expect(readdirSync(path.join(s.vault, "Lessons"))).toHaveLength(1);
+
+    await s.assistant.say("c1", "what's running");
+    const context = s.brain.seen.at(-1)?.[1]?.content ?? "";
+    expect(context).toContain("[lesson] Run tests: Ask the agent to run the tests first.");
+  });
+
   it("understands messy speech, reads the new task back in its own words, and starts it only on yes", async () => {
     const s = setup([
       {
