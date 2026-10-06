@@ -33,3 +33,24 @@ are not copied into this repository.
   encryption design — phone-held keys, NaCl-sealed payloads, a server that only
   sees ciphertext. `packages/protocol/src/crypto.ts` and `client.ts` are our own
   code. Cite as design inspiration in the dissertation.
+
+## Heroicons (through react-native-heroicons)
+
+- Source: https://github.com/tailwindlabs/heroicons, packaged for React Native
+  by https://github.com/ecklf/react-native-heroicons
+- Licence: MIT, Copyright (c) Tailwind Labs, Inc. / Florian Eckl
+- Used in: `packages/app/src/icons.tsx` (the app's only icon import point), as
+  a dependency. No icon code is copied into this repository.
+
+## Geist, Geist Mono and Fraunces fonts (through @expo-google-fonts)
+
+- Geist and Geist Mono: Vercel, SIL Open Font License 1.1.
+- Fraunces: Undercase Type, SIL Open Font License 1.1.
+- Used in: `packages/app` (loaded in `App.tsx`), as dependencies.
+
+## Malveon blueprint design system
+
+- Source: the owner's own Malveon project (`DESIGN.md`, the `@malveon/blueprint`
+  tokens). Its colour tokens, type roles and component rules are applied to
+  the phone app; see `DESIGN.md` here. Own work, not third-party, listed for
+  the dissertation's record.

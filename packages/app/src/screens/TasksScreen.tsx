@@ -3,7 +3,7 @@ import { useState } from "react";
 import { RefreshControl, ScrollView, Text } from "react-native";
 import { TaskRow } from "../components/TaskRow";
 import { history, type Model, type TaskFilter } from "../model";
-import { Choices, styles } from "../ui";
+import { Choices, List, styles, Title } from "../ui";
 
 const FILTERS: Array<{ value: TaskFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -45,12 +45,16 @@ export function TasksScreen({
         />
       }
     >
-      <Text style={styles.title}>Tasks</Text>
+      <Title eyebrow="History">Tasks</Title>
       <Choices options={FILTERS} value={filter} onChange={setFilter} />
       {tasks.length === 0 ? <Text style={styles.muted}>{EMPTY[filter]}</Text> : null}
-      {tasks.map((t) => (
-        <TaskRow key={t.id} task={t} model={model} onOpen={() => onOpenTask(t.id)} />
-      ))}
+      {tasks.length > 0 ? (
+        <List>
+          {tasks.map((t) => (
+            <TaskRow key={t.id} task={t} model={model} onOpen={() => onOpenTask(t.id)} />
+          ))}
+        </List>
+      ) : null}
     </ScrollView>
   );
 }

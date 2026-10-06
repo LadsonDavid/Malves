@@ -2,7 +2,7 @@ import { PairingOffer } from "@malves/protocol";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRef, useState } from "react";
 import { ScrollView, Text, TextInput } from "react-native";
-import { Banner, Button, styles } from "../ui";
+import { Banner, Button, styles, Title } from "../ui";
 
 type Props = {
   /** Why the last pairing attempt failed, if it did. */
@@ -36,10 +36,10 @@ export function PairScreen({ error, onOffer }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Pair with your computer</Text>
+      <Title eyebrow="malves">Pair with your computer</Title>
       <Text style={styles.body}>
-        On your computer, run <Text style={{ fontWeight: "700" }}>malves serve</Text> and scan the
-        code it shows. Codes last two minutes.
+        On your computer, run <Text style={styles.mono}>malves serve</Text> and scan the code it
+        shows. Codes last two minutes.
       </Text>
       {error ? <Banner tone="bad">{error}</Banner> : null}
 

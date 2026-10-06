@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Alert, ScrollView, Share, Text, TextInput, View } from "react-native";
 import { QuestionCard } from "../components/QuestionCard";
 import { StateChip } from "../components/TaskRow";
+import { Speaker, Stop } from "../icons";
 import {
   duration,
   ideName,
@@ -13,7 +14,7 @@ import {
   questionsFor,
   workspaceName,
 } from "../model";
-import { Banner, Button, buzz, Card, Section, styles } from "../ui";
+import { BackBar, Banner, Button, buzz, Card, Section, styles } from "../ui";
 import { useNow } from "../useNow";
 import { useVoice } from "../voice/VoiceProvider";
 
@@ -42,7 +43,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
   if (!task) {
     return (
       <ScrollView contentContainerStyle={styles.page}>
-        <Button title="‹ Back" kind="plain" onPress={onBack} />
+        <BackBar onBack={onBack} />
         <Banner tone="info">
           This task isn't on this phone (yet). Pull down on Home to refresh.
         </Banner>
@@ -96,17 +97,16 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
-        <Button title="‹ Back" kind="plain" onPress={onBack} />
+      <BackBar onBack={onBack}>
         <StateChip state={task.state} />
-      </View>
+      </BackBar>
 
       <View style={{ gap: 6 }}>
-        <Text style={styles.muted}>
+        <Text style={styles.meta}>
           {task.agent} · {workspaceName(model, task.workspaceId)} · {duration(task, now)}
           {task.resume ? " · continued conversation" : ""}
         </Text>
-        <Text style={[styles.body, { fontSize: 18, fontWeight: "600" }]} selectable>
+        <Text style={styles.h3} selectable>
           {task.prompt}
         </Text>
         {task.reason ? <Text style={styles.muted}>{task.reason}</Text> : null}
@@ -157,7 +157,8 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
               {task.result}
             </Text>
             <Button
-              title={voice.phase === "speaking" ? "■ Stop reading" : "🔊 Read aloud"}
+              title={voice.phase === "speaking" ? "Stop reading" : "Read aloud"}
+              icon={voice.phase === "speaking" ? Stop : Speaker}
               kind="plain"
               onPress={() =>
                 voice.phase === "speaking" ? voice.hush() : voice.readAloud(task.result ?? "")

@@ -59,7 +59,14 @@ type Pending =
   | { kind: "task"; workspaceId: string; agent: string; prompt: string }
   | { kind: "stop"; taskId: string };
 
+/** One line of the conversation with Malves. */
+export type Line = { who: "you" | "malves"; text: string; at: number };
+/** Lines kept on the phone for this session. */
+const MAX_LINES = 100;
+
 type Voice = {
+  /** This session's conversation, oldest first. */
+  log: Line[];
   canListen: boolean;
   /** Precise dictation: the phone can record, and the computer can transcribe. */
   canBePrecise: boolean;
@@ -125,6 +132,9 @@ export function VoiceProvider({
   const [said, setSaid] = useState("");
   const [problem, setProblem] = useState<string>();
   const [pending, setPendingState] = useState<{ id: string; summary: string }>();
+  const [log, setLog] = useState<Line[]>([]);
+  const note = (who: Line["who"], text: string) =>
+    setLog((lines) => [...lines, { who, text, at: Date.now() }].slice(-MAX_LINES));
   // One conversation per app session: Malves keeps its short-term context per id.
   const conversationId = useRef(`app-${Date.now().toString(36)}`).current;
 
@@ -164,6 +174,7 @@ export function VoiceProvider({
   const sayIt = async (text: string, lang: Lang = P().voice) => {
     setPhase("speaking");
     setSaid(text);
+    note("malves", text);
     live.current.lastSaid = text;
     await speak(text, lang, live.current.settings.voices[lang]);
   };
@@ -285,6 +296,7 @@ export function VoiceProvider({
     }
     live.current.quietSince = Date.now();
     let text = result.text;
+    note("you", text);
     if (result.confidence !== undefined && result.confidence < SURE) {
       // Not sure: Whisper gets a second listen; the brain copes with the rest.
       const better = result.audioUri ? await whisper(result.audioUri) : undefined;
@@ -668,6 +680,7 @@ export function VoiceProvider({
   };
 
   const value: Voice = {
+    log,
     canListen: canListen(),
     canBePrecise: canRecord() && model.transcribe,
     settings,

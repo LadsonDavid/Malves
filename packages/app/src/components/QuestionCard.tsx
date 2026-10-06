@@ -1,13 +1,14 @@
 import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import { Mic, Speaker } from "../icons";
 import { countdown, type Model, type Question, workspaceName } from "../model";
-import { Banner, Button, buzz, Card, Chip, color, styles } from "../ui";
+import { Banner, Button, buzz, Card, Chip, color, font, styles } from "../ui";
 import { useNow } from "../useNow";
 import { useVoice } from "../voice/VoiceProvider";
 
 const TOO_LATE: Record<string, string> = {
-  closed: "Too late — this question already closed.",
+  closed: "Too late. This question already closed.",
   unknown_question: "The computer doesn't know this question any more.",
   invalid_choice: "That choice isn't valid any more.",
 };
@@ -72,12 +73,15 @@ export function QuestionCard({
           tone={question.risk === "high" ? "bad" : question.risk === "medium" ? "warn" : "plain"}
         />
         <Text
-          style={[styles.muted, left < URGENT_MS && { color: color.danger, fontWeight: "700" }]}
+          style={[
+            styles.meta,
+            left < URGENT_MS && { color: color.danger, fontFamily: font.monoMedium },
+          ]}
         >
           stops in {countdown(question.expiresAt, now)}
         </Text>
       </View>
-      <Text style={styles.muted}>
+      <Text style={styles.meta}>
         {task ? `${task.agent} · ${workspaceName(model, task.workspaceId)}` : "Agent"}
         {task ? ` · “${task.prompt.slice(0, 60)}${task.prompt.length > 60 ? "…" : ""}”` : ""}
       </Text>
@@ -113,14 +117,16 @@ export function QuestionCard({
       <View style={styles.row}>
         {voice.canListen ? (
           <Button
-            title="🎤 Answer by voice"
+            title="Answer by voice"
+            icon={Mic}
             kind="plain"
             disabled={voice.mode || sending !== undefined}
             onPress={() => voice.answer(question)}
           />
         ) : null}
         <Button
-          title="🔊 Read aloud"
+          title="Read aloud"
+          icon={Speaker}
           kind="plain"
           onPress={() =>
             voice.readAloud(
@@ -131,7 +137,7 @@ export function QuestionCard({
       </View>
       {queued ? (
         <Banner tone="info">
-          “{queued}” is queued — it goes as soon as your computer is reachable.
+          “{queued}” is queued. It goes as soon as your computer is reachable.
         </Banner>
       ) : null}
       {problem ? <Banner tone="bad">{problem}</Banner> : null}

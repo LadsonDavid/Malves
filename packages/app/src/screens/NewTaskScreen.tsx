@@ -1,8 +1,9 @@
 import type { AgentInfo, AgentSessionInfo, LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
+import { Mic, Stop } from "../icons";
 import { ago, type Model, mayStillBeOpen, pickAgent, recentPrompts, workspaceName } from "../model";
-import { Banner, Button, buzz, Card, Choices, Section, styles } from "../ui";
+import { Banner, Button, buzz, Card, Choices, Section, styles, Title } from "../ui";
 import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
@@ -100,7 +101,7 @@ export function NewTaskScreen({
         .then((ack) => !ack.ok && say(ack.error ?? "The computer couldn't start that task."))
         .catch(() => {});
       onCreated(agent);
-      say("Queued — it starts as soon as your computer is reachable.");
+      say("Queued. It starts as soon as your computer is reachable.");
       onClose();
       return;
     }
@@ -134,7 +135,7 @@ export function NewTaskScreen({
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
-        <Text style={styles.title}>New task</Text>
+        <Title>New task</Title>
         <Button title="Cancel" kind="plain" onPress={onClose} />
       </View>
 
@@ -152,23 +153,24 @@ export function NewTaskScreen({
             title={
               dictating
                 ? voice.phase === "working"
-                  ? "⏳ Improving with Whisper…"
-                  : "■ Done talking"
-                : "🎤 Dictate"
+                  ? "Improving with Whisper…"
+                  : "Done talking"
+                : "Dictate"
             }
+            icon={dictating ? Stop : Mic}
             kind={dictating ? "danger" : "plain"}
             disabled={voice.phase === "working"}
             onPress={() => void dictate()}
           />
           {dictating && voice.phase === "listening" ? (
-            <Text style={styles.muted}>Listening — pause as you like; tap Done when finished.</Text>
+            <Text style={styles.muted}>Listening. Pause as you like; tap Done when finished.</Text>
           ) : null}
           {voice.problem && !dictating ? <Banner tone="bad">{voice.problem}</Banner> : null}
         </View>
       ) : null}
       {prompt === "" && previous.length > 0 ? (
         <View style={{ gap: 6 }}>
-          <Text style={styles.muted}>Recent requests — tap to use again:</Text>
+          <Text style={styles.muted}>Recent requests. Tap one to use it again.</Text>
           <Choices
             options={previous.map((p) => ({
               value: p,
@@ -235,7 +237,7 @@ export function NewTaskScreen({
         ))}
         {notReady.length > 0 ? (
           <Button
-            title="I've signed in — check again"
+            title="I've signed in, check again"
             kind="plain"
             busy={checking}
             onPress={() => void checkAgain()}

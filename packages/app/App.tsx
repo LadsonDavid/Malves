@@ -1,26 +1,43 @@
+import { Fraunces_300Light, Fraunces_400Regular } from "@expo-google-fonts/fraunces";
+import { Geist_400Regular, Geist_500Medium, Geist_600SemiBold } from "@expo-google-fonts/geist";
+import { GeistMono_400Regular, GeistMono_500Medium } from "@expo-google-fonts/geist-mono";
 import { generateKeyPair, type KeyPair, type PairingOffer } from "@malves/protocol";
+import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Linking, Platform, ScrollView, Text, View } from "react-native";
+import {
+  BackHandler,
+  Linking,
+  Platform,
+  ScrollView,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Tab, TabBar } from "./src/components/TabBar";
 import { needsYou, parseLink, running, type Target } from "./src/model";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { IdeScreen } from "./src/screens/IdeScreen";
 import { LeadsScreen } from "./src/screens/LeadsScreen";
+import { MalvesScreen } from "./src/screens/MalvesScreen";
 import { NewTaskScreen } from "./src/screens/NewTaskScreen";
 import { PairScreen } from "./src/screens/PairScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { TaskScreen } from "./src/screens/TaskScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { forgetPairing, loadPairing, type Pairing, savePairing } from "./src/storage";
-import { Button, color, isDark, styles } from "./src/ui";
+import { applyScheme, Button, color, font, isDark, styles } from "./src/ui";
 import { type Connection, useLink } from "./src/useLink";
 import { VoiceProvider } from "./src/voice/VoiceProvider";
 
 type Screen = "loading" | "pair" | "pairing" | "app";
 /** Screens shown on top of the tabs; Back closes the top one. */
-type Overlay = { kind: "new" } | { kind: "task"; id: string } | { kind: "ide"; id: string };
+type Overlay =
+  | { kind: "new" }
+  | { kind: "task"; id: string }
+  | { kind: "ide"; id: string }
+  | { kind: "malves" };
 
 /** e.g. "Pixel 8" — shown in `devices` on the computer. */
 function phoneName(): string {
@@ -38,6 +55,18 @@ export default function App() {
 
 function Main() {
   const insets = useSafeAreaInsets();
+  const [fontsReady] = useFonts({
+    [font.sans]: Geist_400Regular,
+    [font.medium]: Geist_500Medium,
+    [font.semibold]: Geist_600SemiBold,
+    [font.mono]: GeistMono_400Regular,
+    [font.monoMedium]: GeistMono_500Medium,
+    [font.display]: Fraunces_400Regular,
+    [font.displayLight]: Fraunces_300Light,
+  });
+  // Follows the phone live: colours change in place, then the screens below re-mount (keyed).
+  const scheme = useColorScheme();
+  applyScheme(scheme);
   const [screen, setScreen] = useState<Screen>("loading");
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Overlay[]>([]);
@@ -150,7 +179,7 @@ function Main() {
   const { model, status, client } = link;
 
   const content =
-    screen === "loading" ? null : screen === "pair" ? (
+    screen === "loading" || !fontsReady ? null : screen === "pair" ? (
       <PairScreen error={pairError} onOffer={startPairing} />
     ) : screen === "pairing" ? (
       <ScrollView contentContainerStyle={styles.page}>
@@ -184,6 +213,8 @@ function Main() {
         onOpenTask={(id) => setStack((s) => [...s.slice(0, -1), { kind: "task", id }])}
         say={say}
       />
+    ) : top?.kind === "malves" ? (
+      <MalvesScreen onBack={back} />
     ) : top?.kind === "ide" ? (
       <IdeScreen
         key={top.id}
@@ -219,6 +250,7 @@ function Main() {
         onOpenTask={openTask}
         onAllTasks={() => setTab("tasks")}
         onOpenIde={(id) => open({ kind: "ide", id })}
+        onOpenMalves={() => open({ kind: "malves" })}
         onPairAgain={unpair}
       />
     );
@@ -227,7 +259,9 @@ function Main() {
     <VoiceProvider model={model} client={client} status={status} lastAgent={lastAgent}>
       <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <View style={{ flex: 1 }}>{content}</View>
+        <View key={scheme ?? "light"} style={{ flex: 1 }}>
+          {content}
+        </View>
         {notice ? (
           <View
             accessibilityLiveRegion="polite"
@@ -236,12 +270,14 @@ function Main() {
               left: 16,
               right: 16,
               bottom: (screen === "app" && !top ? 64 : 16) + insets.bottom,
-              backgroundColor: color.text,
-              borderRadius: 10,
-              padding: 12,
+              backgroundColor: color.zone,
+              borderRadius: 12,
+              padding: 14,
             }}
           >
-            <Text style={{ color: color.page, fontSize: 15 }}>{notice}</Text>
+            <Text style={{ color: color.zoneText, fontFamily: font.sans, fontSize: 15 }}>
+              {notice}
+            </Text>
           </View>
         ) : null}
         {screen === "app" && !top ? (

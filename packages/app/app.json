@@ -42,7 +42,8 @@
             "com.google.android.as"
           ]
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "malves"
   }
