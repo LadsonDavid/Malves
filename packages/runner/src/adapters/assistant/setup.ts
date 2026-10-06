@@ -1,8 +1,10 @@
 import path from "node:path";
 import type { Core } from "@malves/core";
 import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
+import type { Browser } from "../browser/bridge.js";
 import type { AssistantPort, IdeControl } from "../link/server.js";
 import { Assistant } from "./assistant.js";
+import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
 
@@ -11,6 +13,7 @@ import { Memory } from "./memory.js";
  *   MALVES_MODELS_URL / MALVES_MODELS_KEY  your freellmapi (the brain)
  *   MALVES_VAULT                           the Obsidian folder that holds its memory
  *   MALVES_ASSISTANT_MODEL, MALVES_EMBED_MODEL   optional overrides
+ *   MALVES_VISION_MODEL                    optional: vision models to try, comma-separated
  */
 export function assistantFromEnv(o: {
   core: Core;
@@ -18,6 +21,8 @@ export function assistantFromEnv(o: {
   agents: () => AgentInfo[];
   ide?: IdeControl | undefined;
   leads?: (() => Promise<Lead[]>) | undefined;
+  handover?: Handover | undefined;
+  browser?: Browser | undefined;
 }): { port: AssistantPort; close: () => void } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
@@ -28,6 +33,9 @@ export function assistantFromEnv(o: {
     key,
     ...(process.env.MALVES_ASSISTANT_MODEL ? { model: process.env.MALVES_ASSISTANT_MODEL } : {}),
     ...(process.env.MALVES_EMBED_MODEL ? { embedModel: process.env.MALVES_EMBED_MODEL } : {}),
+    ...(process.env.MALVES_VISION_MODEL
+      ? { visionModels: process.env.MALVES_VISION_MODEL.split(",").map((m) => m.trim()) }
+      : {}),
   });
   const memory = new Memory({
     vault,
@@ -44,11 +52,14 @@ export function assistantFromEnv(o: {
     ...(o.ide ? { ide: o.ide } : {}),
     ...(o.leads ? { leads: o.leads } : {}),
     userName: "Ladson",
+    ...(o.handover ? { handover: o.handover } : {}),
+    ...(o.browser ? { browser: o.browser } : {}),
   });
   return {
     port: {
       say: (conversation, text, alternatives) => assistant.say(conversation, text, alternatives),
       confirm: (conversation, pending, yes) => assistant.confirm(conversation, pending, yes),
+      look: (conversation, photo, question) => assistant.look(conversation, photo, question),
       memories: async () =>
         (await memory.list()).map((m) => ({
           id: m.id,

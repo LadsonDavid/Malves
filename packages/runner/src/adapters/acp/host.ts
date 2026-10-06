@@ -134,7 +134,8 @@ export class AcpHost implements AgentHost {
     command: Command,
     cwd: string,
     launch: Launch = {},
-    timeoutMs = 30_000,
+    // All agents are checked at once at startup; together they can take a while.
+    timeoutMs = 90_000,
   ): Promise<Probe> {
     if (launch.requiresEnv && !process.env[launch.requiresEnv]) return { state: "needs_sign_in" };
     let child: ChildProcess;

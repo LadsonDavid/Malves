@@ -8,10 +8,17 @@ export type VoiceSettings = {
   precise: boolean;
   /** The phone voice chosen for each language; unset means the phone's default. */
   voices: Partial<Record<Lang, string>>;
+  /** Malves speaks with Gemini's natural voice (a few seconds slower) instead of the phone's. */
+  natural: boolean;
 };
 
 const KEY = "malves.voice";
-export const DEFAULT_VOICE: VoiceSettings = { lang: "en-IN", precise: false, voices: {} };
+export const DEFAULT_VOICE: VoiceSettings = {
+  lang: "en-IN",
+  precise: false,
+  voices: {},
+  natural: false,
+};
 
 export async function loadVoiceSettings(): Promise<VoiceSettings> {
   try {
@@ -26,6 +33,7 @@ export async function loadVoiceSettings(): Promise<VoiceSettings> {
       lang: saved.lang === "en-US" || saved.lang === "ta-IN" ? saved.lang : "en-IN",
       precise: saved.precise === true,
       voices,
+      natural: saved.natural === true,
     };
   } catch {
     return DEFAULT_VOICE;

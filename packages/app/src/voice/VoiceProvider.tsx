@@ -18,12 +18,15 @@ import {
   workspaceName,
 } from "../model";
 import { buzz } from "../ui";
+import { waitAudio } from "./audioInbox";
 import {
   canListen,
   canRecord,
+  discardRecording,
   type Heard,
   type Lang,
   listen,
+  playClip,
   readAudio,
   speak,
   stopListening,
@@ -59,7 +62,14 @@ type Pending =
   | { kind: "task"; workspaceId: string; agent: string; prompt: string }
   | { kind: "stop"; taskId: string };
 
+/** One line of the conversation with Malves. */
+export type Line = { who: "you" | "malves"; text: string; at: number };
+/** Lines kept on the phone for this session. */
+const MAX_LINES = 100;
+
 type Voice = {
+  /** This session's conversation, oldest first. */
+  log: Line[];
   canListen: boolean;
   /** Precise dictation: the phone can record, and the computer can transcribe. */
   canBePrecise: boolean;
@@ -81,6 +91,12 @@ type Voice = {
   /** One turn answering this question. */
   answer: (question: Question) => void;
   readAloud: (text: string) => void;
+  /** Says something to Malves from a button (no mic). */
+  tell: (text: string) => void;
+  /** Shows Malves a photo; it says what it sees. */
+  look: (jpegBase64: string, question: string) => Promise<void>;
+  /** Malves is set up on the computer and reachable. */
+  assistantOn: boolean;
   /** Dictation into a text box; `onText` gets the words live, then the final text. */
   dictate: (onText: (text: string) => void) => Promise<void>;
   stopDictation: () => void;
@@ -125,6 +141,9 @@ export function VoiceProvider({
   const [said, setSaid] = useState("");
   const [problem, setProblem] = useState<string>();
   const [pending, setPendingState] = useState<{ id: string; summary: string }>();
+  const [log, setLog] = useState<Line[]>([]);
+  const note = (who: Line["who"], text: string) =>
+    setLog((lines) => [...lines, { who, text, at: Date.now() }].slice(-MAX_LINES));
   // One conversation per app session: Malves keeps its short-term context per id.
   const conversationId = useRef(`app-${Date.now().toString(36)}`).current;
 
@@ -146,6 +165,9 @@ export function VoiceProvider({
     /** Questions already read out or answered, so they aren't read twice. */
     handled: new Set<string>(),
     quietSince: Date.now(),
+    /** When hands-free mode was turned on: only tasks finishing after that are announced. */
+    modeSince: Date.now(),
+    announced: new Set<string>(),
   });
   Object.assign(live.current, { model, client, status, lastAgent, settings });
 
@@ -164,8 +186,26 @@ export function VoiceProvider({
   const sayIt = async (text: string, lang: Lang = P().voice) => {
     setPhase("speaking");
     setSaid(text);
+    note("malves", text);
     live.current.lastSaid = text;
     await speak(text, lang, live.current.settings.voices[lang]);
+  };
+
+  /**
+   * Malves' reply: in its natural (Gemini) voice when that's chosen and the
+   * audio arrives in time, else in the phone's voice. Text shows at once.
+   */
+  const sayReply = async (text: string, commandId: string | undefined) => {
+    const natural = live.current.settings.natural && commandId;
+    const turnId = live.current.turn;
+    const clip = natural ? await waitAudio(commandId, 15_000) : undefined;
+    if (turnId !== live.current.turn) return;
+    if (!clip) return sayIt(text, voiceFor(text));
+    setPhase("speaking");
+    setSaid(text);
+    note("malves", text);
+    live.current.lastSaid = text;
+    await playClip(clip.data, clip.mime);
   };
 
   const setBrainPending = (next: { id: string; summary: string } | undefined) => {
@@ -206,9 +246,16 @@ export function VoiceProvider({
       if (id === live.current.turn) void sayIt(P().oneSec);
     }, 1500);
     let reply: Awaited<ReturnType<LinkClient["assistantSay"]>>["assistant"];
+    let commandId: string | undefined;
     try {
-      const ack = await c.assistantSay(conversationId, text, alternatives);
+      const ack = await c.assistantSay(
+        conversationId,
+        text,
+        alternatives,
+        live.current.settings.natural,
+      );
       reply = ack.ok ? ack.assistant : undefined;
+      commandId = ack.command_id;
     } catch {
       reply = undefined;
     } finally {
@@ -218,7 +265,7 @@ export function VoiceProvider({
     if (!reply || reply.offline) return false;
     setBrainPending(reply.pending);
     if (reply.did.length > 0) buzz();
-    await sayIt(reply.reply, voiceFor(reply.reply));
+    await sayReply(reply.reply, commandId);
     return true;
   };
 
@@ -272,6 +319,9 @@ export function VoiceProvider({
       await stopMode(false);
       return;
     }
+    const unsure = result.confidence !== undefined && result.confidence < SURE;
+    // The recording only serves Whisper's second listen when Android was unsure; never kept.
+    if (id !== live.current.turn || !result.text || !unsure) discardRecording(result.audioUri);
     if (id !== live.current.turn) return;
     setHeard(result.text);
     if (!result.text) {
@@ -285,9 +335,11 @@ export function VoiceProvider({
     }
     live.current.quietSince = Date.now();
     let text = result.text;
-    if (result.confidence !== undefined && result.confidence < SURE) {
+    note("you", text);
+    if (unsure) {
       // Not sure: Whisper gets a second listen; the brain copes with the rest.
       const better = result.audioUri ? await whisper(result.audioUri) : undefined;
+      discardRecording(result.audioUri);
       if (id !== live.current.turn) return;
       if (better) {
         text = better;
@@ -566,6 +618,7 @@ export function VoiceProvider({
     const id = fresh();
     live.current.mode = true;
     live.current.quietSince = Date.now();
+    live.current.modeSince = Date.now();
     live.current.handled.clear();
     setMode(true);
     void (async () => {
@@ -587,6 +640,42 @@ export function VoiceProvider({
     void turn("answer", question, id);
   };
 
+  /** Says something to Malves from a button instead of the mic. */
+  const tell = (text: string) => {
+    const id = fresh();
+    note("you", text);
+    void (async () => {
+      if (await think(text, [], id)) await afterThink(id);
+      else if (id === live.current.turn) {
+        await sayIt(P().problem("Malves isn't reachable right now."));
+        setPhase("idle");
+      }
+    })();
+  };
+
+  /** "Look at this": sends a photo (JPEG, base64) to Malves and speaks what it sees. */
+  const look = async (jpegBase64: string, question: string) => {
+    const c = live.current.client;
+    if (!c) return;
+    const id = fresh();
+    note("you", question ? `(photo) ${question}` : "(photo)");
+    setPhase("working");
+    try {
+      const ack = await c.assistantLook(
+        conversationId,
+        jpegBase64,
+        question,
+        live.current.settings.natural,
+      );
+      if (id !== live.current.turn) return;
+      const reply = ack.assistant?.reply ?? ack.error ?? "I couldn't look at it.";
+      await sayReply(reply, ack.assistant ? ack.command_id : undefined);
+    } catch (error) {
+      await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
+    }
+    if (id === live.current.turn) await next(id);
+  };
+
   const readAloud = (text: string) => {
     fresh();
     void sayIt(text, voiceFor(text)).then(() => setPhase("idle"));
@@ -601,13 +690,18 @@ export function VoiceProvider({
     void (async () => {
       setPhase("working");
       try {
-        const ack = await c.assistantConfirm(conversationId, target.id, yes);
+        const ack = await c.assistantConfirm(
+          conversationId,
+          target.id,
+          yes,
+          live.current.settings.natural,
+        );
         if (id !== live.current.turn) return;
         const reply = ack.assistant;
         if (reply) {
           setBrainPending(reply.pending);
           if (reply.did.length > 0) buzz();
-          await sayIt(reply.reply, voiceFor(reply.reply));
+          await sayReply(reply.reply, ack.command_id);
         } else await sayIt(P().problem(ack.error ?? "not applied"));
       } catch (error) {
         await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
@@ -636,11 +730,46 @@ export function VoiceProvider({
     void ask(unread, live.current.turn);
   }, [waitingIds]);
 
+  // Hands-free: a task that finishes or fails is announced, then listening resumes.
+  const finishedIds = Object.values(model.tasks)
+    .filter((t) => t.state === "done" || t.state === "failed")
+    .map((t) => t.id)
+    .join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the set of finished tasks changes; the rest is read from `live`
+  useEffect(() => {
+    const L = live.current;
+    if (!L.mode || L.pending || L.brainPending) return;
+    const fresh = Object.values(L.model.tasks).filter(
+      (t) =>
+        (t.state === "done" || t.state === "failed") &&
+        t.updatedAt >= L.modeSince &&
+        !L.announced.has(t.id),
+    );
+    if (fresh.length === 0) return;
+    for (const t of fresh) L.announced.add(t.id);
+    L.turn += 1;
+    const id = L.turn;
+    stopListening();
+    void (async () => {
+      for (const t of fresh.slice(0, 3)) {
+        const who = L.model.agents.find((a) => a.name === t.agent)?.label ?? t.agent;
+        const what = t.prompt.slice(0, 80);
+        await sayIt(
+          t.state === "done" ? `${who} finished: ${what}.` : `${who} couldn't finish: ${what}.`,
+          englishVoice(),
+        );
+        if (id !== L.turn) return;
+      }
+      await next(id);
+    })();
+  }, [finishedIds]);
+
   const dictate = async (onText: (text: string) => void) => {
     fresh();
     const { settings: s, model: m, client: c } = live.current;
     const precise = s.precise && canRecord() && m.transcribe && c !== undefined;
     setPhase("listening");
+    let recording: string | undefined;
     try {
       const result = await listen({
         lang: s.lang,
@@ -649,6 +778,7 @@ export function VoiceProvider({
         record: precise,
         onPartial: onText,
       });
+      recording = result.audioUri;
       onText(result.text);
       if (precise && result.audioUri && c) {
         setPhase("working");
@@ -663,11 +793,13 @@ export function VoiceProvider({
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
+      discardRecording(recording);
       setPhase("idle");
     }
   };
 
   const value: Voice = {
+    log,
     canListen: canListen(),
     canBePrecise: canRecord() && model.transcribe,
     settings,
@@ -683,6 +815,9 @@ export function VoiceProvider({
     talk,
     answer,
     readAloud,
+    look,
+    tell,
+    assistantOn: model.assistant && status === "online",
     dictate,
     stopDictation: stopListening,
     hush,

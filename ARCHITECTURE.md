@@ -319,6 +319,42 @@ fixed rules above stay as the fallback when it's off or unreachable.
   newer one is closed (`valid_to`), not deleted. Edits made in Obsidian are
   picked up; Settings → Malves' memory lists the notes and deletes any of them.
   Each day's conversation is logged in `Conversations/`.
+- **Learning, with approval:** Malves can propose a *lesson* (what to do
+  differently next time) or a *skill* (a named, reusable request). Each is read
+  back and saved to `Lessons/` or `Skills/` only on a yes; approved ones come
+  with every turn and can't override the rules or confirmations. Undo is
+  deleting the note.
+- **Watching:** when a task finishes or fails, a notification opens it
+  (outside `MALVES_QUIET_HOURS`; questions always notify). In hands-free mode
+  the phone also says it.
+- **Look at this:** a photo from the phone camera (about 1280 px JPEG, sent in
+  pieces over the encrypted link) goes to a vision model on freellmapi; what it
+  saw joins the conversation as data, so text in the photo can't instruct it.
+- **Backup:** about once a day the vault is packed, gzipped and encrypted on the
+  laptop (AES-256-GCM, key in `backup.key`, never uploaded) and streamed over
+  SSH to `~/malves-backups` on the server; the 14 newest are kept.
+  `malves backup restore` opens one into a new folder, never over the vault.
+- **Handover mode** ("I'm leaving, take over"): starts only on a yes. While
+  it's on, Malves may run commands in registered project folders and use Chrome
+  through the extension. Reading commands and tests/builds/lint run by
+  themselves; anything else (and anything chained, piped, redirected or using
+  variables) is read back and waits for a yes. Chrome: reading the page is
+  free, opening, clicking, typing and pressing keys ask; password and payment
+  fields are refused, checked on the live page. It ends on the phone's Stop,
+  "I'm back", an unlock after the computer was locked (the lock screen's
+  process disappears), or after four hours, and the phone is told.
+  **Desktop (Windows):** mouse, keyboard and screen through nut.js (the
+  community fork), loaded when handover starts. Looking at the screen is free:
+  a screenshot, resized to the mouse's logical pixels, goes to a vision model.
+  Clicking, typing and keys are read back with the window's title and the
+  coordinates, and are done only if the same window is still in front at the
+  yes. In code editors Malves works as a co-developer (owner's choice, Oct
+  2026); the read-back warns that a click there may accept or reject the
+  editor AI's change, so those approvals still come to the phone. Never in
+  sign-in, password, payment or admin windows. Handover also ends when the
+  mouse moves and Malves didn't move it.
+  (A PowerShell helper for this was blocked by Windows Defender as malicious;
+  we don't work around antivirus.)
 
 ### Desktop IDEs
 
@@ -344,10 +380,10 @@ companion extension (`packages/ide`, installed from `malves.vsix`) through
   conversations with the CLI, so malves lists them per project and continues
   them from the phone (session/resume), or reopens them at the desk.
 
-**Limit (by choice):** the IDE's own agent panel — its approvals, its replies —
-can't be driven from the phone. The only way would be UI automation through the
-IDE's debugging port, which breaks with each IDE update and lets any local
-program control the IDE. Still ruled out (re-checked October 2026).
+**Limit:** through the extension, the IDE's own agent panel (its approvals, its
+replies) can't be driven: there's no public API for it. In handover mode Malves
+can use the editor on screen like a co-developer (see "Malves, the assistant"),
+with every click and keystroke read back to the phone first.
 
 ## 5. Browser tasks: a Chrome extension, like Claude in Chrome
 

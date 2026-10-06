@@ -14,6 +14,7 @@ import {
   LinkClient,
   type LinkStatus,
   type LoggedEvent,
+  open,
   randomToken,
   seal,
   type Welcome,
@@ -460,6 +461,69 @@ describe("phone link, end to end", () => {
       ws.onclose = (event) => resolve(event.code);
     });
     expect(closed).toBe(CLOSE.BAD_MESSAGE);
+  });
+
+  it("answers a command it doesn't know (a newer app) instead of dropping the phone", async () => {
+    const r = await runner();
+    const p = await pairedPhone(r);
+    const reply = await new Promise<{ ack: unknown; closed: boolean }>((resolve) => {
+      const ws = new WebSocket(r.server.url);
+      let step = 0;
+      let closed = false;
+      ws.onclose = () => {
+        closed = true;
+      };
+      ws.onmessage = (event) => {
+        step += 1;
+        const frame = JSON.parse(String(event.data));
+        if (step === 1) {
+          const hello = {
+            type: "hello",
+            v: LINK_VERSION,
+            challenge: frame.challenge,
+            since_seq: 0,
+          };
+          ws.send(
+            JSON.stringify({
+              device: p.keys.publicKey,
+              ...seal(hello, r.keys.publicKey, p.keys.secretKey),
+            }),
+          );
+          return;
+        }
+        const message = open(frame, r.keys.publicKey, p.keys.secretKey) as { type: string };
+        if (message.type === "welcome") {
+          ws.send(
+            JSON.stringify(
+              seal(
+                { type: "future.command", command_id: "cmd-from-the-future" },
+                r.keys.publicKey,
+                p.keys.secretKey,
+              ),
+            ),
+          );
+        } else if (message.type === "ack") {
+          setTimeout(() => {
+            resolve({ ack: message, closed });
+            ws.close();
+          }, 100);
+        }
+      };
+    });
+    expect(reply.closed).toBe(false);
+    expect(reply.ack).toMatchObject({ command_id: "cmd-from-the-future", ok: false });
+  });
+
+  it("the phone skips a message kind it doesn't know (a newer computer) and stays online", async () => {
+    const r = await runner();
+    const p = await pairedPhone(r);
+    const sessions = (r.server as unknown as { sessions: Set<{ send: (m: unknown) => void }> })
+      .sessions;
+    for (const session of sessions) session.send({ type: "future.message", hello: true });
+    r.server.activity("t-x", "still here");
+    await waitFor(() => p.activity.includes("t-x: still here"), "the next message");
+    expect(p.statuses.at(-1)).toBe("online");
+    expect(p.statuses.filter((x) => x === "offline")).toHaveLength(0);
   });
 
   it("drops a connection that sends garbage after the handshake", async () => {

@@ -1,11 +1,14 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { samePath, type Workspace } from "@malves/core";
 import { DEFAULT_PORT } from "@malves/protocol";
+import { backupKey, backupNow, restoreVault } from "./adapters/assistant/backup.js";
 import { guardFromEnv } from "./adapters/budget/guard.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
+import { autostart, startNow } from "./autostart.js";
 import { serve } from "./serve.js";
 import { dataDir, parseDuration, resolveFolder } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
@@ -20,6 +23,9 @@ const USAGE = `malves — run coding agents and answer their questions
   malves agents
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
+  malves autostart on|off|status|start   start serve when you log in to Windows
+  malves backup now                      back up Malves' memory to MALVES_BACKUP_SSH now
+  malves backup restore <file> --to <folder>   open a backup into a new folder
 
 Data is kept in $MALVES_HOME (default ~/.malves).
 The lead engine URL can also come from MALVES_LEADS_URL; its UI_KEY from MALVES_LEADS_KEY.
@@ -41,6 +47,7 @@ async function main(argv: string[]): Promise<number> {
       port: { type: "string", default: String(DEFAULT_PORT) },
       leads: { type: "string" },
       relay: { type: "string" },
+      to: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -57,6 +64,9 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const dir = dataDir();
+  // Before opening the runner: it must not take the lock a running serve holds.
+  if (cmd === "autostart") return sub === "start" ? startNow() : autostart(sub, dir);
+  if (cmd === "backup") return backup(sub, rest[0], values.to, dir);
   const runner = openRunner({ dir, questionTimeoutMs: parseDuration(values.timeout) });
   const guard = guardFromEnv(runner);
   if (guard) {
@@ -88,6 +98,40 @@ async function main(argv: string[]): Promise<number> {
     await guard?.close();
     runner.close();
   }
+}
+
+async function backup(
+  sub: string | undefined,
+  file: string | undefined,
+  to: string | undefined,
+  dir: string,
+): Promise<number> {
+  const vault = process.env.MALVES_VAULT;
+  if (sub === "now") {
+    const target = process.env.MALVES_BACKUP_SSH;
+    if (!vault || !target) {
+      console.error("Set MALVES_VAULT and MALVES_BACKUP_SSH (e.g. ubuntu@100.69.0.115) first.");
+      return 1;
+    }
+    const name = await backupNow({
+      vault,
+      dataDir: dir,
+      target,
+      ...(process.env.MALVES_BACKUP_SSH_KEY ? { sshKey: process.env.MALVES_BACKUP_SSH_KEY } : {}),
+    });
+    console.log(`Backed up to ${target}:~/malves-backups/${name}
+The key that opens it is ${path.join(dir, "backup.key")}. Keep a copy somewhere safe: without it the backups can't be opened.`);
+    return 0;
+  }
+  if (sub === "restore" && file && to) {
+    const count = restoreVault(readFileSync(file), backupKey(dir), path.resolve(to));
+    console.log(
+      `Restored ${count} files into ${path.resolve(to)}. Open it in Obsidian, or copy notes back into your vault.`,
+    );
+    return 0;
+  }
+  console.error("Usage: malves backup now | malves backup restore <file> --to <new folder>");
+  return 1;
 }
 
 function workspace(runner: Runner, sub: string | undefined, rest: string[], name?: string): number {

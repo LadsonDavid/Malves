@@ -117,6 +117,8 @@ export const AssistantSay = z.object({
   conversation_id: Id,
   text: z.string().min(1).max(2000),
   alternatives: z.array(z.string().max(500)).max(5).optional(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
 });
 
 /** Yes or no to the action Malves read back (Confirm / Cancel buttons). */
@@ -126,6 +128,28 @@ export const AssistantConfirm = z.object({
   conversation_id: Id,
   pending_id: Id,
   yes: z.boolean(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
+});
+
+/** One piece of a photo for Malves (JPEG, in order, ≤ 96 KB each). */
+export const ImageChunk = z.object({
+  type: z.literal("image.chunk"),
+  command_id: Id,
+  upload_id: Id,
+  index: z.number().int().min(0).max(40),
+  data: z.string().max(131_072),
+});
+
+/** "Look at this": Malves looks at an uploaded photo and answers (in `ack.assistant`). */
+export const AssistantLook = z.object({
+  type: z.literal("assistant.look"),
+  command_id: Id,
+  conversation_id: Id,
+  upload_id: Id,
+  question: z.string().max(500).optional(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
 });
 
 /** What Malves remembers (answered in `ack.memories`). */
@@ -183,6 +207,9 @@ export const VoiceTranscribe = z.object({
   language: z.string().min(2).max(8),
 });
 
+/** Take the computer back from Malves (handover mode). */
+export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
+
 /** Breakglass: stop every running task now (§8). */
 export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), command_id: Id });
 
@@ -201,10 +228,13 @@ export const Command = z.discriminatedUnion("type", [
   AnswerCommand,
   TaskStop,
   TasksStopAll,
+  HandoverStop,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,
   AssistantConfirm,
+  ImageChunk,
+  AssistantLook,
   MemoryList,
   MemoryForget,
   IdeAgent,
@@ -242,6 +272,15 @@ export const IdeInfo = z.object({
 });
 export type IdeInfo = z.infer<typeof IdeInfo>;
 
+/** Whether Malves has the computer (handover mode), since when, until when; or why it ended. */
+export const HandoverState = z.object({
+  active: z.boolean(),
+  since: z.number().int().optional(),
+  until: z.number().int().optional(),
+  reason: z.string().max(200).optional(),
+});
+export type HandoverState = z.infer<typeof HandoverState>;
+
 export const Welcome = z.object({
   type: z.literal("welcome"),
   v: z.number().int(),
@@ -254,6 +293,8 @@ export const Welcome = z.object({
   push: z.object({ subscribe: z.string().max(300) }).optional(),
   /** Whether the Chrome extension is connected, so browser tasks can work. */
   chrome: z.boolean().optional(),
+  /** Handover mode, when Malves is set up. */
+  handover: HandoverState.optional(),
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: z.boolean().optional(),
   /** Whether Malves, the assistant, is set up (its brain reachable). */
@@ -276,6 +317,20 @@ export const IdesMessage = z.object({ type: z.literal("ides"), ides: z.array(Ide
 
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
+
+/** Malves' spoken reply to a command (natural voice), in pieces; `failed` when there's none. */
+export const AssistantAudio = z.object({
+  type: z.literal("assistant.audio"),
+  command_id: Id,
+  index: z.number().int().min(0),
+  last: z.boolean(),
+  mime: z.string().max(40),
+  data: z.string().max(131_072),
+  failed: z.string().max(200).optional(),
+});
+
+/** Sent when handover mode starts or ends. */
+export const HandoverMessage = z.object({ type: z.literal("handover"), state: HandoverState });
 
 /** Sent whenever an agent's readiness changes. */
 export const AgentsMessage = z.object({ type: z.literal("agents"), agents: z.array(AgentInfo) });
@@ -336,6 +391,8 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   AgentsMessage,
   ChromeMessage,
   IdesMessage,
+  HandoverMessage,
+  AssistantAudio,
   ActivityMessage,
   LeadsMessage,
   EventMessage,

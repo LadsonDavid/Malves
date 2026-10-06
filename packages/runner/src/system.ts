@@ -9,7 +9,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { homedir, networkInterfaces } from "node:os";
+import { homedir, networkInterfaces, uptime } from "node:os";
 import path from "node:path";
 import type { Clock, Ids } from "@malves/core";
 import { generateKeyPair, type KeyPair, publicKeyOf } from "@malves/protocol";
@@ -41,17 +41,28 @@ export function acquireLock(dir: string): () => void {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(file, "wx");
-      writeSync(fd, String(process.pid));
+      writeSync(fd, `${process.pid} ${bootTime()}`);
       closeSync(fd);
       return () => rmSync(file, { force: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const pid = Number.parseInt(readFileSync(file, "utf8"), 10);
-      if (isAlive(pid)) throw new Error(`Another malves runner is using ${dir} (pid ${pid}).`);
+      const [pidText, bootText] = readFileSync(file, "utf8").split(" ");
+      const pid = Number.parseInt(pidText ?? "", 10);
+      // After a restart the old pid may belong to another program: a lock from
+      // an earlier boot is always stale. ponytail: a crash and pid reuse within
+      // one boot still blocks; delete runner.lock by hand then.
+      const sameBoot = Math.abs(Number(bootText) - bootTime()) < 120_000;
+      if (sameBoot && isAlive(pid))
+        throw new Error(`Another malves runner is using ${dir} (pid ${pid}).`);
       rmSync(file, { force: true });
     }
   }
   throw new Error(`Could not lock ${dir}`);
+}
+
+/** When the computer started, to the minute. */
+function bootTime(): number {
+  return Math.round((Date.now() - uptime() * 1000) / 60_000) * 60_000;
 }
 
 function isAlive(pid: number): boolean {

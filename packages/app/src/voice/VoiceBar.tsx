@@ -1,87 +1,163 @@
-import { Text, View } from "react-native";
-import { Banner, Button, Card, color, styles } from "../ui";
+import { Pressable, Text, View } from "react-native";
+import { Conversation, Desktop, Mic, Stop } from "../icons";
+import { Button, color, Eyebrow, font, IconButton, space } from "../ui";
 import { useVoice } from "./VoiceProvider";
 
 const PHASE_WORDS = {
-  idle: "",
-  speaking: "🔊 Speaking…",
-  listening: "🎤 Listening…",
-  working: "⏳ Working…",
+  idle: "Ready",
+  speaking: "Speaking",
+  listening: "Listening",
+  working: "Thinking",
 };
 
-/** Talk to malves: one turn at a time, or hands-free voice mode. */
-export function VoiceBar() {
+/**
+ * Malves, on the home screen: a navy zone with what it last said, a mic, and
+ * hands-free mode. Its read-backs show here with Confirm and Cancel.
+ */
+export function VoiceBar({
+  onOpenConversation,
+  handover,
+}: {
+  onOpenConversation?: () => void;
+  /** Whether Malves has the computer now; offers "Hand over" when it doesn't. */
+  handover?: boolean;
+}) {
   const voice = useVoice();
-  if (!voice.canListen) {
-    return (
-      <Text style={styles.muted}>
-        🔊 Questions can be read aloud. To talk to malves, use the malves app (APK) — Expo Go can't
-        listen.
-      </Text>
-    );
-  }
   const busy = voice.phase !== "idle";
+  const state = voice.mode && !busy ? "Hands-free" : PHASE_WORDS[voice.phase];
+  const live = voice.phase === "listening";
+
   return (
-    <Card>
-      <View style={[styles.row, { alignItems: "center" }]}>
-        <Button
-          title={busy && !voice.mode ? "■ Stop" : "🎤 Talk"}
-          kind={voice.mode ? "plain" : "primary"}
-          hint="Say a command, or answer the oldest question"
-          onPress={busy && !voice.mode ? voice.hush : voice.talk}
-          disabled={voice.mode}
+    <View
+      style={{
+        backgroundColor: color.zone,
+        borderRadius: 18,
+        padding: space.lg,
+        gap: space.md,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <Eyebrow onZone>Malves</Eyebrow>
+        <View
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: live
+              ? "#60a5fa"
+              : busy || voice.mode
+                ? color.zoneText
+                : color.zoneMuted,
+          }}
         />
-        <Button
-          title={voice.mode ? "Voice mode: on" : "Voice mode: off"}
-          kind={voice.mode ? "danger" : "plain"}
-          hint="Hands-free: malves reads questions aloud and listens for your answers"
-          onPress={voice.toggleMode}
-        />
-      </View>
-      {busy ? (
         <Text
-          style={[styles.body, { color: voice.phase === "listening" ? color.ok : color.muted }]}
+          style={{ fontFamily: font.mono, fontSize: 12, color: color.zoneMuted, flex: 1 }}
+          accessibilityLiveRegion="polite"
         >
-          {PHASE_WORDS[voice.phase]}
+          {state}
         </Text>
-      ) : null}
+        {onOpenConversation ? (
+          <IconButton
+            icon={Conversation}
+            label="Conversation"
+            onPress={onOpenConversation}
+            onZone
+          />
+        ) : null}
+      </View>
+
+      <Text
+        style={{ fontFamily: font.sans, fontSize: 17, lineHeight: 25, color: color.zoneText }}
+        numberOfLines={4}
+      >
+        {voice.said ||
+          (voice.canListen
+            ? "Ask me to start a task, check what's running, or answer what's waiting."
+            : "I can read questions aloud here. To talk to me, use the malves app (APK).")}
+      </Text>
       {voice.heard ? (
-        <Text style={styles.body}>
-          <Text style={{ fontWeight: "700" }}>You: </Text>
-          {voice.heard}
+        <Text style={{ fontFamily: font.sans, fontSize: 14, color: color.zoneMuted }}>
+          You: {voice.heard}
         </Text>
       ) : null}
-      {voice.said ? (
-        <Text style={styles.muted} numberOfLines={3}>
-          Malves: {voice.said}
-        </Text>
-      ) : null}
+
       {voice.pending ? (
-        <View style={{ gap: 8 }}>
-          <Text style={styles.body}>{voice.pending.summary}</Text>
-          <View style={styles.row}>
+        <View style={{ gap: space.sm }}>
+          <Text style={{ fontFamily: font.medium, fontSize: 15, color: color.zoneText }}>
+            {voice.pending.summary}
+          </Text>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                title="Confirm"
+                hint="Malves does what it just read back"
+                onPress={() => voice.confirmPending(true)}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                title="Cancel"
+                kind="secondary"
+                onZone
+                hint="Nothing happens"
+                onPress={() => voice.confirmPending(false)}
+              />
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {voice.problem ? (
+        <Text style={{ fontFamily: font.sans, fontSize: 14, color: "#f87171" }}>
+          {voice.problem}
+        </Text>
+      ) : null}
+
+      {voice.canListen ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={busy && !voice.mode ? "Stop" : "Talk to Malves"}
+            accessibilityHint="Say a command, or answer the oldest question"
+            disabled={voice.mode}
+            onPress={busy && !voice.mode ? voice.hush : voice.talk}
+            style={({ pressed }) => ({
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: live ? color.zoneText : color.primary,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: voice.mode ? 0.4 : pressed ? 0.85 : 1,
+            })}
+          >
+            {busy && !voice.mode ? (
+              <Stop size={24} color={live ? color.zone : color.onPrimary} />
+            ) : (
+              <Mic size={24} color={color.onPrimary} />
+            )}
+          </Pressable>
+          <View style={{ flex: 1 }}>
             <Button
-              title="Confirm"
-              kind="primary"
-              hint="Malves does what it just read back"
-              onPress={() => voice.confirmPending(true)}
-            />
-            <Button
-              title="Cancel"
-              kind="plain"
-              hint="Nothing happens"
-              onPress={() => voice.confirmPending(false)}
+              title={voice.mode ? "Hands-free: on" : "Hands-free"}
+              kind="secondary"
+              onZone
+              hint="Malves reads questions aloud and keeps listening"
+              onPress={voice.toggleMode}
             />
           </View>
         </View>
       ) : null}
-      {voice.problem ? <Banner tone="bad">{voice.problem}</Banner> : null}
-      {!busy && !voice.heard ? (
-        <Text style={styles.muted}>
-          Try: “ask Claude to fix the footer in {"<project>"}”, “what’s running?”, “allow”, “read
-          the result”.
-        </Text>
+      {voice.assistantOn && handover === false && !voice.pending ? (
+        <Button
+          title="Hand over my computer"
+          kind="ghost"
+          onZone
+          icon={Desktop}
+          hint="Malves takes over while you are away; it asks before anything risky"
+          onPress={() => voice.tell("I'm leaving, take over my computer until I'm back.")}
+        />
       ) : null}
-    </Card>
+    </View>
   );
 }

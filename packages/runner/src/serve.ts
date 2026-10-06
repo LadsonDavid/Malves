@@ -3,7 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
+import { startBackups } from "./adapters/assistant/backup.js";
+import { Handover, windowsLocked } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
+import { geminiSpeech } from "./adapters/assistant/speech.js";
+import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
 import { IdeBridge } from "./adapters/ide/bridge.js";
@@ -124,12 +128,35 @@ export async function serve(
       })
     : undefined;
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
+  // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
+  const handover = new Handover({
+    locked: process.platform === "win32" ? windowsLocked : undefined,
+    // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
+    desktop:
+      process.platform === "win32"
+        ? () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop())
+        : undefined,
+    onChange: (state) => {
+      server.setHandover(state);
+      say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);
+      if (!state.active && pushOn)
+        push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
+    },
+  });
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
     agents: () => runner.agents.list(),
     ide: ideCtl,
     leads: leads ? () => leads.fetch() : undefined,
+    handover,
+    // The bridge is replaced when the extension gets a new token: always use the current one.
+    browser: {
+      get connected() {
+        return bridge.connected;
+      },
+      call: (op, args) => bridge.call(op, args),
+    },
   });
   const server = new LinkServer(runner, {
     host,
@@ -144,6 +171,16 @@ export async function serve(
     transcriber: transcriberFromEnv(),
     ide: ideCtl,
     assistant: malves?.port,
+    stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
+    speech:
+      malves && process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
+        ? geminiSpeech({
+            url: process.env.MALVES_MODELS_URL,
+            key: process.env.MALVES_MODELS_KEY,
+            model: process.env.MALVES_VOICE_MODEL,
+            voice: process.env.MALVES_VOICE,
+          })
+        : undefined,
     leads,
   });
   const say = (line: string) => console.log(line);
@@ -169,6 +206,32 @@ export async function serve(
   const stopDigest =
     leads && pushOn && push
       ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
+      : () => {};
+  const stopWatcher =
+    pushOn && push
+      ? startWatcher({
+          subscribe: (listener) => runner.log.subscribe(listener),
+          task: (id) => runner.tasks.get(id),
+          label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+          notify: (title, message, click) => push.notify(title, message, click),
+          quietHours: process.env.MALVES_QUIET_HOURS,
+        })
+      : () => {};
+  const backupTarget = process.env.MALVES_BACKUP_SSH;
+  const vault = process.env.MALVES_VAULT;
+  const stopBackups =
+    malves && backupTarget && vault
+      ? startBackups(
+          {
+            vault,
+            dataDir: dir,
+            target: backupTarget,
+            ...(process.env.MALVES_BACKUP_SSH_KEY
+              ? { sshKey: process.env.MALVES_BACKUP_SSH_KEY }
+              : {}),
+          },
+          say,
+        )
       : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
@@ -356,6 +419,8 @@ export async function serve(
   await ides.close();
   stopActivity();
   stopDigest();
+  stopWatcher();
+  stopBackups();
   await push?.close();
   await tools.close();
   await bridge.close();

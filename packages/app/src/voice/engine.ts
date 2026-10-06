@@ -1,3 +1,5 @@
+import { type AudioPlayer, createAudioPlayer } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 import * as Speech from "expo-speech";
 
 /**
@@ -61,6 +63,40 @@ export function speak(text: string, language: Lang, voice?: string): Promise<voi
 
 export function stopSpeaking(): void {
   void Speech.stop();
+  stopClip?.();
+}
+
+let stopClip: (() => void) | undefined;
+
+/** Plays one of Malves' natural-voice replies; resolves when it ends or is stopped. */
+export function playClip(base64: string, mime: string): Promise<void> {
+  stopClip?.();
+  const file = new File(
+    Paths.cache,
+    `malves-voice-${Date.now()}.${mime.includes("mpeg") ? "mp3" : "wav"}`,
+  );
+  file.create();
+  file.write(base64, { encoding: "base64" });
+  const player: AudioPlayer = createAudioPlayer({ uri: file.uri });
+  return new Promise((resolve) => {
+    const finish = () => {
+      if (stopClip !== finish) return;
+      stopClip = undefined;
+      subscription.remove();
+      player.remove();
+      try {
+        file.delete();
+      } catch {
+        // A leftover cache file is harmless.
+      }
+      resolve();
+    };
+    const subscription = player.addListener("playbackStatusUpdate", (status) => {
+      if (status.didJustFinish) finish();
+    });
+    stopClip = finish;
+    player.play();
+  });
 }
 
 export type Heard = {
@@ -83,7 +119,8 @@ export type ListenOptions = {
   onPartial?: (text: string) => void;
 };
 
-let active: { stop: () => void } | undefined;
+/** The listening session in progress; `ended` settles once its "end" event has come. */
+let active: { stop: () => void; ended: Promise<void> } | undefined;
 
 /** Listens for one sentence (or, with `long`, until stopped). Rejects only on permission or setup errors. */
 export async function listen(o: ListenOptions): Promise<Heard> {
@@ -93,8 +130,18 @@ export async function listen(o: ListenOptions): Promise<Heard> {
   if (!permission.granted)
     throw new Error("malves needs the microphone to listen. Allow it in Android settings.");
   stopSpeaking();
-  active?.stop();
+  // Let the previous session finish first: its late "end" event would otherwise
+  // end this one at once, with nothing heard. At most a second.
+  const previous = active;
+  if (previous) {
+    previous.stop();
+    await Promise.race([previous.ended, new Promise((r) => setTimeout(r, 1000))]);
+  }
 
+  let markEnded = () => {};
+  const ended = new Promise<void>((r) => {
+    markEnded = r;
+  });
   return new Promise<Heard>((resolve, reject) => {
     // Android splits long speech into segments; each final one is kept.
     const segments: string[] = [];
@@ -139,12 +186,13 @@ export async function listen(o: ListenOptions): Promise<Heard> {
       if (settled) return;
       settled = true;
       for (const sub of subs) sub.remove();
-      active = undefined;
+      if (active?.ended === ended) active = undefined;
+      markEnded();
       if (error) return reject(error);
       const text = [...segments, partial].filter(Boolean).join(" ").trim();
       resolve({ text, alternatives, confidence, audioUri });
     };
-    active = { stop: () => module.stop() };
+    active = { stop: () => module.stop(), ended };
     module.start({
       lang: o.lang,
       interimResults: true,
@@ -163,6 +211,17 @@ export async function listen(o: ListenOptions): Promise<Heard> {
 /** Stops listening; the words heard so far are kept. */
 export function stopListening(): void {
   active?.stop();
+}
+
+/** Deletes a recording once it's been used (or wasn't needed): they'd pile up in the cache. */
+export function discardRecording(uri: string | undefined): void {
+  if (!uri) return;
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // Already gone, or not ours to delete: nothing to do.
+  }
 }
 
 /** Reads a recording as base64, for precise mode. */

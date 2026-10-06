@@ -1,9 +1,21 @@
 import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
 import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Speaker } from "../icons";
 import { ago, type Model, running } from "../model";
 import { PushCard } from "../PushCard";
-import { Banner, Button, buzz, Card, Chip, Choices, Section, styles, type Tone } from "../ui";
+import {
+  Banner,
+  Button,
+  buzz,
+  Card,
+  Chip,
+  Choices,
+  Section,
+  styles,
+  Title,
+  type Tone,
+} from "../ui";
 import { type Lang, voicesFor } from "../voice/engine";
 import { useVoice } from "../voice/VoiceProvider";
 
@@ -84,18 +96,16 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
       contentContainerStyle={styles.page}
       refreshControl={<RefreshControl refreshing={checking} onRefresh={() => void checkAgain()} />}
     >
-      <Text style={styles.title}>Settings</Text>
+      <Title>Settings</Title>
 
       <Section title="Computer">
         <Card>
-          <Text style={[styles.body, { fontWeight: "600" }]}>
-            {model.computer ?? "Your computer"}
-          </Text>
+          <Text style={[styles.body, styles.strong]}>{model.computer ?? "Your computer"}</Text>
           <Text style={styles.muted}>
             {status === "online"
               ? "Connected, end-to-end encrypted."
               : status === "offline"
-                ? `Offline${lastOnline ? ` — last seen ${ago(new Date(lastOnline).toISOString())}` : ""}. Retrying.`
+                ? `Offline${lastOnline ? `, last seen ${ago(new Date(lastOnline).toISOString())}` : ""}. Retrying.`
                 : status === "connecting"
                   ? "Connecting…"
                   : "This computer no longer accepts this phone."}
@@ -119,6 +129,26 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             value={voice.settings.lang}
             onChange={(lang) => voice.setSettings({ ...voice.settings, lang })}
           />
+          {model.assistant ? (
+            <>
+              <Text style={styles.muted}>How Malves sounds</Text>
+              <Choices<"phone" | "natural">
+                options={[
+                  { value: "phone", label: "Phone voice (instant)" },
+                  { value: "natural", label: "Natural (Gemini)" },
+                ]}
+                value={voice.settings.natural ? "natural" : "phone"}
+                onChange={(v) => voice.setSettings({ ...voice.settings, natural: v === "natural" })}
+              />
+              {voice.settings.natural ? (
+                <Text style={styles.muted}>
+                  Sounds like a person, but each reply takes 5 to 15 seconds longer, and Google is
+                  sometimes busy. If it takes over 15 seconds, Malves uses the phone voice for that
+                  reply. Questions and results are always read by the phone.
+                </Text>
+              ) : null}
+            </>
+          ) : null}
           {phoneVoices.length > 1 ? (
             <>
               <Text style={styles.muted}>Malves' voice (from your phone)</Text>
@@ -166,7 +196,8 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             </Text>
           ) : null}
           <Button
-            title="🔊 Test the voice"
+            title="Test the voice"
+            icon={Speaker}
             kind="plain"
             onPress={() =>
               voice.readAloud(
@@ -188,10 +219,10 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
           {model.chrome === null ? (
             <Text style={styles.muted}>Unknown until the computer is connected.</Text>
           ) : model.chrome ? (
-            <Text style={styles.body}>Connected — agents can use the tab you have open.</Text>
+            <Text style={styles.body}>Connected. Agents can use the tab you have open.</Text>
           ) : (
             <>
-              <Text style={styles.body}>Not connected — browser tasks won't work.</Text>
+              <Text style={styles.body}>Not connected. Browser tasks won't work.</Text>
               <Text style={styles.muted}>
                 On the computer, in malves serve, type extension and follow the steps.
               </Text>
@@ -204,7 +235,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         {model.agents.map((a) => (
           <Card key={a.name}>
             <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
-              <Text style={[styles.body, { fontWeight: "600" }]}>{a.label}</Text>
+              <Text style={[styles.body, styles.strong]}>{a.label}</Text>
               <Chip label={AGENT_STATE[a.state][0]} tone={AGENT_STATE[a.state][1]} />
             </View>
             {a.metered ? <Text style={styles.muted}>Free models, metered by malves.</Text> : null}
@@ -212,7 +243,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
           </Card>
         ))}
         <Button
-          title="I've signed in — check again"
+          title="I've signed in, check again"
           kind="plain"
           busy={checking}
           disabled={!client || status !== "online"}

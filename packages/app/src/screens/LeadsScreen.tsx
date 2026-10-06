@@ -2,7 +2,7 @@ import type { Lead, LinkClient } from "@malves/protocol";
 import { useState } from "react";
 import { Linking, RefreshControl, ScrollView, Share, Text, View } from "react-native";
 import { type Model, mailtoFor, pickAgent, researchPrompt } from "../model";
-import { Banner, Button, buzz, Card, Chip, Choices, styles, type Tone } from "../ui";
+import { Banner, Button, buzz, Card, Chip, Choices, styles, Title, type Tone } from "../ui";
 
 type Props = {
   model: Model;
@@ -63,7 +63,7 @@ export function LeadsScreen({ model, client, lastAgent, onOpenTask }: Props) {
       contentContainerStyle={styles.page}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
     >
-      <Text style={styles.title}>Leads</Text>
+      <Title eyebrow="This week">Leads</Title>
       <Text style={styles.muted}>
         {leads
           ? `${leads.list.length} to contact this week · updated ${new Date(leads.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
@@ -117,7 +117,7 @@ function LeadCard({ lead, onResearch }: { lead: Lead; onResearch: () => void }) 
           {lead.signals === 1 ? "" : "s"}
         </Text>
       </View>
-      <Text style={[styles.body, { fontWeight: "600" }]}>{lead.name}</Text>
+      <Text style={styles.h3}>{lead.name}</Text>
       <Text style={styles.body}>{lead.why}</Text>
       {lead.trigger ? <Text style={styles.muted}>Latest: {lead.trigger}</Text> : null}
       {lead.opener ? (

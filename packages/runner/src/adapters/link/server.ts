@@ -7,6 +7,7 @@ import {
   CLOSE,
   Command,
   FirstFrame,
+  type HandoverState,
   Hello,
   type IdeInfo,
   type KeyPair,
@@ -20,8 +21,10 @@ import {
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import type { Speech } from "../assistant/speech.js";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
+import { Uploads } from "./uploads.js";
 
 export type LinkServerOptions = {
   /** A concrete address: the Tailscale IP, a LAN IP, or 127.0.0.1. */
@@ -38,6 +41,10 @@ export type LinkServerOptions = {
   /** An agent's saved conversations in a workspace, newest first. */
   /** Malves, the assistant, when its brain is set up. */
   assistant?: AssistantPort | undefined;
+  /** Malves' natural voice, when it's set up. */
+  speech?: Speech | undefined;
+  /** Ends handover mode (the phone's Stop button). */
+  stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
   ide?: IdeControl | undefined;
   /** Precise dictation through Whisper, when freellmapi is set up. */
@@ -65,6 +72,11 @@ export interface AssistantPort {
     conversationId: string,
     pendingId: string,
     yes: boolean,
+  ): Promise<NonNullable<Ack["assistant"]>>;
+  look(
+    conversationId: string,
+    jpegBase64: string,
+    question: string,
   ): Promise<NonNullable<Ack["assistant"]>>;
   memories(): Promise<NonNullable<Ack["memories"]>>;
   forget(memoryId: string): boolean;
@@ -104,10 +116,18 @@ export class LinkServer {
   private heartbeat: NodeJS.Timeout | undefined;
   private offer: { code: string; expiresAt: number } | undefined;
   private readonly results = new Map<string, Promise<Ack>>();
+  /** Photos for Malves, arriving in pieces. */
+  private readonly images = new Uploads({
+    maxBytes: 3 * 1024 * 1024,
+    maxOpen: 3,
+    ttlMs: 2 * 60_000,
+    what: "photo",
+  });
   private readonly alive = new WeakSet<WebSocket>();
   private readonly sessions = new Set<Session>();
   private address = "";
   private chrome: boolean | undefined;
+  private handover: HandoverState | undefined;
 
   constructor(
     private readonly core: Core,
@@ -172,6 +192,55 @@ export class LinkServer {
       at: Date.now(),
     };
     for (const s of this.sessions) s.send(message);
+  }
+
+  /**
+   * Malves' reply in its natural voice, sent after the ack in pieces (a frame
+   * is at most 256 KB). The phone falls back to its own voice if this fails.
+   */
+  private voice(commandId: string, text: string): void {
+    const speech = this.o.speech;
+    const send = (message: RunnerMessage) => {
+      for (const s of this.sessions) s.send(message);
+    };
+    const fail = (why: string) =>
+      send({
+        type: "assistant.audio",
+        command_id: commandId,
+        index: 0,
+        last: true,
+        mime: "",
+        data: "",
+        failed: why,
+      });
+    if (!speech) {
+      fail("No natural voice on this computer.");
+      return;
+    }
+    void speech(text).then(
+      ({ mime, audio }) => {
+        const data = audio.toString("base64");
+        const size = 131_072;
+        const count = Math.max(1, Math.ceil(data.length / size));
+        for (let index = 0; index < count; index++) {
+          send({
+            type: "assistant.audio",
+            command_id: commandId,
+            index,
+            last: index === count - 1,
+            mime,
+            data: data.slice(index * size, (index + 1) * size),
+          });
+        }
+      },
+      (error: Error) => fail(error.message.slice(0, 200)),
+    );
+  }
+
+  /** Tells every phone whether Malves has the computer (and every phone that connects later). */
+  setHandover(state: HandoverState): void {
+    this.handover = state;
+    for (const s of this.sessions) s.send({ type: "handover", state });
   }
 
   /** Tells every phone whether Chrome is connected (and every phone that connects later). */
@@ -275,12 +344,19 @@ export class LinkServer {
     return JSON.stringify(seal(message, to, this.o.keys.secretKey));
   }
 
-  /** @internal */
-  open(frame: unknown, from: string): Command | undefined {
+  /**
+   * @internal A command from the phone. "unsealed": not sealed by this phone
+   * (the link is broken or tampered with). "unknown": sealed by it, but a
+   * command this runner doesn't know (a newer app); answered, not fatal.
+   */
+  open(frame: unknown, from: string): Command | { unknown: string | undefined } | "unsealed" {
     const sealed = SealedFrame.safeParse(frame);
-    if (!sealed.success) return undefined;
-    const command = Command.safeParse(open(sealed.data, from, this.o.keys.secretKey));
-    return command.success ? command.data : undefined;
+    const opened = sealed.success ? open(sealed.data, from, this.o.keys.secretKey) : undefined;
+    if (opened === undefined) return "unsealed";
+    const command = Command.safeParse(opened);
+    if (command.success) return command.data;
+    const id = (opened as { command_id?: unknown } | null)?.command_id;
+    return { unknown: typeof id === "string" && id.length > 0 && id.length <= 64 ? id : undefined };
   }
 
   /** @internal */
@@ -296,6 +372,7 @@ export class LinkServer {
       last_seq: this.core.log.lastSeq,
       ...(push ? { push: { subscribe: push } } : {}),
       ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
+      ...(this.handover ? { handover: this.handover } : {}),
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
       ...(this.o.assistant ? { assistant: true } : {}),
@@ -361,6 +438,21 @@ export class LinkServer {
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
         }
+        case "image.chunk":
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          this.images.add(command.upload_id, command.index, command.data);
+          return ack(true);
+        case "assistant.look": {
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          const photo = this.images.take(command.upload_id).toString("base64");
+          const seen = await this.o.assistant.look(
+            command.conversation_id,
+            photo,
+            command.question ?? "",
+          );
+          if (command.speak) this.voice(command.command_id, seen.reply);
+          return ack(true, { assistant: seen });
+        }
         case "assistant.say":
         case "assistant.confirm": {
           const assistant = this.o.assistant;
@@ -373,6 +465,7 @@ export class LinkServer {
                   command.alternatives ?? [],
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
+          if (command.speak) this.voice(command.command_id, answer.reply);
           return ack(true, { assistant: answer });
         }
         case "memory.list":
@@ -410,6 +503,10 @@ export class LinkServer {
           return ack(true, {
             result: await this.o.transcriber.transcribe(command.upload_id, command.language),
           });
+        case "handover.stop":
+          if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
+          this.o.stopHandover();
+          return ack(true);
         case "tasks.stop_all":
           await this.core.tasks.stopAll();
           return ack(true);
@@ -476,8 +573,20 @@ class Session {
 
   receive(frame: unknown): void {
     const command = this.server.open(frame, this.key);
-    if (!command) {
+    if (command === "unsealed") {
       this.ws.close(CLOSE.BAD_MESSAGE, "Unreadable command");
+      return;
+    }
+    if ("unknown" in command) {
+      // A newer app: say so, so it stops waiting (and doesn't re-send forever).
+      if (command.unknown) {
+        this.send({
+          type: "ack",
+          command_id: command.unknown,
+          ok: false,
+          error: "The malves on your computer is older than this app. Update it on the computer.",
+        });
+      }
       return;
     }
     void this.server.execute(command).then((ack) => this.send(ack));

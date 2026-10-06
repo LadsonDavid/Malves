@@ -1,7 +1,7 @@
 import type { TaskState } from "@malves/protocol";
 import { Text, View } from "react-native";
 import { duration, isFinished, type Model, STATE_WORDS, type Task, workspaceName } from "../model";
-import { Card, Chip, styles, type Tone } from "../ui";
+import { Chip, Row, styles, type Tone } from "../ui";
 import { useNow } from "../useNow";
 
 const STATE_TONE: Record<TaskState, Tone | "plain"> = {
@@ -22,10 +22,10 @@ export function TaskRow({ task, model, onOpen }: { task: Task; model: Model; onO
   const now = useNow(isFinished(task) ? 60_000 : 1000);
   const last = model.activity[task.id]?.at(-1);
   return (
-    <Card onPress={onOpen} label={`${STATE_WORDS[task.state]}: ${task.prompt}`}>
+    <Row onPress={onOpen} label={`${STATE_WORDS[task.state]}: ${task.prompt}`}>
       <View style={[styles.row, { alignItems: "center" }]}>
         <StateChip state={task.state} />
-        <Text style={styles.muted}>
+        <Text style={styles.meta}>
           {task.agent} · {workspaceName(model, task.workspaceId)} · {duration(task, now)}
         </Text>
       </View>
@@ -42,6 +42,6 @@ export function TaskRow({ task, model, onOpen }: { task: Task; model: Model; onO
           {task.reason}
         </Text>
       ) : null}
-    </Card>
+    </Row>
   );
 }

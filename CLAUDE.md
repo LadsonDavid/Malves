@@ -29,6 +29,12 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   on an Oracle Cloud VM over Tailscale, memory in an Obsidian vault, phone voice
   routed to it with rule fallback, Confirm/Cancel, voice picker, memory screen —
   runner side tested live, phone side awaiting a real test.
+  Also built (Oct 6): `malves autostart` (Task Scheduler, Windows), boot-aware
+  runner lock, 90 s agent probe; app redesign on the Malveon blueprint system
+  (DESIGN.md); Malves watcher (task finished/failed notifications, quiet hours),
+  approved lessons/skills, "look at this" vision (tested live), nightly encrypted
+  vault backup over SSH (tested live, round trip). Handover mode (shell +
+  Chrome + desktop via nut.js fork; screen looks free, clicks/typing read back).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
@@ -73,14 +79,17 @@ Set these locally in every new environment. Never commit here as
 | Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
-| Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API; UI automation stays ruled out |
+| Handover mode: shell in project folders + Chrome; looking and tests/builds auto, the rest asks; ends on Stop, "I'm back", unlock, or 4 h | Owner's choice (Oct 2026) |
+| Never work around Windows Defender/antivirus | The desktop-control PowerShell helper was flagged as malicious; evasion is what malware does |
+| Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API |
+| In handover mode Malves uses editors on screen as a co-developer | Owner's choice (Oct 2026, reversing the earlier ban); every click/keystroke is read back, editor ones say they may accept/reject the AI's change |
 
 ## Ruled out — don't re-propose
 
 | Idea | Why not |
 |---|---|
 | Designing a custom agent protocol | ACP exists (Zed, JetBrains, Google, Devin Desktop) |
-| GUI/accessibility automation of editors | Cursor has a headless CLI; Antigravity has an SDK + ACP server; Windsurf is now Devin Desktop with ACP |
+| GUI/accessibility automation of editors to run their agents (outside handover) | Cursor has a headless CLI; Antigravity has an SDK + ACP server; Windsurf is now Devin Desktop with ACP |
 | Driving Antigravity via a consumer Google login | Google suspended accounts for this in Feb 2026. API key only |
 | Publishing the Chrome extension to the Web Store | It's loaded unpacked; all logic is bundled, the runner sends only operation names (no remote code). See ARCHITECTURE §5 |
 | Browser tasks in a separate Playwright browser | Owner chose Claude-in-Chrome style: real Chrome, current tab, tools always available |

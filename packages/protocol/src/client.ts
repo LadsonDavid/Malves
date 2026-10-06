@@ -8,6 +8,7 @@ import {
   CLOSE,
   type Command,
   FINAL_CLOSE_CODES,
+  type HandoverState,
   type Hello,
   type IdeInfo,
   LINK_VERSION,
@@ -72,6 +73,17 @@ export type LinkClientOptions = {
   onActivity?: (taskId: string, text: string, at: number) => void;
   /** Chrome connected or disconnected on the computer. */
   onChrome?: (connected: boolean) => void;
+  /** A piece of Malves' spoken reply (natural voice). */
+  onAudio?: (piece: {
+    commandId: string;
+    index: number;
+    last: boolean;
+    mime: string;
+    data: string;
+    failed?: string | undefined;
+  }) => void;
+  /** Handover mode started or ended. */
+  onHandover?: (state: HandoverState) => void;
   /** This week's leads arrived (after `refreshLeads`). */
   onLeads?: (leads: Lead[], fetchedAt: number) => void;
   onEvent?: (event: LoggedEvent) => void;
@@ -197,22 +209,61 @@ export class LinkClient {
   }
 
   /** Says something to Malves; the reply is in `ack.assistant`. */
-  assistantSay(conversationId: string, text: string, alternatives: string[] = []): Promise<Ack> {
+  assistantSay(
+    conversationId: string,
+    text: string,
+    alternatives: string[] = [],
+    speak = false,
+  ): Promise<Ack> {
     return this.send({
       type: "assistant.say",
       conversation_id: conversationId,
       text,
       ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
+      ...(speak ? { speak } : {}),
+    });
+  }
+
+  /** Shows Malves a photo (JPEG, base64) and asks about it; the answer is in `ack.assistant`. */
+  async assistantLook(
+    conversationId: string,
+    jpegBase64: string,
+    question = "",
+    speak = false,
+  ): Promise<Ack> {
+    const uploadId = randomToken(12);
+    const size = 131_072;
+    for (let i = 0, index = 0; i < jpegBase64.length; i += size, index++) {
+      const ack = await this.send({
+        type: "image.chunk",
+        upload_id: uploadId,
+        index,
+        data: jpegBase64.slice(i, i + size),
+      });
+      if (!ack.ok) return ack;
+    }
+    return this.send({
+      type: "assistant.look",
+      conversation_id: conversationId,
+      upload_id: uploadId,
+      ...(question ? { question } : {}),
+      ...(speak ? { speak } : {}),
     });
   }
 
   /** Yes or no to the action Malves read back. */
-  assistantConfirm(conversationId: string, pendingId: string, yes: boolean): Promise<Ack> {
+  assistantConfirm(
+    conversationId: string,
+    pendingId: string,
+    yes: boolean,
+    speak = false,
+  ): Promise<Ack> {
     return this.send({
       type: "assistant.confirm",
       conversation_id: conversationId,
       pending_id: pendingId,
       yes,
+      ...(speak ? { speak } : {}),
     });
   }
 
@@ -250,6 +301,11 @@ export class LinkClient {
       agent: input.agent,
       session_id: input.sessionId,
     });
+  }
+
+  /** Takes the computer back from Malves (ends handover mode). */
+  stopHandover(): Promise<Ack> {
+    return this.send({ type: "handover.stop" });
   }
 
   /** Stops every running task on the computer. */
@@ -304,11 +360,15 @@ export class LinkClient {
         return;
       }
       const sealed = SealedFrame.safeParse(frame);
-      const message = sealed.success
-        ? RunnerMessage.safeParse(open(sealed.data, this.o.runnerKey, this.o.keys.secretKey))
+      const opened = sealed.success
+        ? open(sealed.data, this.o.runnerKey, this.o.keys.secretKey)
         : undefined;
-      if (!message?.success) return socket.close(CLOSE.BAD_MESSAGE, "unreadable message");
-      this.receive(message.data);
+      // Not sealed by our computer: something is wrong with the link itself.
+      if (opened === undefined) return socket.close(CLOSE.BAD_MESSAGE, "unreadable message");
+      const message = RunnerMessage.safeParse(opened);
+      // Sealed by our computer but a kind this app doesn't know (a newer runner): skip it.
+      // Closing would reconnect and get the same message again, forever.
+      if (message.success) this.receive(message.data);
     };
 
     socket.onclose = ({ code, reason }) => {
@@ -346,6 +406,19 @@ export class LinkClient {
         break;
       case "chrome":
         this.o.onChrome?.(message.connected);
+        break;
+      case "handover":
+        this.o.onHandover?.(message.state);
+        break;
+      case "assistant.audio":
+        this.o.onAudio?.({
+          commandId: message.command_id,
+          index: message.index,
+          last: message.last,
+          mime: message.mime,
+          data: message.data,
+          failed: message.failed,
+        });
         break;
       case "leads":
         this.o.onLeads?.(message.leads, message.fetched_at);

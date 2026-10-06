@@ -2,7 +2,7 @@ import type { AgentSessionInfo, LinkClient, LinkStatus } from "@malves/protocol"
 import { useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { ago, ideName, type Model, mayStillBeOpen } from "../model";
-import { Banner, Button, buzz, Card, Section, styles } from "../ui";
+import { BackBar, Banner, Button, buzz, Card, Section, styles, Title } from "../ui";
 
 /** The agents whose conversations an IDE shares with malves (their IDE extensions use the same store). */
 const SHARED = [
@@ -35,7 +35,7 @@ export function IdeScreen({ ideId, model, client, status, onBack, onOpenTask, sa
   if (!ide) {
     return (
       <ScrollView contentContainerStyle={styles.page}>
-        <Button title="‹ Back" kind="plain" onPress={onBack} />
+        <BackBar onBack={onBack} />
         <Banner tone="info">That IDE window has closed on your computer.</Banner>
       </ScrollView>
     );
@@ -63,9 +63,9 @@ export function IdeScreen({ ideId, model, client, status, onBack, onOpenTask, sa
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Button title="‹ Back" kind="plain" onPress={onBack} />
+      <BackBar onBack={onBack} />
       <View style={{ gap: 4 }}>
-        <Text style={styles.title}>{name}</Text>
+        <Title eyebrow="At your desk">{name}</Title>
         <Text style={styles.muted}>
           Open on your computer with {ide.projects.map((p) => p.name).join(", ") || "no folder"}.
         </Text>
@@ -227,7 +227,7 @@ function Conversations({
       ) : null}
       {found?.map((s) => (
         <Card key={`${s.agent}-${s.id}`}>
-          <Text style={[styles.body, { fontWeight: "600" }]} numberOfLines={2}>
+          <Text style={[styles.body, styles.strong]} numberOfLines={2}>
             {s.title || "Untitled conversation"}
           </Text>
           <Text style={styles.muted}>
@@ -236,8 +236,8 @@ function Conversations({
           </Text>
           {mayStillBeOpen(s.updated_at) ? (
             <Banner tone="warn">
-              Used {ago(s.updated_at)} — if it's still open in {name}, finish there first, or the
-              two will get mixed up.
+              Used {ago(s.updated_at)}. If it's still open in {name}, finish there first, or the two
+              will get mixed up.
             </Banner>
           ) : null}
           {open === s.id ? (
