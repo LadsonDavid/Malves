@@ -343,10 +343,15 @@ fixed rules above stay as the fallback when it's off or unreachable.
   fields are refused, checked on the live page. It ends on the phone's Stop,
   "I'm back", an unlock after the computer was locked (the lock screen's
   process disappears), or after four hours, and the phone is told.
-  **Desktop mouse and keyboard are not built:** a PowerShell helper doing
-  screenshots, input-idle checks and synthetic clicks was blocked by Windows
-  Defender as malicious. We don't work around antivirus; a signed native
-  helper or nut.js would need its own decision.
+  **Desktop (Windows):** mouse, keyboard and screen through nut.js (the
+  community fork), loaded when handover starts. Looking at the screen is free:
+  a screenshot, resized to the mouse's logical pixels, goes to a vision model.
+  Clicking, typing and keys are read back with the window's title and the
+  coordinates, and are done only if the same window is still in front at the
+  yes. Never in IDE windows (agent panels stay ruled out) or sign-in/password
+  windows. Handover also ends when the mouse moves and Malves didn't move it.
+  (A PowerShell helper for this was blocked by Windows Defender as malicious;
+  we don't work around antivirus.)
 
 ### Desktop IDEs
 

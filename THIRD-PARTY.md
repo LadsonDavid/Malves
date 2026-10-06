@@ -54,3 +54,11 @@ are not copied into this repository.
   tokens). Its colour tokens, type roles and component rules are applied to
   the phone app; see `DESIGN.md` here. Own work, not third-party, listed for
   the dissertation's record.
+
+## nut.js (community fork)
+
+- Source: https://github.com/nut-tree/nut.js, packaged as `@nut-tree-fork/nut-js`
+  4.2.6 on npm (the original package left the public registry)
+- Licence: Apache-2.0
+- Used in: `packages/runner/src/adapters/assistant/desktop.ts`, as a
+  dependency, for handover mode's mouse, keyboard and screenshots. No code copied.

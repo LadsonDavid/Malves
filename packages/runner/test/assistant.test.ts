@@ -128,6 +128,61 @@ function setup(script: Turn[], agents?: AgentInfo[], extra: Partial<AssistantDep
 }
 
 describe("Malves, the assistant", () => {
+  it("uses the screen in handover: looks freely, clicks only on yes, never in IDEs, not if the window changed", async () => {
+    let title = "Notepad";
+    const clicks: string[] = [];
+    const desktop = {
+      screenshot: async () => ({ jpeg: "AAAA", width: 1536, height: 864 }),
+      activeTitle: async () => title,
+      click: async (x: number, y: number) => {
+        clicks.push(`${x},${y}`);
+      },
+      type: async () => {},
+      keys: async () => {},
+      mouse: async () => ({ x: 0, y: 0 }),
+    };
+    const handover = new Handover({
+      onChange: () => {},
+      desktop: async () => desktop,
+      pollMs: 60_000,
+    });
+    const s = setup(
+      [
+        { calls: [["look_at_screen", { question: "where is Save" }]] },
+        { content: "Save is at the top." },
+        { calls: [["click_screen", { x: "120", y: "40", what: "Save" }]] },
+        { calls: [["click_screen", { x: "120", y: "40", what: "Save" }]] },
+        { calls: [["click_screen", { x: "300", y: "300", what: "Accept" }]] },
+      ],
+      undefined,
+      { handover },
+    );
+    s.brain.llm.see = async () => "Save button at (120, 40).";
+    handover.start();
+
+    await s.assistant.say("c1", "find the save button");
+    const looked = s.brain.seen.at(-1)?.map((m) => ("content" in m ? m.content : "")) ?? [];
+    expect(looked.some((c) => c?.includes("Save button at (120, 40)"))).toBe(true);
+
+    const ask = await s.assistant.say("c1", "click save");
+    expect(ask.pending?.summary).toBe('Click Save at (120, 40) in "Notepad"?');
+    expect(clicks).toEqual([]);
+    await s.assistant.say("c1", "yes");
+    expect(clicks).toEqual(["120,40"]);
+
+    await s.assistant.say("c1", "click save again");
+    title = "Untitled - Paint"; // the window changed before his yes
+    const changed = await s.assistant.say("c1", "yes");
+    expect(changed.reply).toContain("The window changed");
+    expect(clicks).toHaveLength(1);
+
+    title = "agent.ts - malves - Visual Studio Code";
+    const ide = await s.assistant.say("c1", "accept that in vs code");
+    expect(ide.pending).toBeUndefined();
+    expect(clicks).toHaveLength(1);
+    handover.stop("test over");
+  });
+
   it("takes over only on yes; then runs looking commands alone, asks for the rest, never types passwords", async () => {
     const handover = new Handover({ onChange: () => {}, pollMs: 60_000 });
     const typed: string[] = [];

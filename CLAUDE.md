@@ -34,7 +34,7 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   (DESIGN.md); Malves watcher (task finished/failed notifications, quiet hours),
   approved lessons/skills, "look at this" vision (tested live), nightly encrypted
   vault backup over SSH (tested live, round trip). Handover mode (shell +
-  Chrome; desktop control blocked by Defender, not built).
+  Chrome + desktop via nut.js fork; screen looks free, clicks/typing read back).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in

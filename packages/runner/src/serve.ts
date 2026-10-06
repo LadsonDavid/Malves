@@ -131,6 +131,11 @@ export async function serve(
   // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
   const handover = new Handover({
     locked: process.platform === "win32" ? windowsLocked : undefined,
+    // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
+    desktop:
+      process.platform === "win32"
+        ? () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop())
+        : undefined,
     onChange: (state) => {
       server.setHandover(state);
       say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);

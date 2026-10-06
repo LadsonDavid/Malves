@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Desktop } from "../src/adapters/assistant/desktop.js";
 import { commandRisk, Handover, type HandoverState } from "../src/adapters/assistant/handover.js";
 
 describe("handover", () => {
@@ -43,5 +44,23 @@ describe("handover", () => {
     await timed.check();
     expect(timed.state).toEqual({ active: false, reason: "Four hours are up." });
     expect(seen.map((s) => s.active)).toEqual([true, false]);
+  });
+  it("ends when he moves the mouse, but not when Malves does", async () => {
+    let at = { x: 10, y: 10 };
+    const desktop = { mouse: async () => at } as unknown as Desktop;
+    const h = new Handover({ onChange: () => {}, desktop: async () => desktop, pollMs: 60_000 });
+    h.start();
+    await h.check(); // first look: remembers where the mouse is
+    h.noteOwnInput();
+    at = { x: 500, y: 300 }; // Malves clicked
+    await h.check();
+    expect(h.state.active).toBe(true);
+    await h.check();
+    expect(h.state.active).toBe(true);
+    // Five seconds later, the mouse moves again: that's him.
+    (h as unknown as { ownInputAt: number }).ownInputAt = Date.now() - 5_000;
+    at = { x: 501, y: 300 };
+    await h.check();
+    expect(h.state).toEqual({ active: false, reason: "You're back at the computer." });
   });
 });

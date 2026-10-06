@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { Desktop } from "./desktop.js";
 
 /**
  * Handover mode: "I'm leaving, take over." While it's on, Malves may run
@@ -17,6 +18,8 @@ export type HandoverOptions = {
   onChange: (state: HandoverState) => void;
   /** Whether the computer shows its lock screen; undefined where that can't be told. */
   locked?: (() => Promise<boolean>) | undefined;
+  /** Mouse, keyboard and screen (loaded when handover starts). */
+  desktop?: (() => Promise<Desktop>) | undefined;
   maxMs?: number;
   pollMs?: number;
 };
@@ -27,6 +30,9 @@ export class Handover {
   private current: HandoverState = { active: false };
   private timer: NodeJS.Timeout | undefined;
   private wasLocked = false;
+  private loading: Promise<Desktop | undefined> | undefined;
+  private lastMouse: { x: number; y: number } | undefined;
+  private ownInputAt = 0;
 
   constructor(private readonly o: HandoverOptions) {}
 
@@ -39,7 +45,9 @@ export class Handover {
     const since = Date.now();
     this.current = { active: true, since, until: since + (this.o.maxMs ?? FOUR_HOURS) };
     this.wasLocked = false;
-    this.timer = setInterval(() => void this.check(), this.o.pollMs ?? 20_000);
+    this.lastMouse = undefined;
+    this.loading = this.o.desktop?.().catch(() => undefined);
+    this.timer = setInterval(() => void this.check(), this.o.pollMs ?? 5_000);
     this.timer.unref();
     this.o.onChange(this.current);
     return this.current;
@@ -53,10 +61,30 @@ export class Handover {
     this.o.onChange(this.current);
   }
 
-  /** Time's up, or he came back: locked while away, unlocked now. */
+  /** The desktop, while handover is on and it loaded (Windows, nut.js). */
+  async desktop(): Promise<Desktop | undefined> {
+    return this.current.active ? await this.loading : undefined;
+  }
+
+  /** Malves just moved the mouse or typed: that isn't him coming back. */
+  noteOwnInput(): void {
+    this.ownInputAt = Date.now();
+  }
+
+  /** Time's up, or he came back: moved the mouse, or locked while away and unlocked now. */
   async check(): Promise<void> {
     if (!this.current.active) return;
     if (Date.now() >= this.current.until) return this.stop("Four hours are up.");
+    const desktop = await this.loading;
+    const mouse = await desktop?.mouse().catch(() => undefined);
+    if (mouse) {
+      const moved =
+        this.lastMouse && (mouse.x !== this.lastMouse.x || mouse.y !== this.lastMouse.y);
+      this.lastMouse = mouse;
+      if (moved && Date.now() - this.ownInputAt > 4_000) {
+        return this.stop("You're back at the computer.");
+      }
+    }
     const locked = await this.o.locked?.().catch(() => undefined);
     if (locked === undefined) return;
     if (locked) this.wasLocked = true;
