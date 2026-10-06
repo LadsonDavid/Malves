@@ -1,3 +1,5 @@
+import { type AudioPlayer, createAudioPlayer } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 import * as Speech from "expo-speech";
 
 /**
@@ -61,6 +63,40 @@ export function speak(text: string, language: Lang, voice?: string): Promise<voi
 
 export function stopSpeaking(): void {
   void Speech.stop();
+  stopClip?.();
+}
+
+let stopClip: (() => void) | undefined;
+
+/** Plays one of Malves' natural-voice replies; resolves when it ends or is stopped. */
+export function playClip(base64: string, mime: string): Promise<void> {
+  stopClip?.();
+  const file = new File(
+    Paths.cache,
+    `malves-voice-${Date.now()}.${mime.includes("mpeg") ? "mp3" : "wav"}`,
+  );
+  file.create();
+  file.write(base64, { encoding: "base64" });
+  const player: AudioPlayer = createAudioPlayer({ uri: file.uri });
+  return new Promise((resolve) => {
+    const finish = () => {
+      if (stopClip !== finish) return;
+      stopClip = undefined;
+      subscription.remove();
+      player.remove();
+      try {
+        file.delete();
+      } catch {
+        // A leftover cache file is harmless.
+      }
+      resolve();
+    };
+    const subscription = player.addListener("playbackStatusUpdate", (status) => {
+      if (status.didJustFinish) finish();
+    });
+    stopClip = finish;
+    player.play();
+  });
 }
 
 export type Heard = {

@@ -21,6 +21,7 @@ import {
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import type { Speech } from "../assistant/speech.js";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
 import { Uploads } from "./uploads.js";
@@ -40,6 +41,8 @@ export type LinkServerOptions = {
   /** An agent's saved conversations in a workspace, newest first. */
   /** Malves, the assistant, when its brain is set up. */
   assistant?: AssistantPort | undefined;
+  /** Malves' natural voice, when it's set up. */
+  speech?: Speech | undefined;
   /** Ends handover mode (the phone's Stop button). */
   stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
@@ -189,6 +192,49 @@ export class LinkServer {
       at: Date.now(),
     };
     for (const s of this.sessions) s.send(message);
+  }
+
+  /**
+   * Malves' reply in its natural voice, sent after the ack in pieces (a frame
+   * is at most 256 KB). The phone falls back to its own voice if this fails.
+   */
+  private voice(commandId: string, text: string): void {
+    const speech = this.o.speech;
+    const send = (message: RunnerMessage) => {
+      for (const s of this.sessions) s.send(message);
+    };
+    const fail = (why: string) =>
+      send({
+        type: "assistant.audio",
+        command_id: commandId,
+        index: 0,
+        last: true,
+        mime: "",
+        data: "",
+        failed: why,
+      });
+    if (!speech) {
+      fail("No natural voice on this computer.");
+      return;
+    }
+    void speech(text).then(
+      ({ mime, audio }) => {
+        const data = audio.toString("base64");
+        const size = 131_072;
+        const count = Math.max(1, Math.ceil(data.length / size));
+        for (let index = 0; index < count; index++) {
+          send({
+            type: "assistant.audio",
+            command_id: commandId,
+            index,
+            last: index === count - 1,
+            mime,
+            data: data.slice(index * size, (index + 1) * size),
+          });
+        }
+      },
+      (error: Error) => fail(error.message.slice(0, 200)),
+    );
   }
 
   /** Tells every phone whether Malves has the computer (and every phone that connects later). */
@@ -392,13 +438,13 @@ export class LinkServer {
         case "assistant.look": {
           if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
           const photo = this.images.take(command.upload_id).toString("base64");
-          return ack(true, {
-            assistant: await this.o.assistant.look(
-              command.conversation_id,
-              photo,
-              command.question ?? "",
-            ),
-          });
+          const seen = await this.o.assistant.look(
+            command.conversation_id,
+            photo,
+            command.question ?? "",
+          );
+          if (command.speak) this.voice(command.command_id, seen.reply);
+          return ack(true, { assistant: seen });
         }
         case "assistant.say":
         case "assistant.confirm": {
@@ -412,6 +458,7 @@ export class LinkServer {
                   command.alternatives ?? [],
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
+          if (command.speak) this.voice(command.command_id, answer.reply);
           return ack(true, { assistant: answer });
         }
         case "memory.list":

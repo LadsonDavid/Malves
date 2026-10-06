@@ -117,6 +117,8 @@ export const AssistantSay = z.object({
   conversation_id: Id,
   text: z.string().min(1).max(2000),
   alternatives: z.array(z.string().max(500)).max(5).optional(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
 });
 
 /** Yes or no to the action Malves read back (Confirm / Cancel buttons). */
@@ -126,6 +128,8 @@ export const AssistantConfirm = z.object({
   conversation_id: Id,
   pending_id: Id,
   yes: z.boolean(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
 });
 
 /** One piece of a photo for Malves (JPEG, in order, ≤ 96 KB each). */
@@ -144,6 +148,8 @@ export const AssistantLook = z.object({
   conversation_id: Id,
   upload_id: Id,
   question: z.string().max(500).optional(),
+  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
+  speak: z.boolean().optional(),
 });
 
 /** What Malves remembers (answered in `ack.memories`). */
@@ -312,6 +318,17 @@ export const IdesMessage = z.object({ type: z.literal("ides"), ides: z.array(Ide
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
 
+/** Malves' spoken reply to a command (natural voice), in pieces; `failed` when there's none. */
+export const AssistantAudio = z.object({
+  type: z.literal("assistant.audio"),
+  command_id: Id,
+  index: z.number().int().min(0),
+  last: z.boolean(),
+  mime: z.string().max(40),
+  data: z.string().max(131_072),
+  failed: z.string().max(200).optional(),
+});
+
 /** Sent when handover mode starts or ends. */
 export const HandoverMessage = z.object({ type: z.literal("handover"), state: HandoverState });
 
@@ -375,6 +392,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   ChromeMessage,
   IdesMessage,
   HandoverMessage,
+  AssistantAudio,
   ActivityMessage,
   LeadsMessage,
   EventMessage,

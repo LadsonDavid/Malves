@@ -73,6 +73,15 @@ export type LinkClientOptions = {
   onActivity?: (taskId: string, text: string, at: number) => void;
   /** Chrome connected or disconnected on the computer. */
   onChrome?: (connected: boolean) => void;
+  /** A piece of Malves' spoken reply (natural voice). */
+  onAudio?: (piece: {
+    commandId: string;
+    index: number;
+    last: boolean;
+    mime: string;
+    data: string;
+    failed?: string | undefined;
+  }) => void;
   /** Handover mode started or ended. */
   onHandover?: (state: HandoverState) => void;
   /** This week's leads arrived (after `refreshLeads`). */
@@ -200,17 +209,28 @@ export class LinkClient {
   }
 
   /** Says something to Malves; the reply is in `ack.assistant`. */
-  assistantSay(conversationId: string, text: string, alternatives: string[] = []): Promise<Ack> {
+  assistantSay(
+    conversationId: string,
+    text: string,
+    alternatives: string[] = [],
+    speak = false,
+  ): Promise<Ack> {
     return this.send({
       type: "assistant.say",
       conversation_id: conversationId,
       text,
       ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
+      ...(speak ? { speak } : {}),
     });
   }
 
   /** Shows Malves a photo (JPEG, base64) and asks about it; the answer is in `ack.assistant`. */
-  async assistantLook(conversationId: string, jpegBase64: string, question = ""): Promise<Ack> {
+  async assistantLook(
+    conversationId: string,
+    jpegBase64: string,
+    question = "",
+    speak = false,
+  ): Promise<Ack> {
     const uploadId = randomToken(12);
     const size = 131_072;
     for (let i = 0, index = 0; i < jpegBase64.length; i += size, index++) {
@@ -227,16 +247,23 @@ export class LinkClient {
       conversation_id: conversationId,
       upload_id: uploadId,
       ...(question ? { question } : {}),
+      ...(speak ? { speak } : {}),
     });
   }
 
   /** Yes or no to the action Malves read back. */
-  assistantConfirm(conversationId: string, pendingId: string, yes: boolean): Promise<Ack> {
+  assistantConfirm(
+    conversationId: string,
+    pendingId: string,
+    yes: boolean,
+    speak = false,
+  ): Promise<Ack> {
     return this.send({
       type: "assistant.confirm",
       conversation_id: conversationId,
       pending_id: pendingId,
       yes,
+      ...(speak ? { speak } : {}),
     });
   }
 
@@ -378,6 +405,16 @@ export class LinkClient {
         break;
       case "handover":
         this.o.onHandover?.(message.state);
+        break;
+      case "assistant.audio":
+        this.o.onAudio?.({
+          commandId: message.command_id,
+          index: message.index,
+          last: message.last,
+          mime: message.mime,
+          data: message.data,
+          failed: message.failed,
+        });
         break;
       case "leads":
         this.o.onLeads?.(message.leads, message.fetched_at);

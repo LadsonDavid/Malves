@@ -6,6 +6,7 @@ import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Handover, windowsLocked } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
+import { geminiSpeech } from "./adapters/assistant/speech.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
@@ -166,6 +167,15 @@ export async function serve(
     ide: ideCtl,
     assistant: malves?.port,
     stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
+    speech:
+      malves && process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
+        ? geminiSpeech({
+            url: process.env.MALVES_MODELS_URL,
+            key: process.env.MALVES_MODELS_KEY,
+            model: process.env.MALVES_VOICE_MODEL,
+            voice: process.env.MALVES_VOICE,
+          })
+        : undefined,
     leads,
   });
   const say = (line: string) => console.log(line);

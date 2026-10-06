@@ -129,6 +129,26 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             value={voice.settings.lang}
             onChange={(lang) => voice.setSettings({ ...voice.settings, lang })}
           />
+          {model.assistant ? (
+            <>
+              <Text style={styles.muted}>How Malves sounds</Text>
+              <Choices<"phone" | "natural">
+                options={[
+                  { value: "phone", label: "Phone voice (instant)" },
+                  { value: "natural", label: "Natural (Gemini)" },
+                ]}
+                value={voice.settings.natural ? "natural" : "phone"}
+                onChange={(v) => voice.setSettings({ ...voice.settings, natural: v === "natural" })}
+              />
+              {voice.settings.natural ? (
+                <Text style={styles.muted}>
+                  Sounds like a person, but each reply takes 5 to 15 seconds longer, and Google is
+                  sometimes busy. If it takes over 15 seconds, Malves uses the phone voice for that
+                  reply. Questions and results are always read by the phone.
+                </Text>
+              ) : null}
+            </>
+          ) : null}
           {phoneVoices.length > 1 ? (
             <>
               <Text style={styles.muted}>Malves' voice (from your phone)</Text>

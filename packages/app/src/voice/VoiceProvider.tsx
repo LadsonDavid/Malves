@@ -18,12 +18,14 @@ import {
   workspaceName,
 } from "../model";
 import { buzz } from "../ui";
+import { waitAudio } from "./audioInbox";
 import {
   canListen,
   canRecord,
   type Heard,
   type Lang,
   listen,
+  playClip,
   readAudio,
   speak,
   stopListening,
@@ -188,6 +190,23 @@ export function VoiceProvider({
     await speak(text, lang, live.current.settings.voices[lang]);
   };
 
+  /**
+   * Malves' reply: in its natural (Gemini) voice when that's chosen and the
+   * audio arrives in time, else in the phone's voice. Text shows at once.
+   */
+  const sayReply = async (text: string, commandId: string | undefined) => {
+    const natural = live.current.settings.natural && commandId;
+    const turnId = live.current.turn;
+    const clip = natural ? await waitAudio(commandId, 15_000) : undefined;
+    if (turnId !== live.current.turn) return;
+    if (!clip) return sayIt(text, voiceFor(text));
+    setPhase("speaking");
+    setSaid(text);
+    note("malves", text);
+    live.current.lastSaid = text;
+    await playClip(clip.data, clip.mime);
+  };
+
   const setBrainPending = (next: { id: string; summary: string } | undefined) => {
     live.current.brainPending = next;
     setPendingState(next);
@@ -226,9 +245,16 @@ export function VoiceProvider({
       if (id === live.current.turn) void sayIt(P().oneSec);
     }, 1500);
     let reply: Awaited<ReturnType<LinkClient["assistantSay"]>>["assistant"];
+    let commandId: string | undefined;
     try {
-      const ack = await c.assistantSay(conversationId, text, alternatives);
+      const ack = await c.assistantSay(
+        conversationId,
+        text,
+        alternatives,
+        live.current.settings.natural,
+      );
       reply = ack.ok ? ack.assistant : undefined;
+      commandId = ack.command_id;
     } catch {
       reply = undefined;
     } finally {
@@ -238,7 +264,7 @@ export function VoiceProvider({
     if (!reply || reply.offline) return false;
     setBrainPending(reply.pending);
     if (reply.did.length > 0) buzz();
-    await sayIt(reply.reply, voiceFor(reply.reply));
+    await sayReply(reply.reply, commandId);
     return true;
   };
 
@@ -630,10 +656,15 @@ export function VoiceProvider({
     note("you", question ? `(photo) ${question}` : "(photo)");
     setPhase("working");
     try {
-      const ack = await c.assistantLook(conversationId, jpegBase64, question);
+      const ack = await c.assistantLook(
+        conversationId,
+        jpegBase64,
+        question,
+        live.current.settings.natural,
+      );
       if (id !== live.current.turn) return;
       const reply = ack.assistant?.reply ?? ack.error ?? "I couldn't look at it.";
-      await sayIt(reply, voiceFor(reply));
+      await sayReply(reply, ack.assistant ? ack.command_id : undefined);
     } catch (error) {
       await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
     }
@@ -654,13 +685,18 @@ export function VoiceProvider({
     void (async () => {
       setPhase("working");
       try {
-        const ack = await c.assistantConfirm(conversationId, target.id, yes);
+        const ack = await c.assistantConfirm(
+          conversationId,
+          target.id,
+          yes,
+          live.current.settings.natural,
+        );
         if (id !== live.current.turn) return;
         const reply = ack.assistant;
         if (reply) {
           setBrainPending(reply.pending);
           if (reply.did.length > 0) buzz();
-          await sayIt(reply.reply, voiceFor(reply.reply));
+          await sayReply(reply.reply, ack.command_id);
         } else await sayIt(P().problem(ack.error ?? "not applied"));
       } catch (error) {
         await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
