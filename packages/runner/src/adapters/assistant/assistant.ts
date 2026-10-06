@@ -476,8 +476,8 @@ export class Assistant {
         }
         return {
           text: named
-            ? "That task didn't change any files, so there's nothing to open."
-            : "None of your recent tasks changed any files, so there's nothing to open.",
+            ? "That task didn't record any changes. I can only track changes in projects that use git."
+            : "None of your recent tasks recorded any changes. I can only track changes in projects that use git: run git init in the project folder, and the next task's changes will show.",
         };
       }
       case "leads": {

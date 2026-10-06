@@ -29,6 +29,7 @@ export class GitChanges {
     private readonly core: Core,
     private readonly o: { questionTimeoutMs: number },
   ) {
+    this.restore();
     this.unsubscribe = core.log.subscribe((event) => {
       // Synchronous on purpose: this runs before the agent is even started.
       if (event.type === "task.created") this.snapshot(event.data.task_id, event.data.workspace_id);
@@ -48,6 +49,35 @@ export class GitChanges {
 
   close(): void {
     this.unsubscribe();
+  }
+
+  /**
+   * Earlier tasks' changes, from the log: without this, "open the changes" and
+   * "view changes" forgot every task from before the last restart.
+   */
+  private restore(): void {
+    const roots = new Map<string, string | undefined>();
+    let after = 0;
+    for (;;) {
+      const page = this.core.log.since(after, 500);
+      for (const event of page) {
+        if (event.type !== "task.changes") continue;
+        const workspaceId = this.core.tasks.get(event.data.task_id)?.workspaceId;
+        const workspace = workspaceId ? this.core.workspaces.get(workspaceId) : undefined;
+        if (!workspace) continue;
+        if (!roots.has(workspace.path)) roots.set(workspace.path, repoRoot(workspace.path));
+        const root = roots.get(workspace.path);
+        if (root) {
+          this.changed.set(event.data.task_id, {
+            root,
+            files: event.data.files.map((f) => f.path),
+          });
+        }
+      }
+      const last = page.at(-1);
+      if (!last || page.length < 500) return;
+      after = last.seq;
+    }
   }
 
   /** The task's changed files (repo-relative) and the repo they're in. */
