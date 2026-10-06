@@ -303,12 +303,12 @@ export class LinkClient {
     });
   }
 
-  /** Stops every running task on the computer. */
   /** Takes the computer back from Malves (ends handover mode). */
   stopHandover(): Promise<Ack> {
     return this.send({ type: "handover.stop" });
   }
 
+  /** Stops every running task on the computer. */
   stopAll(): Promise<Ack> {
     return this.send({ type: "tasks.stop_all" });
   }
@@ -360,11 +360,15 @@ export class LinkClient {
         return;
       }
       const sealed = SealedFrame.safeParse(frame);
-      const message = sealed.success
-        ? RunnerMessage.safeParse(open(sealed.data, this.o.runnerKey, this.o.keys.secretKey))
+      const opened = sealed.success
+        ? open(sealed.data, this.o.runnerKey, this.o.keys.secretKey)
         : undefined;
-      if (!message?.success) return socket.close(CLOSE.BAD_MESSAGE, "unreadable message");
-      this.receive(message.data);
+      // Not sealed by our computer: something is wrong with the link itself.
+      if (opened === undefined) return socket.close(CLOSE.BAD_MESSAGE, "unreadable message");
+      const message = RunnerMessage.safeParse(opened);
+      // Sealed by our computer but a kind this app doesn't know (a newer runner): skip it.
+      // Closing would reconnect and get the same message again, forever.
+      if (message.success) this.receive(message.data);
     };
 
     socket.onclose = ({ code, reason }) => {

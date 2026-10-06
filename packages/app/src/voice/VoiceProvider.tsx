@@ -22,6 +22,7 @@ import { waitAudio } from "./audioInbox";
 import {
   canListen,
   canRecord,
+  discardRecording,
   type Heard,
   type Lang,
   listen,
@@ -318,6 +319,9 @@ export function VoiceProvider({
       await stopMode(false);
       return;
     }
+    const unsure = result.confidence !== undefined && result.confidence < SURE;
+    // The recording only serves Whisper's second listen when Android was unsure; never kept.
+    if (id !== live.current.turn || !result.text || !unsure) discardRecording(result.audioUri);
     if (id !== live.current.turn) return;
     setHeard(result.text);
     if (!result.text) {
@@ -332,9 +336,10 @@ export function VoiceProvider({
     live.current.quietSince = Date.now();
     let text = result.text;
     note("you", text);
-    if (result.confidence !== undefined && result.confidence < SURE) {
+    if (unsure) {
       // Not sure: Whisper gets a second listen; the brain copes with the rest.
       const better = result.audioUri ? await whisper(result.audioUri) : undefined;
+      discardRecording(result.audioUri);
       if (id !== live.current.turn) return;
       if (better) {
         text = better;
@@ -764,6 +769,7 @@ export function VoiceProvider({
     const { settings: s, model: m, client: c } = live.current;
     const precise = s.precise && canRecord() && m.transcribe && c !== undefined;
     setPhase("listening");
+    let recording: string | undefined;
     try {
       const result = await listen({
         lang: s.lang,
@@ -772,6 +778,7 @@ export function VoiceProvider({
         record: precise,
         onPartial: onText,
       });
+      recording = result.audioUri;
       onText(result.text);
       if (precise && result.audioUri && c) {
         setPhase("working");
@@ -786,6 +793,7 @@ export function VoiceProvider({
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
+      discardRecording(recording);
       setPhase("idle");
     }
   };

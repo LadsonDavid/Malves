@@ -344,12 +344,19 @@ export class LinkServer {
     return JSON.stringify(seal(message, to, this.o.keys.secretKey));
   }
 
-  /** @internal */
-  open(frame: unknown, from: string): Command | undefined {
+  /**
+   * @internal A command from the phone. "unsealed": not sealed by this phone
+   * (the link is broken or tampered with). "unknown": sealed by it, but a
+   * command this runner doesn't know (a newer app); answered, not fatal.
+   */
+  open(frame: unknown, from: string): Command | { unknown: string | undefined } | "unsealed" {
     const sealed = SealedFrame.safeParse(frame);
-    if (!sealed.success) return undefined;
-    const command = Command.safeParse(open(sealed.data, from, this.o.keys.secretKey));
-    return command.success ? command.data : undefined;
+    const opened = sealed.success ? open(sealed.data, from, this.o.keys.secretKey) : undefined;
+    if (opened === undefined) return "unsealed";
+    const command = Command.safeParse(opened);
+    if (command.success) return command.data;
+    const id = (opened as { command_id?: unknown } | null)?.command_id;
+    return { unknown: typeof id === "string" && id.length > 0 && id.length <= 64 ? id : undefined };
   }
 
   /** @internal */
@@ -566,8 +573,20 @@ class Session {
 
   receive(frame: unknown): void {
     const command = this.server.open(frame, this.key);
-    if (!command) {
+    if (command === "unsealed") {
       this.ws.close(CLOSE.BAD_MESSAGE, "Unreadable command");
+      return;
+    }
+    if ("unknown" in command) {
+      // A newer app: say so, so it stops waiting (and doesn't re-send forever).
+      if (command.unknown) {
+        this.send({
+          type: "ack",
+          command_id: command.unknown,
+          ok: false,
+          error: "The malves on your computer is older than this app. Update it on the computer.",
+        });
+      }
       return;
     }
     void this.server.execute(command).then((ack) => this.send(ack));

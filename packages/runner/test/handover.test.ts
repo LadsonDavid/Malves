@@ -19,6 +19,24 @@ describe("handover", () => {
     expect(commandRisk("cat secrets > out.txt")).toBe("ask");
     expect(commandRisk("git log $(rm x)")).toBe("ask");
     expect(commandRisk("")).toBe("ask");
+    // PowerShell runs what's in brackets: hidden commands always ask.
+    expect(commandRisk("git log (Remove-Item C:\\stuff -Recurse)")).toBe("ask");
+    expect(commandRisk("git log @(rm x)")).toBe("ask");
+    expect(commandRisk('cat "a.txt"')).toBe("ask");
+    // git branch only lists by itself.
+    expect(commandRisk("git branch")).toBe("look");
+    expect(commandRisk("git branch -a")).toBe("look");
+    expect(commandRisk("git branch -D main")).toBe("ask");
+    expect(commandRisk("git branch new-idea")).toBe("ask");
+    expect(commandRisk("git diff --output=x.txt")).toBe("ask");
+    // Reading outside the project, or secrets inside it, asks.
+    expect(commandRisk("cat src/index.ts")).toBe("look");
+    expect(commandRisk("cat .env")).toBe("ask");
+    expect(commandRisk("type C:\\Users\\Snoba\\.ssh\\ssh-key-2026-10-05.key")).toBe("ask");
+    expect(commandRisk("cat ../other/notes.md")).toBe("ask");
+    expect(commandRisk("cat ~/.ssh/id_ed25519")).toBe("ask");
+    expect(commandRisk("type LLM-keys.txt")).toBe("ask");
+    expect(commandRisk("get-content config/secrets.json")).toBe("ask");
   });
 
   it("ends when he unlocks the computer after it was locked, or when time is up", async () => {

@@ -19,7 +19,9 @@ export interface Desktop {
 }
 
 /** Windows that Malves never clicks or types into: sign-ins, passwords, payments, admin prompts. */
-export const OFF_LIMITS = /password|sign in|log in|user account control|credential|bank|payment/i;
+// Whole words only: "Riverbank" or "CHANGELOG in" aren't a bank or a sign-in.
+export const OFF_LIMITS =
+  /\b(password|sign in|sign-in|log in|login|user account control|credentials?|bank(ing)?|payment|checkout)\b/i;
 
 /** Code editors: Malves works there as a co-developer; its read-backs say so. */
 export const EDITOR = /visual studio code|cursor|antigravity|windsurf/i;

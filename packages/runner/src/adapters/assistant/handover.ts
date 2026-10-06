@@ -109,16 +109,35 @@ export function windowsLocked(): Promise<boolean> {
 
 // ── Commands ────────────────────────────────────────────────────────────────
 
+/** Files that hold secrets: never read without asking, even inside the project. */
+const SECRET =
+  /(^|[\\/])(\.env\b|[^\\/]*\.(key|pem|pfx|p12)$|id_[a-z0-9]+$|\.npmrc$|\.netrc$|[^\\/]*(secret|credential|token|password)[^\\/]*$|.*keys?\.txt$)/i;
+
+/** A command argument that points outside the project (or at a secret). */
+function outsideOrSecret(arg: string): boolean {
+  return (
+    /^([a-z]:|[\\/]|~)/i.test(arg) || // absolute or home: outside the project
+    /(^|[\\/])\.\.([\\/]|$)/.test(arg) || // climbs out with ..
+    SECRET.test(arg)
+  );
+}
+
 /**
- * How risky a command is. "look": only reads. "low": tests, builds, lint
- * (runs by itself in handover). "ask": anything else, or anything chained,
- * piped, redirected or using variables, which the rules can't see through.
+ * How risky a command is. "look": only reads, inside the project. "low":
+ * tests, builds, lint (runs by itself in handover). "ask": anything else.
+ *
+ * Only plain words are judged: anything with brackets, quotes, variables,
+ * chaining, pipes or redirection asks, because PowerShell and sh can hide a
+ * second command in them (e.g. `git log (Remove-Item x)`).
  */
 export function commandRisk(command: string): "look" | "low" | "ask" {
   const c = command.trim();
-  if (!c || /[;&|><`$\r\n]/.test(c)) return "ask";
+  if (!c || !/^[\w\s.\-/\\:=,+]+$/.test(c)) return "ask";
+  const args = c.split(/\s+/).slice(1);
+  if (args.some(outsideOrSecret)) return "ask";
   if (
-    /^(git (status|log|diff|show|branch|remote -v)\b|ls\b|dir\b|pwd$|cat\s|type\s|get-childitem\b|get-content\s|rg\s|findstr\s|where(\.exe)?\s|node (-v|--version)$|(pnpm|npm|yarn) (-v|--version|ls|list|outdated)\b)/i.test(
+    // git branch only lists: -D/-m/a new name would change things.
+    /^(git (status|log|diff|show)\b(?!.*--output)|git branch( (-a|-r|-v|-vv|--list|--show-current))*$|git remote -v$|ls\b|dir\b|pwd$|cat\s|type\s|get-childitem\b|get-content\s|rg\s|findstr\s|node (-v|--version)$|(pnpm|npm|yarn) (-v|--version|ls|list|outdated)\b)/i.test(
       c,
     )
   ) {

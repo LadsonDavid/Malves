@@ -80,6 +80,8 @@ const SOUNDS_LIKE: Record<string, string[]> = {
 
 export class Assistant {
   private readonly conversations = new Map<string, Conversation>();
+  /** What he said this turn, word for word (to tell his own requests from the brain's ideas). */
+  private heard = "";
   private readonly now: () => Date;
 
   constructor(private readonly d: AssistantDeps) {
@@ -131,13 +133,19 @@ export class Assistant {
     const did: string[] = [];
     const results: ChatMessage[] = [];
     let lookedUp = false;
+    let held = 0;
+    this.heard = text;
     for (const call of first.toolCalls.slice(0, 4)) {
       const outcome = await this.run(
         call.function.name,
         parseArgs(call.function.arguments),
         conv,
       ).catch((error: unknown): Outcome => ({ text: `Couldn't do that: ${messageOf(error)}` }));
-      if (outcome.pending && !conv.pending) conv.pending = outcome.pending;
+      if (outcome.pending) {
+        // One read-back at a time; the others are said to be waiting, not silently lost.
+        if (conv.pending) held += 1;
+        else conv.pending = outcome.pending;
+      }
       if (outcome.did) did.push(outcome.did);
       lookedUp ||= outcome.lookup === true;
       results.push({ role: "tool", tool_call_id: call.id, content: outcome.text });
@@ -145,26 +153,34 @@ export class Assistant {
 
     let reply = first.content;
     if (lookedUp) {
-      // It looked something up: let it answer from what it found.
-      const second = await this.d.llm.chat(
-        [
-          ...messages,
-          { role: "assistant", content: first.content || null, tool_calls: first.toolCalls },
-          ...results,
-        ],
-        [],
-      );
-      reply = second.content || reply;
+      // It looked something up: let it answer from what it found. If that fails,
+      // what was found (and done) is still told, rather than failing the whole reply.
+      try {
+        const second = await this.d.llm.chat(
+          [
+            ...messages,
+            { role: "assistant", content: first.content || null, tool_calls: first.toolCalls },
+            ...results,
+          ],
+          [],
+        );
+        reply = second.content || reply;
+      } catch {
+        reply = "";
+      }
     }
     if (!reply) {
       reply = results
-        .map((r) => (r.role === "tool" ? r.content : ""))
+        .map((r) => (r.role === "tool" ? plain(r.content) : ""))
         .filter(Boolean)
-        .join(" ");
+        .join(" ")
+        .slice(0, 600);
     }
     if (conv.pending) {
       // The read-back is always our own words, so it says exactly what will happen.
-      reply = `${conv.pending.summary} Shall I go ahead?`;
+      reply = `${conv.pending.summary} Shall I go ahead?${
+        held > 0 ? " (One thing at a time: ask me again for the rest after this.)" : ""
+      }`;
     }
     if (!reply) reply = "Sorry, I didn't get that. Could you say it another way?";
 
@@ -461,19 +477,32 @@ export class Assistant {
           : "fact";
         const text = (args.text ?? "").trim();
         if (!text) return { text: "Nothing to remember." };
-        const note = await this.d.memory.remember({
-          kind,
-          text,
-          title: args.title,
-          source: "conversation",
-        });
-        return { text: `Remembered: ${note.title}`, did: `Remembered: ${note.title}` };
+        const save = async () => {
+          const note = await this.d.memory.remember({
+            kind,
+            text,
+            title: args.title,
+            source: "conversation",
+          });
+          return `Remembered: ${note.title}`;
+        };
+        // Saved at once only when he asked to remember something; otherwise it
+        // may come from text an agent or a page slipped in, so it's read back.
+        if (REMEMBER_CUE.test(this.heard)) {
+          const done = await save();
+          return { text: done, did: done };
+        }
+        return this.ask(`Remember that "${text.slice(0, 160)}"?`, save);
       }
       case "forget": {
-        const [match] = await this.d.memory.recall(args.about ?? "", 1);
+        // Only a clear match: forgetting the wrong note would lose something he wanted.
+        const [match] = await this.d.memory.recall(args.about ?? "", 1, 0.45);
         if (!match) return { text: "I don't remember anything like that." };
-        this.d.memory.forget(match.id);
-        return { text: `Forgot: ${match.title}`, did: `Forgot: ${match.title}` };
+        // Forgetting deletes the note for good: he hears exactly which one first.
+        return this.ask(`Forget "${match.title}: ${match.text.slice(0, 120)}"?`, async () => {
+          this.d.memory.forget(match.id);
+          return `Forgot: ${match.title}`;
+        });
       }
       case "learn": {
         const kind: MemoryKind = args.kind === "skill" ? "skill" : "lesson";
@@ -750,6 +779,15 @@ export class Assistant {
       // The log is for reading back; a failure to write it never breaks a conversation.
     }
   }
+}
+
+/** He asked to remember something, in English, Tamil or Tanglish. */
+const REMEMBER_CUE =
+  /\b(remember|note (this|that|down)|keep in mind|don'?t forget|save (this|that)|from now on|always|never|i (like|love|prefer|hate|want you to)|my )|nyabagam|gnabagam|ஞாபகம்|நினைவில்/i;
+
+/** A tool result without the <data> markers, for saying it aloud. */
+function plain(text: string): string {
+  return text.replace(/<\/?data>/g, "").trim();
 }
 
 function parseArgs(raw: string): Record<string, string> {

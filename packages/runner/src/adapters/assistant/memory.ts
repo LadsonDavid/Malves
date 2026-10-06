@@ -49,6 +49,8 @@ export type MemoryNote = {
 
 /** Two notes of one kind this similar are the same memory: the newer replaces the older. */
 const SAME = 0.9;
+/** Below this (cosine) a note is unrelated: bge-m3 scores even unrelated text about 0.35. */
+const RELATED = 0.38;
 
 type Row = {
   file: string;
@@ -66,6 +68,7 @@ type Row = {
 export class Memory {
   private readonly db: Database.Database;
   private readonly now: () => Date;
+  private lastFill = 0;
 
   constructor(
     private readonly o: {
@@ -116,6 +119,7 @@ export class Memory {
     for (const file of known.keys()) {
       if (!seen.has(file)) this.db.prepare("DELETE FROM notes WHERE file = ?").run(file);
     }
+    await this.fillMissingVectors(seen);
     if (changed.length === 0) return;
     const vectors = await this.vectors(changed.map((c) => `${c.note.title}\n${c.note.text}`));
     const upsert = this.db.prepare(
@@ -173,7 +177,7 @@ export class Memory {
   }
 
   /** The current notes most related to `query`, best first. */
-  async recall(query: string, limit = 6): Promise<MemoryNote[]> {
+  async recall(query: string, limit = 6, min = RELATED): Promise<MemoryNote[]> {
     await this.sync();
     const rows = this.currentRows();
     if (rows.length === 0) return [];
@@ -187,7 +191,9 @@ export class Memory {
           : normalizeWords(`${r.title} ${r.body}`).filter((w) => words.has(w)).length /
             (words.size || 1),
     }));
+    // Unrelated notes stay out: they'd only crowd the brain's context.
     return scored
+      .filter(({ r, score }) => (q && r.vector ? score >= min : score > 0))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
       .map(({ r }) => toNote(r));
@@ -220,6 +226,33 @@ export class Memory {
     if (!existsSync(file)) writeFileSync(file, `# Conversations ${day}\n\n`, "utf8");
     const time = this.now().toISOString().slice(11, 16);
     appendFileSync(file, `- ${time} ${line.replace(/\s*\n\s*/g, " ")}\n`, "utf8");
+  }
+
+  /**
+   * Notes saved while embeddings were down get theirs later, so they're found
+   * by meaning, not just by words. Tried at most every ten minutes, so a broken
+   * embedding service doesn't slow every reply.
+   */
+  private async fillMissingVectors(present: Set<string>): Promise<void> {
+    if (!this.o.embed || Date.now() - this.lastFill < 10 * 60_000) return;
+    const rows = (
+      this.db
+        .prepare("SELECT file, title, body FROM notes WHERE vector IS NULL LIMIT 25")
+        .all() as Array<{
+        file: string;
+        title: string;
+        body: string;
+      }>
+    ).filter((r) => present.has(r.file));
+    if (rows.length === 0) return;
+    this.lastFill = Date.now();
+    const vectors = await this.vectors(rows.map((r) => `${r.title}\n${r.body}`));
+    if (!vectors) return;
+    const update = this.db.prepare("UPDATE notes SET vector = ? WHERE file = ?");
+    rows.forEach((r, i) => {
+      const v = vectors[i];
+      if (v) update.run(Buffer.from(new Float32Array(v).buffer), r.file);
+    });
   }
 
   private currentRows(): Row[] {
