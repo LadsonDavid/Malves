@@ -247,6 +247,47 @@ describe("Malves, the assistant", () => {
     handover.stop("test over");
   });
 
+  it("opens the newest task that changed files, not just the newest task", async () => {
+    const opened: string[] = [];
+    const ide = { id: "ide1", app: "Visual Studio Code", projects: [] };
+    const s = setup(
+      [{ calls: [["open_changes_in_ide", {}]] }, { calls: [["open_changes_in_ide", {}]] }],
+      undefined,
+      {
+        ides: () => [ide],
+        ide: {
+          list: () => [ide],
+          onChange: () => () => {},
+          agent: async () => "",
+          resume: async () => "",
+          openChanges: async (_ide: string, taskId: string) => {
+            if (taskId !== withChanges) {
+              throw new Error("This task has no recorded changes to open.");
+            }
+            opened.push(taskId);
+            return "Opened 2 files.";
+          },
+        } as unknown as AssistantDeps["ide"],
+      },
+    );
+    const withChanges = s.core.tasks.create({
+      workspaceId: s.ws.id,
+      agent: "claude",
+      prompt: "fix the footer",
+    });
+    await s.core.tasks.stop(withChanges);
+    const noChanges = s.core.tasks.create({
+      workspaceId: s.ws.id,
+      agent: "claude",
+      prompt: "explain the code",
+    });
+    await s.core.tasks.stop(noChanges);
+
+    const reply = await s.assistant.say("c1", "open changes in vs code");
+    expect(opened).toEqual([withChanges]);
+    expect(reply.did[0]).toContain('"fix the footer" in Visual Studio Code');
+  });
+
   it("looks at a photo, and keeps what it saw as data for the next turn", async () => {
     const s = setup([{ content: "On it." }]);
     s.brain.llm.see = async (_jpeg, _system, prompt) =>

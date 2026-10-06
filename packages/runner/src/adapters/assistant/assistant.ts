@@ -450,12 +450,35 @@ export class Assistant {
         );
       }
       case "open_changes_in_ide": {
-        const task = this.findTask(args.task_id, "latest");
         const ide = (this.d.ides?.() ?? []).find((i) => i.id === args.ide_id) ?? this.d.ides?.()[0];
-        if (!task || !ide || !this.d.ide)
-          return { text: "I need a finished task and an open IDE for that." };
-        const text = await this.d.ide.openChanges(ide.id, task.id);
-        return { text, did: text };
+        const control = this.d.ide;
+        if (!ide || !control) return { text: "No IDE is connected right now." };
+        const named = args.task_id ? this.d.core.tasks.get(args.task_id) : undefined;
+        // No task named: the newest finished one that actually changed files,
+        // not just the newest (which may have changed nothing).
+        const candidates = named
+          ? [named]
+          : this.d.core.tasks
+              .list()
+              .filter((t) => TERMINAL_STATES.includes(t.state))
+              .reverse()
+              .slice(0, 20);
+        for (const task of candidates) {
+          try {
+            const text = await control.openChanges(ide.id, task.id);
+            return {
+              text,
+              did: `Opened the changes from "${task.prompt.slice(0, 60)}" in ${ide.app}`,
+            };
+          } catch (error) {
+            if (!/no recorded changes/i.test(messageOf(error))) throw error;
+          }
+        }
+        return {
+          text: named
+            ? "That task didn't change any files, so there's nothing to open."
+            : "None of your recent tasks changed any files, so there's nothing to open.",
+        };
       }
       case "leads": {
         const leads = (await this.d.leads?.().catch(() => undefined)) ?? [];
