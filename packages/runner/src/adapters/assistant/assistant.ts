@@ -9,7 +9,7 @@ import {
 } from "@malves/protocol";
 import type { Browser } from "../browser/bridge.js";
 import type { IdeControl } from "../link/server.js";
-import { OFF_LIMITS } from "./desktop.js";
+import { EDITOR, OFF_LIMITS } from "./desktop.js";
 import { commandRisk, type Handover, runCommand } from "./handover.js";
 import type { ChatMessage, Llm, Tool } from "./llm.js";
 import type { Memory, MemoryKind, MemoryNote } from "./memory.js";
@@ -550,10 +550,13 @@ export class Assistant {
         const title = await desktop.activeTitle().catch(() => "");
         if (OFF_LIMITS.test(title)) {
           return {
-            text: `I don't click or type in "${title.slice(0, 60)}" (an IDE agent panel or a sign-in).`,
+            text: `I don't click or type in "${title.slice(0, 60)}" (a sign-in, password or payment window).`,
           };
         }
-        const where = title ? `in "${title.slice(0, 60)}"` : "on the screen";
+        // In an editor this may approve its AI's change: the read-back says so.
+        const where = title
+          ? `in "${title.slice(0, 60)}"${EDITOR.test(title) ? " (your editor: this may accept or reject its AI's change)" : ""}`
+          : "on the screen";
         // Done only if the same window is still in front when he says yes.
         const act = (what: () => Promise<void>, done: string) => async () => {
           if ((await desktop.activeTitle().catch(() => "")) !== title) {

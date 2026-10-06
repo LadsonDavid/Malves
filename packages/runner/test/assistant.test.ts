@@ -128,7 +128,7 @@ function setup(script: Turn[], agents?: AgentInfo[], extra: Partial<AssistantDep
 }
 
 describe("Malves, the assistant", () => {
-  it("uses the screen in handover: looks freely, clicks only on yes, never in IDEs, not if the window changed", async () => {
+  it("uses the screen in handover: looks freely, clicks only on yes, says so in editors, not if the window changed", async () => {
     let title = "Notepad";
     const clicks: string[] = [];
     const desktop = {
@@ -178,8 +178,11 @@ describe("Malves, the assistant", () => {
 
     title = "agent.ts - malves - Visual Studio Code";
     const ide = await s.assistant.say("c1", "accept that in vs code");
-    expect(ide.pending).toBeUndefined();
-    expect(clicks).toHaveLength(1);
+    expect(ide.pending?.summary).toContain(
+      "your editor: this may accept or reject its AI's change",
+    );
+    await s.assistant.say("c1", "yes");
+    expect(clicks).toEqual(["120,40", "300,300"]);
     handover.stop("test over");
   });
 

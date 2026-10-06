@@ -348,8 +348,11 @@ fixed rules above stay as the fallback when it's off or unreachable.
   a screenshot, resized to the mouse's logical pixels, goes to a vision model.
   Clicking, typing and keys are read back with the window's title and the
   coordinates, and are done only if the same window is still in front at the
-  yes. Never in IDE windows (agent panels stay ruled out) or sign-in/password
-  windows. Handover also ends when the mouse moves and Malves didn't move it.
+  yes. In code editors Malves works as a co-developer (owner's choice, Oct
+  2026); the read-back warns that a click there may accept or reject the
+  editor AI's change, so those approvals still come to the phone. Never in
+  sign-in, password, payment or admin windows. Handover also ends when the
+  mouse moves and Malves didn't move it.
   (A PowerShell helper for this was blocked by Windows Defender as malicious;
   we don't work around antivirus.)
 
@@ -377,10 +380,10 @@ companion extension (`packages/ide`, installed from `malves.vsix`) through
   conversations with the CLI, so malves lists them per project and continues
   them from the phone (session/resume), or reopens them at the desk.
 
-**Limit (by choice):** the IDE's own agent panel — its approvals, its replies —
-can't be driven from the phone. The only way would be UI automation through the
-IDE's debugging port, which breaks with each IDE update and lets any local
-program control the IDE. Still ruled out (re-checked October 2026).
+**Limit:** through the extension, the IDE's own agent panel (its approvals, its
+replies) can't be driven: there's no public API for it. In handover mode Malves
+can use the editor on screen like a co-developer (see "Malves, the assistant"),
+with every click and keystroke read back to the phone first.
 
 ## 5. Browser tasks: a Chrome extension, like Claude in Chrome
 

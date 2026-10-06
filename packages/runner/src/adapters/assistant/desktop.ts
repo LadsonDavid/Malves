@@ -18,9 +18,11 @@ export interface Desktop {
   activeTitle(): Promise<string>;
 }
 
-/** Windows that Malves never clicks or types into: IDE agent panels stay ruled out, and sign-ins. */
-export const OFF_LIMITS =
-  /visual studio code|cursor|antigravity|windsurf|password|sign in|log in|user account control|credential|bank|payment/i;
+/** Windows that Malves never clicks or types into: sign-ins, passwords, payments, admin prompts. */
+export const OFF_LIMITS = /password|sign in|log in|user account control|credential|bank|payment/i;
+
+/** Code editors: Malves works there as a co-developer; its read-backs say so. */
+export const EDITOR = /visual studio code|cursor|antigravity|windsurf/i;
 
 type Nut = typeof import("@nut-tree-fork/nut-js");
 
