@@ -29,6 +29,11 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   on an Oracle Cloud VM over Tailscale, memory in an Obsidian vault, phone voice
   routed to it with rule fallback, Confirm/Cancel, voice picker, memory screen —
   runner side tested live, phone side awaiting a real test.
+  Also built (Oct 6): `malves autostart` (Task Scheduler, Windows), boot-aware
+  runner lock, 90 s agent probe; app redesign on the Malveon blueprint system
+  (DESIGN.md); Malves watcher (task finished/failed notifications, quiet hours),
+  approved lessons/skills, "look at this" vision (tested live), nightly encrypted
+  vault backup over SSH (tested live, round trip).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in

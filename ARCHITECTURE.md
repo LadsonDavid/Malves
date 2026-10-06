@@ -319,6 +319,21 @@ fixed rules above stay as the fallback when it's off or unreachable.
   newer one is closed (`valid_to`), not deleted. Edits made in Obsidian are
   picked up; Settings → Malves' memory lists the notes and deletes any of them.
   Each day's conversation is logged in `Conversations/`.
+- **Learning, with approval:** Malves can propose a *lesson* (what to do
+  differently next time) or a *skill* (a named, reusable request). Each is read
+  back and saved to `Lessons/` or `Skills/` only on a yes; approved ones come
+  with every turn and can't override the rules or confirmations. Undo is
+  deleting the note.
+- **Watching:** when a task finishes or fails, a notification opens it
+  (outside `MALVES_QUIET_HOURS`; questions always notify). In hands-free mode
+  the phone also says it.
+- **Look at this:** a photo from the phone camera (about 1280 px JPEG, sent in
+  pieces over the encrypted link) goes to a vision model on freellmapi; what it
+  saw joins the conversation as data, so text in the photo can't instruct it.
+- **Backup:** about once a day the vault is packed, gzipped and encrypted on the
+  laptop (AES-256-GCM, key in `backup.key`, never uploaded) and streamed over
+  SSH to `~/malves-backups` on the server; the 14 newest are kept.
+  `malves backup restore` opens one into a new folder, never over the vault.
 
 ### Desktop IDEs
 

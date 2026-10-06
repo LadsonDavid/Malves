@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
+import { startBackups } from "./adapters/assistant/backup.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
@@ -180,6 +181,22 @@ export async function serve(
           notify: (title, message, click) => push.notify(title, message, click),
           quietHours: process.env.MALVES_QUIET_HOURS,
         })
+      : () => {};
+  const backupTarget = process.env.MALVES_BACKUP_SSH;
+  const vault = process.env.MALVES_VAULT;
+  const stopBackups =
+    malves && backupTarget && vault
+      ? startBackups(
+          {
+            vault,
+            dataDir: dir,
+            target: backupTarget,
+            ...(process.env.MALVES_BACKUP_SSH_KEY
+              ? { sshKey: process.env.MALVES_BACKUP_SSH_KEY }
+              : {}),
+          },
+          say,
+        )
       : () => {};
 
   say(`malves is serving ${computer} at ${url}`);
@@ -368,6 +385,7 @@ export async function serve(
   stopActivity();
   stopDigest();
   stopWatcher();
+  stopBackups();
   await push?.close();
   await tools.close();
   await bridge.close();
