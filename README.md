@@ -101,6 +101,8 @@ pnpm malves workspace add ~/code/my-site
 pnpm malves serve                 # shows a QR code to pair the phone
 ```
 
+On Windows, `pnpm malves autostart on` starts `serve` minimized every time you log in (restarted if it crashes; `autostart off` undoes it). Restore its window from the taskbar to pair a phone or type commands.
+
 **On the phone:** install the malves APK (from the repo's Releases, or build
 it yourself: Actions → Android APK → Run workflow) and scan the QR code. To use
 it away from home, install [Tailscale](https://tailscale.com) on both, or run

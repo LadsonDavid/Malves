@@ -6,6 +6,7 @@ import { DEFAULT_PORT } from "@malves/protocol";
 import { guardFromEnv } from "./adapters/budget/guard.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
+import { autostart, startNow } from "./autostart.js";
 import { serve } from "./serve.js";
 import { dataDir, parseDuration, resolveFolder } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
@@ -20,6 +21,7 @@ const USAGE = `malves — run coding agents and answer their questions
   malves agents
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
+  malves autostart on|off|status|start   start serve when you log in to Windows
 
 Data is kept in $MALVES_HOME (default ~/.malves).
 The lead engine URL can also come from MALVES_LEADS_URL; its UI_KEY from MALVES_LEADS_KEY.
@@ -57,6 +59,8 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const dir = dataDir();
+  // Before opening the runner: it must not take the lock a running serve holds.
+  if (cmd === "autostart") return sub === "start" ? startNow() : autostart(sub, dir);
   const runner = openRunner({ dir, questionTimeoutMs: parseDuration(values.timeout) });
   const guard = guardFromEnv(runner);
   if (guard) {
