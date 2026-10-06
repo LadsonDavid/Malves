@@ -22,6 +22,7 @@ import {
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
+import { Uploads } from "./uploads.js";
 
 export type LinkServerOptions = {
   /** A concrete address: the Tailscale IP, a LAN IP, or 127.0.0.1. */
@@ -66,6 +67,11 @@ export interface AssistantPort {
     pendingId: string,
     yes: boolean,
   ): Promise<NonNullable<Ack["assistant"]>>;
+  look(
+    conversationId: string,
+    jpegBase64: string,
+    question: string,
+  ): Promise<NonNullable<Ack["assistant"]>>;
   memories(): Promise<NonNullable<Ack["memories"]>>;
   forget(memoryId: string): boolean;
 }
@@ -104,6 +110,13 @@ export class LinkServer {
   private heartbeat: NodeJS.Timeout | undefined;
   private offer: { code: string; expiresAt: number } | undefined;
   private readonly results = new Map<string, Promise<Ack>>();
+  /** Photos for Malves, arriving in pieces. */
+  private readonly images = new Uploads({
+    maxBytes: 3 * 1024 * 1024,
+    maxOpen: 3,
+    ttlMs: 2 * 60_000,
+    what: "photo",
+  });
   private readonly alive = new WeakSet<WebSocket>();
   private readonly sessions = new Set<Session>();
   private address = "";
@@ -360,6 +373,21 @@ export class LinkServer {
           // Every phone gets them, not just the one that asked.
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
+        }
+        case "image.chunk":
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          this.images.add(command.upload_id, command.index, command.data);
+          return ack(true);
+        case "assistant.look": {
+          if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
+          const photo = this.images.take(command.upload_id).toString("base64");
+          return ack(true, {
+            assistant: await this.o.assistant.look(
+              command.conversation_id,
+              photo,
+              command.question ?? "",
+            ),
+          });
         }
         case "assistant.say":
         case "assistant.confirm": {

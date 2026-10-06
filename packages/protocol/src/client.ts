@@ -206,6 +206,27 @@ export class LinkClient {
     });
   }
 
+  /** Shows Malves a photo (JPEG, base64) and asks about it; the answer is in `ack.assistant`. */
+  async assistantLook(conversationId: string, jpegBase64: string, question = ""): Promise<Ack> {
+    const uploadId = randomToken(12);
+    const size = 131_072;
+    for (let i = 0, index = 0; i < jpegBase64.length; i += size, index++) {
+      const ack = await this.send({
+        type: "image.chunk",
+        upload_id: uploadId,
+        index,
+        data: jpegBase64.slice(i, i + size),
+      });
+      if (!ack.ok) return ack;
+    }
+    return this.send({
+      type: "assistant.look",
+      conversation_id: conversationId,
+      upload_id: uploadId,
+      ...(question ? { question } : {}),
+    });
+  }
+
   /** Yes or no to the action Malves read back. */
   assistantConfirm(conversationId: string, pendingId: string, yes: boolean): Promise<Ack> {
     return this.send({

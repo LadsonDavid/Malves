@@ -22,7 +22,17 @@ export type Tool = {
 export interface Llm {
   chat(messages: ChatMessage[], tools: Tool[]): Promise<{ content: string; toolCalls: ToolCall[] }>;
   embed(texts: string[]): Promise<number[][]>;
+  /** Looks at a JPEG and answers `prompt` about it; tries vision models in order. */
+  see?(jpegBase64: string, system: string, prompt: string): Promise<string>;
 }
+
+/** Vision models tried in order when MALVES_VISION_MODEL isn't set (all on freellmapi). */
+export const VISION_MODELS = [
+  "llama-4-scout-17b-16e-instruct",
+  "qwen3-vl-30b-a3b-instruct",
+  "llama-3.2-11b-vision-instruct",
+  "gemini-2.5-flash",
+];
 
 export type LlmOptions = {
   url: string;
@@ -30,6 +40,8 @@ export type LlmOptions = {
   /** "auto:fast" asks freellmapi for the quickest model available. */
   model?: string;
   embedModel?: string;
+  /** Vision models to try, best first. */
+  visionModels?: string[];
   timeoutMs?: number;
 };
 
@@ -70,6 +82,35 @@ export function openAiCompatible(o: LlmOptions): Llm {
         json.choices as Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }>
       )?.[0]?.message;
       return { content: message?.content?.trim() ?? "", toolCalls: message?.tool_calls ?? [] };
+    },
+    async see(jpegBase64, system, prompt) {
+      let last: unknown;
+      for (const model of o.visionModels ?? VISION_MODELS) {
+        try {
+          const json = await post("/v1/chat/completions", {
+            model,
+            messages: [
+              { role: "system", content: system },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
+                ],
+              },
+            ],
+            temperature: 0.2,
+            max_tokens: 400,
+          });
+          const text = (
+            json.choices as Array<{ message?: { content?: string | null } }>
+          )?.[0]?.message?.content?.trim();
+          if (text) return text;
+        } catch (error) {
+          last = error;
+        }
+      }
+      throw last instanceof Error ? last : new Error("No vision model answered.");
     },
     async embed(texts) {
       const json = await post("/v1/embeddings", {

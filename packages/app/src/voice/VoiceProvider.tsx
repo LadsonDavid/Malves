@@ -88,6 +88,10 @@ type Voice = {
   /** One turn answering this question. */
   answer: (question: Question) => void;
   readAloud: (text: string) => void;
+  /** Shows Malves a photo; it says what it sees. */
+  look: (jpegBase64: string, question: string) => Promise<void>;
+  /** Malves is set up on the computer and reachable. */
+  assistantOn: boolean;
   /** Dictation into a text box; `onText` gets the words live, then the final text. */
   dictate: (onText: (text: string) => void) => Promise<void>;
   stopDictation: () => void;
@@ -603,6 +607,24 @@ export function VoiceProvider({
     void turn("answer", question, id);
   };
 
+  /** "Look at this": sends a photo (JPEG, base64) to Malves and speaks what it sees. */
+  const look = async (jpegBase64: string, question: string) => {
+    const c = live.current.client;
+    if (!c) return;
+    const id = fresh();
+    note("you", question ? `(photo) ${question}` : "(photo)");
+    setPhase("working");
+    try {
+      const ack = await c.assistantLook(conversationId, jpegBase64, question);
+      if (id !== live.current.turn) return;
+      const reply = ack.assistant?.reply ?? ack.error ?? "I couldn't look at it.";
+      await sayIt(reply, voiceFor(reply));
+    } catch (error) {
+      await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
+    }
+    if (id === live.current.turn) await next(id);
+  };
+
   const readAloud = (text: string) => {
     fresh();
     void sayIt(text, voiceFor(text)).then(() => setPhase("idle"));
@@ -734,6 +756,8 @@ export function VoiceProvider({
     talk,
     answer,
     readAloud,
+    look,
+    assistantOn: model.assistant && status === "online",
     dictate,
     stopDictation: stopListening,
     hush,

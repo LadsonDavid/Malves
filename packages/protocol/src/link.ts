@@ -128,6 +128,24 @@ export const AssistantConfirm = z.object({
   yes: z.boolean(),
 });
 
+/** One piece of a photo for Malves (JPEG, in order, ≤ 96 KB each). */
+export const ImageChunk = z.object({
+  type: z.literal("image.chunk"),
+  command_id: Id,
+  upload_id: Id,
+  index: z.number().int().min(0).max(40),
+  data: z.string().max(131_072),
+});
+
+/** "Look at this": Malves looks at an uploaded photo and answers (in `ack.assistant`). */
+export const AssistantLook = z.object({
+  type: z.literal("assistant.look"),
+  command_id: Id,
+  conversation_id: Id,
+  upload_id: Id,
+  question: z.string().max(500).optional(),
+});
+
 /** What Malves remembers (answered in `ack.memories`). */
 export const MemoryList = z.object({ type: z.literal("memory.list"), command_id: Id });
 
@@ -205,6 +223,8 @@ export const Command = z.discriminatedUnion("type", [
   VoiceTranscribe,
   AssistantSay,
   AssistantConfirm,
+  ImageChunk,
+  AssistantLook,
   MemoryList,
   MemoryForget,
   IdeAgent,

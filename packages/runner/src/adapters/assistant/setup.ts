@@ -11,6 +11,7 @@ import { Memory } from "./memory.js";
  *   MALVES_MODELS_URL / MALVES_MODELS_KEY  your freellmapi (the brain)
  *   MALVES_VAULT                           the Obsidian folder that holds its memory
  *   MALVES_ASSISTANT_MODEL, MALVES_EMBED_MODEL   optional overrides
+ *   MALVES_VISION_MODEL                    optional: vision models to try, comma-separated
  */
 export function assistantFromEnv(o: {
   core: Core;
@@ -28,6 +29,9 @@ export function assistantFromEnv(o: {
     key,
     ...(process.env.MALVES_ASSISTANT_MODEL ? { model: process.env.MALVES_ASSISTANT_MODEL } : {}),
     ...(process.env.MALVES_EMBED_MODEL ? { embedModel: process.env.MALVES_EMBED_MODEL } : {}),
+    ...(process.env.MALVES_VISION_MODEL
+      ? { visionModels: process.env.MALVES_VISION_MODEL.split(",").map((m) => m.trim()) }
+      : {}),
   });
   const memory = new Memory({
     vault,
@@ -49,6 +53,7 @@ export function assistantFromEnv(o: {
     port: {
       say: (conversation, text, alternatives) => assistant.say(conversation, text, alternatives),
       confirm: (conversation, pending, yes) => assistant.confirm(conversation, pending, yes),
+      look: (conversation, photo, question) => assistant.look(conversation, photo, question),
       memories: async () =>
         (await memory.list()).map((m) => ({
           id: m.id,

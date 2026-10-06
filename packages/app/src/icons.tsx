@@ -10,6 +10,7 @@ export { default as Undo } from "react-native-heroicons/outline/ArrowUturnLeftIc
 export { default as Bell } from "react-native-heroicons/outline/BellIcon";
 export { default as Bolt } from "react-native-heroicons/outline/BoltIcon";
 export { default as Memory } from "react-native-heroicons/outline/BookOpenIcon";
+export { default as Camera } from "react-native-heroicons/outline/CameraIcon";
 export { default as Conversation } from "react-native-heroicons/outline/ChatBubbleLeftRightIcon";
 export { default as Check } from "react-native-heroicons/outline/CheckIcon";
 export { default as ChevronRight } from "react-native-heroicons/outline/ChevronRightIcon";
