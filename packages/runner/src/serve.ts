@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
+import { Handover, windowsLocked } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
@@ -126,12 +127,30 @@ export async function serve(
       })
     : undefined;
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
+  // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
+  const handover = new Handover({
+    locked: process.platform === "win32" ? windowsLocked : undefined,
+    onChange: (state) => {
+      server.setHandover(state);
+      say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);
+      if (!state.active && pushOn)
+        push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
+    },
+  });
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
     agents: () => runner.agents.list(),
     ide: ideCtl,
     leads: leads ? () => leads.fetch() : undefined,
+    handover,
+    // The bridge is replaced when the extension gets a new token: always use the current one.
+    browser: {
+      get connected() {
+        return bridge.connected;
+      },
+      call: (op, args) => bridge.call(op, args),
+    },
   });
   const server = new LinkServer(runner, {
     host,
@@ -146,6 +165,7 @@ export async function serve(
     transcriber: transcriberFromEnv(),
     ide: ideCtl,
     assistant: malves?.port,
+    stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
     leads,
   });
   const say = (line: string) => console.log(line);

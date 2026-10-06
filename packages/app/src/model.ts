@@ -1,6 +1,7 @@
 import type {
   AgentInfo,
   Choice,
+  HandoverState,
   IdeInfo,
   Lead,
   LoggedEvent,
@@ -64,6 +65,8 @@ export type Model = {
   push: string | null;
   /** Whether Chrome is connected on the computer; null until the computer says. */
   chrome: boolean | null;
+  /** Whether Malves has the computer (handover mode). */
+  handover: HandoverState;
   /** Whether precise (Whisper) dictation is set up on the computer. */
   transcribe: boolean;
   /** Whether Malves, the assistant, is set up on the computer. */
@@ -84,6 +87,7 @@ export type Action =
   | { type: "event"; event: LoggedEvent }
   | { type: "agents"; agents: AgentInfo[] }
   | { type: "chrome"; connected: boolean }
+  | { type: "handover"; state: HandoverState }
   | { type: "ides"; ides: IdeInfo[] }
   | { type: "activity"; taskId: string; text: string; at: number }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
@@ -98,6 +102,7 @@ export const emptyModel: Model = {
   leads: null,
   push: null,
   chrome: null,
+  handover: { active: false },
   transcribe: false,
   assistant: false,
   ides: [],
@@ -110,6 +115,8 @@ export function reduce(model: Model, action: Action): Model {
       return { ...model, agents: action.agents };
     case "chrome":
       return { ...model, chrome: action.connected };
+    case "handover":
+      return { ...model, handover: action.state };
     case "ides":
       return { ...model, ides: action.ides };
     case "activity": {
@@ -134,6 +141,7 @@ export function reduce(model: Model, action: Action): Model {
         agents: action.welcome.agents,
         push: action.welcome.push?.subscribe ?? null,
         chrome: action.welcome.chrome ?? null,
+        handover: action.welcome.handover ?? { active: false },
         transcribe: action.welcome.transcribe ?? false,
         assistant: action.welcome.assistant ?? false,
         ides: action.welcome.ides ?? [],

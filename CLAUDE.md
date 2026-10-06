@@ -33,7 +33,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   runner lock, 90 s agent probe; app redesign on the Malveon blueprint system
   (DESIGN.md); Malves watcher (task finished/failed notifications, quiet hours),
   approved lessons/skills, "look at this" vision (tested live), nightly encrypted
-  vault backup over SSH (tested live, round trip).
+  vault backup over SSH (tested live, round trip). Handover mode (shell +
+  Chrome; desktop control blocked by Defender, not built).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
@@ -78,6 +79,8 @@ Set these locally in every new environment. Never commit here as
 | Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
+| Handover mode: shell in project folders + Chrome; looking and tests/builds auto, the rest asks; ends on Stop, "I'm back", unlock, or 4 h | Owner's choice (Oct 2026) |
+| Never work around Windows Defender/antivirus | The desktop-control PowerShell helper was flagged as malicious; evasion is what malware does |
 | Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API; UI automation stays ruled out |
 
 ## Ruled out — don't re-propose

@@ -13,7 +13,8 @@ import path from "node:path";
 import { type AgentHost, command, createCore, type Notifier } from "@malves/core";
 import type { AgentInfo } from "@malves/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { Assistant } from "../src/adapters/assistant/assistant.js";
+import { Assistant, type AssistantDeps } from "../src/adapters/assistant/assistant.js";
+import { Handover } from "../src/adapters/assistant/handover.js";
 import type { ChatMessage, Llm, ToolCall } from "../src/adapters/assistant/llm.js";
 import { Memory } from "../src/adapters/assistant/memory.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
@@ -63,7 +64,7 @@ function fakeBrain(script: Turn[]) {
   return { llm, seen };
 }
 
-function setup(script: Turn[], agents?: AgentInfo[]) {
+function setup(script: Turn[], agents?: AgentInfo[], extra: Partial<AssistantDeps> = {}) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-asst-")));
   const site = path.join(dir, "site");
   mkdirSync(site);
@@ -97,6 +98,7 @@ function setup(script: Turn[], agents?: AgentInfo[]) {
         { name: "claude", label: "Claude", state: "ready" },
         { name: "codex", label: "Codex", state: "ready" },
       ],
+    ...extra,
   });
   cleanup.push(() => {
     memory.close();
@@ -126,6 +128,67 @@ function setup(script: Turn[], agents?: AgentInfo[]) {
 }
 
 describe("Malves, the assistant", () => {
+  it("takes over only on yes; then runs looking commands alone, asks for the rest, never types passwords", async () => {
+    const handover = new Handover({ onChange: () => {}, pollMs: 60_000 });
+    const typed: string[] = [];
+    const browser = {
+      connected: true,
+      call: async (op: string, args?: Record<string, unknown>) => {
+        if (op === "snapshot") {
+          return {
+            title: "Login",
+            url: "https://example.test",
+            text: "",
+            elements: [
+              { ref: "e1", role: "textbox", label: "Email" },
+              { ref: "e2", role: "textbox", label: "Password", sensitive: true },
+            ],
+          };
+        }
+        if (op === "type") typed.push(String(args?.ref));
+        return {};
+      },
+    };
+    const s = setup(
+      [
+        { calls: [["run_command", { command: "node --version" }]] },
+        { calls: [["start_handover", {}]] },
+        { calls: [["run_command", { command: "node --version" }]] },
+        { content: "Node is installed." },
+        { calls: [["run_command", { command: "git push" }]] },
+        { calls: [["browser_type", { ref: "e2", text: "hunter2", what: "password" }]] },
+        { calls: [["browser_type", { ref: "e1", text: "me@example.test", what: "email" }]] },
+      ],
+      undefined,
+      { handover, browser },
+    );
+    // Before handover the tool isn't even offered, and asking for it does nothing.
+    const before = await s.assistant.say("c1", "check node");
+    expect(s.brain.seen[0]?.length).toBeGreaterThan(0);
+    expect(before.did).toEqual([]);
+
+    const offer = await s.assistant.say("c1", "I'm leaving, take over");
+    expect(offer.pending?.summary).toContain("Take over while you're away?");
+    expect(handover.state.active).toBe(false);
+    await s.assistant.say("c1", "yes");
+    expect(handover.state.active).toBe(true);
+
+    const looked = await s.assistant.say("c1", "check node");
+    expect(looked.did[0]).toContain('Ran "node --version"');
+
+    const push = await s.assistant.say("c1", "push it");
+    expect(push.pending?.summary).toContain('Run "git push"');
+    await s.assistant.say("c1", "no");
+
+    const password = await s.assistant.say("c1", "log in for me");
+    expect(password.pending).toBeUndefined();
+    const email = await s.assistant.say("c1", "type my email");
+    expect(email.pending?.summary).toContain("Type");
+    await s.assistant.say("c1", "yes");
+    expect(typed).toEqual(["e1"]);
+    handover.stop("test over");
+  });
+
   it("looks at a photo, and keeps what it saw as data for the next turn", async () => {
     const s = setup([{ content: "On it." }]);
     s.brain.llm.see = async (_jpeg, _system, prompt) =>

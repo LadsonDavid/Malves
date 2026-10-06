@@ -88,6 +88,8 @@ type Voice = {
   /** One turn answering this question. */
   answer: (question: Question) => void;
   readAloud: (text: string) => void;
+  /** Says something to Malves from a button (no mic). */
+  tell: (text: string) => void;
   /** Shows Malves a photo; it says what it sees. */
   look: (jpegBase64: string, question: string) => Promise<void>;
   /** Malves is set up on the computer and reachable. */
@@ -607,6 +609,19 @@ export function VoiceProvider({
     void turn("answer", question, id);
   };
 
+  /** Says something to Malves from a button instead of the mic. */
+  const tell = (text: string) => {
+    const id = fresh();
+    note("you", text);
+    void (async () => {
+      if (await think(text, [], id)) await afterThink(id);
+      else if (id === live.current.turn) {
+        await sayIt(P().problem("Malves isn't reachable right now."));
+        setPhase("idle");
+      }
+    })();
+  };
+
   /** "Look at this": sends a photo (JPEG, base64) to Malves and speaks what it sees. */
   const look = async (jpegBase64: string, question: string) => {
     const c = live.current.client;
@@ -757,6 +772,7 @@ export function VoiceProvider({
     answer,
     readAloud,
     look,
+    tell,
     assistantOn: model.assistant && status === "online",
     dictate,
     stopDictation: stopListening,

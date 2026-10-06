@@ -8,6 +8,7 @@ import {
   CLOSE,
   type Command,
   FINAL_CLOSE_CODES,
+  type HandoverState,
   type Hello,
   type IdeInfo,
   LINK_VERSION,
@@ -72,6 +73,8 @@ export type LinkClientOptions = {
   onActivity?: (taskId: string, text: string, at: number) => void;
   /** Chrome connected or disconnected on the computer. */
   onChrome?: (connected: boolean) => void;
+  /** Handover mode started or ended. */
+  onHandover?: (state: HandoverState) => void;
   /** This week's leads arrived (after `refreshLeads`). */
   onLeads?: (leads: Lead[], fetchedAt: number) => void;
   onEvent?: (event: LoggedEvent) => void;
@@ -274,6 +277,11 @@ export class LinkClient {
   }
 
   /** Stops every running task on the computer. */
+  /** Takes the computer back from Malves (ends handover mode). */
+  stopHandover(): Promise<Ack> {
+    return this.send({ type: "handover.stop" });
+  }
+
   stopAll(): Promise<Ack> {
     return this.send({ type: "tasks.stop_all" });
   }
@@ -367,6 +375,9 @@ export class LinkClient {
         break;
       case "chrome":
         this.o.onChrome?.(message.connected);
+        break;
+      case "handover":
+        this.o.onHandover?.(message.state);
         break;
       case "leads":
         this.o.onLeads?.(message.leads, message.fetched_at);

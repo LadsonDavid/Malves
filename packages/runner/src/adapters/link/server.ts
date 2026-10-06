@@ -7,6 +7,7 @@ import {
   CLOSE,
   Command,
   FirstFrame,
+  type HandoverState,
   Hello,
   type IdeInfo,
   type KeyPair,
@@ -39,6 +40,8 @@ export type LinkServerOptions = {
   /** An agent's saved conversations in a workspace, newest first. */
   /** Malves, the assistant, when its brain is set up. */
   assistant?: AssistantPort | undefined;
+  /** Ends handover mode (the phone's Stop button). */
+  stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
   ide?: IdeControl | undefined;
   /** Precise dictation through Whisper, when freellmapi is set up. */
@@ -121,6 +124,7 @@ export class LinkServer {
   private readonly sessions = new Set<Session>();
   private address = "";
   private chrome: boolean | undefined;
+  private handover: HandoverState | undefined;
 
   constructor(
     private readonly core: Core,
@@ -185,6 +189,12 @@ export class LinkServer {
       at: Date.now(),
     };
     for (const s of this.sessions) s.send(message);
+  }
+
+  /** Tells every phone whether Malves has the computer (and every phone that connects later). */
+  setHandover(state: HandoverState): void {
+    this.handover = state;
+    for (const s of this.sessions) s.send({ type: "handover", state });
   }
 
   /** Tells every phone whether Chrome is connected (and every phone that connects later). */
@@ -309,6 +319,7 @@ export class LinkServer {
       last_seq: this.core.log.lastSeq,
       ...(push ? { push: { subscribe: push } } : {}),
       ...(this.chrome === undefined ? {} : { chrome: this.chrome }),
+      ...(this.handover ? { handover: this.handover } : {}),
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
       ...(this.o.assistant ? { assistant: true } : {}),
@@ -438,6 +449,10 @@ export class LinkServer {
           return ack(true, {
             result: await this.o.transcriber.transcribe(command.upload_id, command.language),
           });
+        case "handover.stop":
+          if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
+          this.o.stopHandover();
+          return ack(true);
         case "tasks.stop_all":
           await this.core.tasks.stopAll();
           return ack(true);

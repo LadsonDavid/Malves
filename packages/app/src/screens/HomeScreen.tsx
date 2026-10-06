@@ -64,6 +64,13 @@ export function HomeScreen({
         <StatusLine status={status} lastOnline={lastOnline} />
       </View>
 
+      {model.handover.active ? (
+        <HandoverBar
+          since={model.handover.since}
+          onStop={() => void client?.stopHandover().catch(() => {})}
+        />
+      ) : null}
+
       {status === "rejected" ? (
         <Card>
           <Banner tone="bad">{detail ?? "This computer no longer accepts this phone."}</Banner>
@@ -79,7 +86,9 @@ export function HomeScreen({
 
       {status === "online" ? <PushCard link={model.push} quiet /> : null}
 
-      {status !== "rejected" ? <VoiceBar onOpenConversation={onOpenMalves} /> : null}
+      {status !== "rejected" ? (
+        <VoiceBar onOpenConversation={onOpenMalves} handover={model.handover.active} />
+      ) : null}
 
       <Section title={questions.length > 0 ? `Needs you · ${questions.length}` : "Needs you"}>
         {questions.length === 0 ? <Text style={styles.muted}>Nothing needs you.</Text> : null}
@@ -138,6 +147,40 @@ export function HomeScreen({
         </Section>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** Malves has the computer: a navy bar, always on top of Home, with Stop. */
+function HandoverBar({ since, onStop }: { since: number | undefined; onStop: () => void }) {
+  const at = since
+    ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      style={{
+        backgroundColor: color.zone,
+        borderRadius: 18,
+        padding: space.lg,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.md,
+      }}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[styles.eyebrow, { color: color.zoneMuted }]}>Handover</Text>
+        <Text style={[styles.body, { color: color.zoneText }]}>
+          Malves has your computer{at ? ` since ${at}` : ""}.
+        </Text>
+      </View>
+      <Button
+        title="Stop"
+        kind="danger"
+        onZone
+        onPress={onStop}
+        hint="Take the computer back now"
+      />
+    </View>
   );
 }
 

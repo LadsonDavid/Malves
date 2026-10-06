@@ -334,6 +334,19 @@ fixed rules above stay as the fallback when it's off or unreachable.
   laptop (AES-256-GCM, key in `backup.key`, never uploaded) and streamed over
   SSH to `~/malves-backups` on the server; the 14 newest are kept.
   `malves backup restore` opens one into a new folder, never over the vault.
+- **Handover mode** ("I'm leaving, take over"): starts only on a yes. While
+  it's on, Malves may run commands in registered project folders and use Chrome
+  through the extension. Reading commands and tests/builds/lint run by
+  themselves; anything else (and anything chained, piped, redirected or using
+  variables) is read back and waits for a yes. Chrome: reading the page is
+  free, opening, clicking, typing and pressing keys ask; password and payment
+  fields are refused, checked on the live page. It ends on the phone's Stop,
+  "I'm back", an unlock after the computer was locked (the lock screen's
+  process disappears), or after four hours, and the phone is told.
+  **Desktop mouse and keyboard are not built:** a PowerShell helper doing
+  screenshots, input-idle checks and synthetic clicks was blocked by Windows
+  Defender as malicious. We don't work around antivirus; a signed native
+  helper or nut.js would need its own decision.
 
 ### Desktop IDEs
 

@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { Conversation, Mic, Stop } from "../icons";
+import { Conversation, Desktop, Mic, Stop } from "../icons";
 import { Button, color, Eyebrow, font, IconButton, space } from "../ui";
 import { useVoice } from "./VoiceProvider";
 
@@ -14,7 +14,14 @@ const PHASE_WORDS = {
  * Malves, on the home screen: a navy zone with what it last said, a mic, and
  * hands-free mode. Its read-backs show here with Confirm and Cancel.
  */
-export function VoiceBar({ onOpenConversation }: { onOpenConversation?: () => void }) {
+export function VoiceBar({
+  onOpenConversation,
+  handover,
+}: {
+  onOpenConversation?: () => void;
+  /** Whether Malves has the computer now; offers "Hand over" when it doesn't. */
+  handover?: boolean;
+}) {
   const voice = useVoice();
   const busy = voice.phase !== "idle";
   const state = voice.mode && !busy ? "Hands-free" : PHASE_WORDS[voice.phase];
@@ -140,6 +147,16 @@ export function VoiceBar({ onOpenConversation }: { onOpenConversation?: () => vo
             />
           </View>
         </View>
+      ) : null}
+      {voice.assistantOn && handover === false && !voice.pending ? (
+        <Button
+          title="Hand over my computer"
+          kind="ghost"
+          onZone
+          icon={Desktop}
+          hint="Malves takes over while you are away; it asks before anything risky"
+          onPress={() => voice.tell("I'm leaving, take over my computer until I'm back.")}
+        />
       ) : null}
     </View>
   );

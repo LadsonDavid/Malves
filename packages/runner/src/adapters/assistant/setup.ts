@@ -1,8 +1,10 @@
 import path from "node:path";
 import type { Core } from "@malves/core";
 import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
+import type { Browser } from "../browser/bridge.js";
 import type { AssistantPort, IdeControl } from "../link/server.js";
 import { Assistant } from "./assistant.js";
+import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
 
@@ -19,6 +21,8 @@ export function assistantFromEnv(o: {
   agents: () => AgentInfo[];
   ide?: IdeControl | undefined;
   leads?: (() => Promise<Lead[]>) | undefined;
+  handover?: Handover | undefined;
+  browser?: Browser | undefined;
 }): { port: AssistantPort; close: () => void } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
@@ -48,6 +52,8 @@ export function assistantFromEnv(o: {
     ...(o.ide ? { ide: o.ide } : {}),
     ...(o.leads ? { leads: o.leads } : {}),
     userName: "Ladson",
+    ...(o.handover ? { handover: o.handover } : {}),
+    ...(o.browser ? { browser: o.browser } : {}),
   });
   return {
     port: {
