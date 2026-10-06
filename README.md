@@ -1,8 +1,9 @@
 # malves
 
-> **Status: working prototype, Android only.** A phone app, a desktop runner and
-> a Chrome extension, tested end to end; the phone app builds as an installable
-> APK. See [Where it stands](#where-it-stands).
+> **Status: working prototype, Android only.** A phone app, a desktop runner, a
+> Chrome extension, an IDE extension and Malves (a voice assistant), tested end
+> to end in parts; the phone app builds as an installable APK. The newest pieces
+> are awaiting a real-phone test. See [Where it stands](#where-it-stands).
 
 ## The problem
 
@@ -38,6 +39,7 @@ form, and there is no per-seat bill.
 | 4 | **desktop runner** | Drives your AI coding tool through the [Agent Client Protocol](https://agentclientprotocol.com) (Claude Code, Codex, Antigravity and ~50 more), plus a wrapper for Cursor |
 | 5 | **browser automation** | A Chrome extension that lets the agent use the tab you have open, asking your phone before it acts on a site. No subscription |
 | 6, 7 | **your own model keys** | [freellmapi](https://github.com/tashfeenahmed/freellmapi) or any OpenAI-compatible endpoint, with a budget guard that never silently downgrades |
+| 2, 3 | **Malves** | A voice assistant on top of all of it: talk naturally, it does the work through the pieces above, and asks before anything risky |
 
 ### Point 3 is the one that matters
 
@@ -76,10 +78,14 @@ public issue before it's decided, not after.
 | Piece | State |
 |---|---|
 | Desktop runner | Works. Runs Claude Code, Codex, Antigravity and Cursor through ACP (Cursor: once its CLI is installed) |
-| Android app | Home, Tasks, Leads and Settings tabs. Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; email leads; stop everything from Settings. Follows the phone's dark mode. **Voice:** talk to it in English or Tamil — answer questions, start tasks ("ask Claude to fix the footer"), hear results; hands-free mode reads questions aloud as they arrive (APK) |
-| Malves, the assistant | Talk naturally — sloppy, mixed English and Tamil is fine. It starts and checks on tasks, answers questions, and remembers what you tell it (notes in your Obsidian vault). Anything risky is read back and needs your yes. Its brain runs on freellmapi on a free cloud VM, not your laptop |
+| Android app | Home, Tasks, Leads and Settings tabs, in the Malveon blueprint design (paper and navy, Geist and Fraunces, light and dark following the phone). Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; email leads; stop everything from Settings. **Voice:** English (India or US) or Tamil; hands-free mode reads questions aloud as they arrive (APK) |
+| Malves, the assistant | Talk naturally (sloppy, mixed English and Tamil is fine). It starts and checks on tasks, answers questions, reads leads, and asks your IDE's agent; anything risky is read back in its own words and needs your yes (said, or the Confirm button). Its brain runs on freellmapi on a free cloud server, not your laptop |
+| Memory and learning | Remembers what you tell it as notes in your Obsidian vault (you can read, edit or delete them; Settings shows them). Proposes lessons and reusable skills, saved only on your yes. Backed up nightly, encrypted, to your own server |
+| Look at this | Point the phone camera at a screen, an error or a diagram; Malves says what it sees and can act on it |
+| Handover mode | "I'm leaving, take over": Malves runs commands in your projects, uses Chrome and your desktop (including your editors, as a co-developer). Reading and tests/builds go by themselves; everything else is read back for your yes; passwords and sign-ins are off limits. Ends on Stop, when you're back, or after four hours |
+| Natural voice | Optional: Malves speaks with Gemini's voice (a few seconds slower); the phone's own voices are the instant default |
 | Desktop IDEs | One extension for VS Code, Cursor, Antigravity and Windsurf: from the phone, start the IDE's own agent, open a task's changes there, continue your Claude Code / Codex IDE conversations (or reopen them at the desk); agent questions also appear in the IDE |
-| Notifications | Works through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale, with answer buttons on the lock screen |
+| Notifications | Through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale: questions with answer buttons on the lock screen, and "task finished / couldn't finish" (with quiet hours) |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |
 | Budget guard | Claude Code and Codex can run on your own free-tier keys through [freellmapi](https://github.com/tashfeenahmed/freellmapi); the phone shows which model answered and asks before a weaker one is used |
@@ -101,14 +107,32 @@ pnpm malves workspace add ~/code/my-site
 pnpm malves serve                 # shows a QR code to pair the phone
 ```
 
-On Windows, `pnpm malves autostart on` starts `serve` minimized every time you log in (restarted if it crashes; `autostart off` undoes it). Restore its window from the taskbar to pair a phone or type commands.
+On Windows, `pnpm malves autostart on` starts `serve` minimized every time you log in (restarted if it crashes; `autostart status` checks it, `autostart off` undoes it). Restore its window from the taskbar to pair a phone or type commands.
+
+**Malves (optional).** It needs an OpenAI-compatible brain and a folder for its
+memory. We run [freellmapi](https://github.com/tashfeenahmed/freellmapi) on a
+free Oracle Cloud VM, reached over Tailscale, with free-tier provider keys
+(Groq and Cerebras make it quick). In `.env`:
+
+```sh
+MALVES_MODELS_URL=http://<your-server>:3001   # freellmapi
+MALVES_MODELS_KEY=...                         # its unified API key
+MALVES_VAULT=D:\Notes\Malves                  # an Obsidian vault folder (its memory)
+# optional: MALVES_QUIET_HOURS=22-7, MALVES_BACKUP_SSH=user@server,
+# MALVES_BACKUP_SSH_KEY, MALVES_VISION_MODEL, MALVES_VOICE
+```
+
+`serve` then prints "Malves (assistant): on". `pnpm malves backup now` backs up
+the vault by hand; `pnpm malves backup restore <file> --to <new folder>` opens a
+backup (keep a copy of `~/.malves/backup.key`: without it backups can't be opened).
 
 **On the phone:** install the malves APK (from the repo's Releases, or build
 it yourself: Actions → Android APK → Run workflow) and scan the QR code. To use
 it away from home, install [Tailscale](https://tailscale.com) on both, or run
 your own [relay](packages/relay/README.md). For lock-screen notifications,
 install the free [ntfy](https://ntfy.sh) app and tap **Set up notifications**.
-Developers can use Expo Go instead: `pnpm --filter @malves/app start`.
+Developers can use Expo Go instead: `pnpm --filter @malves/app start` (no
+listening or natural voice there).
 
 In `serve`, type `help` for commands: `pair`, `agents`, `extension` (connect
 Chrome), `push` (notifications), `devices`, `revoke`, `stop`. Without a phone,
