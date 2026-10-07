@@ -116,10 +116,9 @@ Step 1 passed on Linux and broke on Windows. Don't reintroduce these:
 
 ## Open decisions
 
-- **Dissertation contribution statement:** (A) a standard remote transport
-  profile for ACP — verify the gap in the ACP spec repo first — or (B) a
-  comparative security analysis of Happy, Runmote and Claude Remote Control's
-  pairing designs. Not yet chosen.
+- **Dissertation contribution statement: decided (Oct 2026) — (B)** a comparative security
+  analysis of Happy, Runmote and Claude Remote Control pairing designs, with malves
+  as the fourth subject. (A) dropped: ACP now has a draft remote-transport RFD.
 - Week-1 verifications: see ARCHITECTURE.md §14 and §15 "Check before committing".
 
 ## Related repo
