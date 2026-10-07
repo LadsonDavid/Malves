@@ -83,7 +83,7 @@ public issue before it's decided, not after.
 | Memory and learning | Remembers what you tell it as notes in your Obsidian vault (you can read, edit or delete them; Settings shows them). Proposes lessons and reusable skills, saved only on your yes. Backed up nightly, encrypted, to your own server |
 | Look at this | Point the phone camera at a screen, an error or a diagram; Malves says what it sees and can act on it |
 | Handover mode | "I'm leaving, take over": Malves runs commands in your projects, uses Chrome and your desktop (including your editors, as a co-developer). Reading and tests/builds go by themselves; everything else is read back for your yes; passwords and sign-ins are off limits. Ends on Stop, when you're back, or after four hours |
-| Natural voice | Optional: Malves speaks with Gemini's voice (a few seconds slower); the phone's own voices are the instant default |
+| Natural voice | Malves speaks in a natural voice as soon as its first sentence is written (Cartesia, then ElevenLabs, then Piper on your server; the phone's voice if all fail). Tamil and English voices to pick from; talk over it to stop it |
 | Sessions | Every Claude Code, Codex, Cursor and Antigravity session on your computer in one list (Work → Sessions): read it, and carry it on from the phone. No projects to set up: your folders come from your sessions |
 | Desktop IDEs | One extension for VS Code, Cursor, Antigravity and Windsurf: from the phone, start the IDE's own agent, open a task's changes there, continue your Claude Code / Codex IDE conversations (or reopen them at the desk); agent questions also appear in the IDE |
 | Notifications | Through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale: questions with answer buttons on the lock screen, and "task finished / couldn't finish" (with quiet hours) |
@@ -120,7 +120,8 @@ MALVES_MODELS_URL=http://<your-server>:3001   # freellmapi
 MALVES_MODELS_KEY=...                         # its unified API key
 MALVES_VAULT=D:\Notes\Malves                  # an Obsidian vault folder (its memory)
 # optional: MALVES_QUIET_HOURS=22-7, MALVES_BACKUP_SSH=user@server,
-# MALVES_BACKUP_SSH_KEY, MALVES_VISION_MODEL, MALVES_VOICE
+# MALVES_BACKUP_SSH_KEY, MALVES_VISION_MODEL, CARTESIA_API_KEY,
+# ELEVENLABS_API_KEY, MALVES_PIPER_URL
 ```
 
 `serve` then prints "Malves (assistant): on". `pnpm malves backup now` backs up

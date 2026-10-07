@@ -62,3 +62,13 @@ are not copied into this repository.
 - Licence: Apache-2.0
 - Used in: `packages/runner/src/adapters/assistant/desktop.ts`, as a
   dependency, for handover mode's mouse, keyboard and screenshots. No code copied.
+
+## Piper and its voices (on the owner's server, not in this repo)
+
+- Piper TTS: https://github.com/OHF-Voice/piper1-gpl (`piper-tts` 1.8.0 on PyPI),
+  GPL-3.0. Runs as its own process on the Oracle server; malves only sends it
+  HTTP requests (`/synthesize`), never links it. No code copied.
+- Tamil voices (ta_IN Valluvar, HemaLatha): https://huggingface.co/Jeyaram-K/piper-tamil-voices,
+  Apache-2.0. English voices (en_US kusal, amy): https://huggingface.co/rhasspy/piper-voices.
+- Cartesia and ElevenLabs are paid services reached over their public APIs
+  with the user's own keys (free tiers); no code from them.

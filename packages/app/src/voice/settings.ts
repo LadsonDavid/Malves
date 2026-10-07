@@ -1,3 +1,4 @@
+import { NATURAL_VOICES } from "@malves/protocol";
 import * as SecureStore from "expo-secure-store";
 import type { Lang } from "./engine";
 
@@ -8,16 +9,23 @@ export type VoiceSettings = {
   precise: boolean;
   /** The phone voice chosen for each language; unset means the phone's default. */
   voices: Partial<Record<Lang, string>>;
-  /** Malves speaks with Gemini's natural voice (a few seconds slower) instead of the phone's. */
+  /** Malves speaks in a natural voice (Cartesia, ElevenLabs, Piper) instead of the phone's. */
   natural: boolean;
+  /** The natural voice for Tamil and for English (and Tanglish). */
+  naturalVoices: { ta: string; en: string };
+  /** Talking over Malves (or "stop", "wait", "nillu") cuts it short. */
+  bargeIn: boolean;
 };
 
 const KEY = "malves.voice";
+const firstOf = (lang: "ta" | "en") => NATURAL_VOICES.find((v) => v.lang === lang)?.id ?? "";
 export const DEFAULT_VOICE: VoiceSettings = {
   lang: "en-IN",
   precise: false,
   voices: {},
-  natural: false,
+  natural: true,
+  naturalVoices: { ta: firstOf("ta"), en: firstOf("en") },
+  bargeIn: true,
 };
 
 export async function loadVoiceSettings(): Promise<VoiceSettings> {
@@ -29,11 +37,20 @@ export async function loadVoiceSettings(): Promise<VoiceSettings> {
       const id = saved.voices?.[lang];
       if (typeof id === "string" && id.length <= 200) voices[lang] = id;
     }
+    const known = (lang: "ta" | "en") => {
+      const id = saved.naturalVoices?.[lang];
+      return NATURAL_VOICES.some((v) => v.lang === lang && v.id === id)
+        ? (id as string)
+        : firstOf(lang);
+    };
     return {
       lang: saved.lang === "en-US" || saved.lang === "ta-IN" ? saved.lang : "en-IN",
       precise: saved.precise === true,
       voices,
-      natural: saved.natural === true,
+      // Settings saved before the natural voices existed start on them (the old default was off).
+      natural: saved.naturalVoices ? saved.natural !== false : true,
+      naturalVoices: { ta: known("ta"), en: known("en") },
+      bargeIn: saved.bargeIn !== false,
     };
   } catch {
     return DEFAULT_VOICE;

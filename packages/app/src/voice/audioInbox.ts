@@ -1,8 +1,8 @@
 /**
- * Malves' natural-voice replies arrive in pieces after the reply itself;
- * they're collected here by command id until the voice code asks for them.
+ * Malves' natural-voice replies arrive a sentence at a time, each in pieces,
+ * often before the reply's own text. They're kept here by command id; the
+ * voice code reads them back in order with `replyAudio`.
  */
-type Clip = { mime: string; data: string; failed?: string | undefined };
 type Piece = {
   commandId: string;
   index: number;
@@ -10,45 +10,104 @@ type Piece = {
   mime: string;
   data: string;
   failed?: string | undefined;
+  part: number;
+  text?: string | undefined;
+  lang?: "ta" | "en" | undefined;
+  done: boolean;
+  note?: string | undefined;
 };
 
-const partial = new Map<string, string[]>();
-const done = new Map<string, Clip>();
-const waiting = new Map<string, (clip: Clip) => void>();
+/** One sentence: audio to play, or (`failed`) text for the phone's own voice. */
+export type Clip = {
+  mime: string;
+  data: string;
+  text: string;
+  lang: "ta" | "en";
+  failed: boolean;
+  note?: string | undefined;
+};
+
+type Reply = {
+  pieces: Map<number, string[]>;
+  clips: Map<number, Clip>;
+  notes: Map<number, string>;
+  /** How many sentences there are, once known. */
+  end?: number;
+  wake?: (() => void) | undefined;
+};
+
+const replies = new Map<string, Reply>();
+
+function reply(commandId: string): Reply {
+  let r = replies.get(commandId);
+  if (!r) {
+    r = { pieces: new Map(), clips: new Map(), notes: new Map() };
+    replies.set(commandId, r);
+    // Nobody reads it within two minutes: drop it (a reader keeps its own reference).
+    setTimeout(() => replies.delete(commandId), 120_000);
+  }
+  return r;
+}
 
 export function deliver(piece: Piece): void {
-  const parts = partial.get(piece.commandId) ?? [];
-  parts[piece.index] = piece.data;
-  partial.set(piece.commandId, parts);
-  if (!piece.last) return;
-  partial.delete(piece.commandId);
-  const clip: Clip = { mime: piece.mime, data: parts.join(""), failed: piece.failed };
-  const resolve = waiting.get(piece.commandId);
-  if (resolve) {
-    waiting.delete(piece.commandId);
-    resolve(clip);
-  } else {
-    done.set(piece.commandId, clip);
-    // Nobody asked within a minute: drop it.
-    setTimeout(() => done.delete(piece.commandId), 60_000);
+  const r = reply(piece.commandId);
+  if (piece.done) r.end = piece.part;
+  else {
+    const parts = r.pieces.get(piece.part) ?? [];
+    parts[piece.index] = piece.data;
+    r.pieces.set(piece.part, parts);
+    if (piece.note) r.notes.set(piece.part, piece.note);
+    if (piece.last) {
+      r.pieces.delete(piece.part);
+      r.clips.set(piece.part, {
+        mime: piece.mime,
+        data: parts.join(""),
+        text: piece.text ?? "",
+        lang: piece.lang ?? "en",
+        failed: Boolean(piece.failed) || !piece.mime,
+        note: r.notes.get(piece.part),
+      });
+    }
   }
+  r.wake?.();
 }
 
-/** The spoken reply for a command, or undefined if it fails or takes longer than `ms`. */
-export function waitAudio(commandId: string, ms: number): Promise<Clip | undefined> {
-  const ready = done.get(commandId);
-  if (ready) {
-    done.delete(commandId);
-    return Promise.resolve(ready.failed ? undefined : ready);
-  }
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      waiting.delete(commandId);
-      resolve(undefined);
-    }, ms);
-    waiting.set(commandId, (clip) => {
-      clearTimeout(timer);
-      resolve(clip.failed ? undefined : clip);
-    });
-  });
+/**
+ * A reply's sentences in order. `next` resolves with the next one, or
+ * undefined at the end, after `cancel`, or when nothing comes for `idleMs`.
+ */
+export function replyAudio(commandId: string, idleMs = 25_000) {
+  const r = reply(commandId);
+  let cursor = 0;
+  let cancelled = false;
+  return {
+    async next(): Promise<Clip | undefined> {
+      for (;;) {
+        if (cancelled) return undefined;
+        const clip = r.clips.get(cursor);
+        if (clip) {
+          r.clips.delete(cursor);
+          cursor += 1;
+          return clip;
+        }
+        if (r.end !== undefined && cursor >= r.end) return undefined;
+        const woke = await new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => resolve(false), idleMs);
+          r.wake = () => {
+            clearTimeout(timer);
+            resolve(true);
+          };
+        });
+        r.wake = undefined;
+        if (!woke) return undefined;
+      }
+    },
+    cancel(): void {
+      cancelled = true;
+      r.wake?.();
+      replies.delete(commandId);
+    },
+  };
 }
+
+export type ReplyAudio = ReturnType<typeof replyAudio>;

@@ -139,6 +139,76 @@ export const TaskStop = z.object({
   task_id: Id,
 });
 
+/**
+ * Malves' natural voices. Each sentence is tried with Cartesia, then
+ * ElevenLabs, then Piper on your server; the phone's own voice is the last resort.
+ * Tamil script is read by the Tamil voice, English and Tanglish by the English one.
+ */
+export const NATURAL_VOICES = [
+  {
+    id: "karthik",
+    name: "Karthik",
+    lang: "ta",
+    gender: "male",
+    cartesia: "19f28c21-ae34-499f-b64a-f7b09cd9b516",
+    elevenlabs: "nPczCjzI2devNBz1zQrb",
+    piper: "ta_IN-ValluvarNeural-medium",
+  },
+  {
+    id: "janani",
+    name: "Janani",
+    lang: "ta",
+    gender: "female",
+    cartesia: "fb7d8d97-9730-4165-bd79-36b5ce61b5f2",
+    elevenlabs: "EXAVITQu4vr4xnSDxMaL",
+    piper: "ta_IN-HemaLatha-medium",
+  },
+  {
+    id: "aarav",
+    name: "Aarav",
+    lang: "en",
+    gender: "male",
+    cartesia: "39d518b7-fd0b-4676-9b8b-29d64ff31e12",
+    elevenlabs: "nPczCjzI2devNBz1zQrb",
+    piper: "en_US-kusal-medium",
+  },
+  {
+    id: "krishna",
+    name: "Krishna",
+    lang: "en",
+    gender: "male",
+    cartesia: "c63361f8-d142-4c62-8da7-8f8149d973d6",
+    elevenlabs: "onwK4e9ZLuTAKqWW03F9",
+    piper: "en_US-kusal-medium",
+  },
+  {
+    id: "janvi",
+    name: "Janvi",
+    lang: "en",
+    gender: "female",
+    cartesia: "7ea5e9c2-b719-4dc3-b870-5ba5f14d31d8",
+    elevenlabs: "EXAVITQu4vr4xnSDxMaL",
+    piper: "en_US-amy-medium",
+  },
+  {
+    id: "priya",
+    name: "Priya",
+    lang: "en",
+    gender: "female",
+    cartesia: "f6141af3-5f94-418c-80ed-a45d450e7e2e",
+    elevenlabs: "Xb7hH8MSUJpSbSDYk0k2",
+    piper: "en_US-amy-medium",
+  },
+] as const;
+export type NaturalVoice = (typeof NATURAL_VOICES)[number];
+
+/** `true` uses the default voices; or name one natural voice per language. */
+export const Speak = z.union([
+  z.boolean(),
+  z.object({ ta: z.string().max(40).optional(), en: z.string().max(40).optional() }),
+]);
+export type Speak = z.infer<typeof Speak>;
+
 /** Something said to Malves, the assistant. Android's other guesses help it understand. */
 export const AssistantSay = z.object({
   type: z.literal("assistant.say"),
@@ -146,8 +216,8 @@ export const AssistantSay = z.object({
   conversation_id: Id,
   text: z.string().min(1).max(2000),
   alternatives: z.array(z.string().max(500)).max(5).optional(),
-  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
-  speak: z.boolean().optional(),
+  /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
+  speak: Speak.optional(),
 });
 
 /** Yes or no to the action Malves read back (Confirm / Cancel buttons). */
@@ -157,8 +227,8 @@ export const AssistantConfirm = z.object({
   conversation_id: Id,
   pending_id: Id,
   yes: z.boolean(),
-  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
-  speak: z.boolean().optional(),
+  /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
+  speak: Speak.optional(),
 });
 
 /** One piece of a photo for Malves (JPEG, in order, ≤ 96 KB each). */
@@ -177,8 +247,8 @@ export const AssistantLook = z.object({
   conversation_id: Id,
   upload_id: Id,
   question: z.string().max(500).optional(),
-  /** Also send Malves' natural (Gemini) voice for the reply, as `assistant.audio`. */
-  speak: z.boolean().optional(),
+  /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
+  speak: Speak.optional(),
 });
 
 /** What Malves remembers (answered in `ack.memories`). */
@@ -354,7 +424,11 @@ export const IdesMessage = z.object({ type: z.literal("ides"), ides: z.array(Ide
 /** Sent when Chrome connects or disconnects. */
 export const ChromeMessage = z.object({ type: z.literal("chrome"), connected: z.boolean() });
 
-/** Malves' spoken reply to a command (natural voice), in pieces; `failed` when there's none. */
+/**
+ * Malves' spoken reply, one sentence (`part`) at a time, each in pieces
+ * (`index`, `last`). `failed` means the phone says `text` in its own voice;
+ * `done` (with no data) means there are no more sentences.
+ */
 export const AssistantAudio = z.object({
   type: z.literal("assistant.audio"),
   command_id: Id,
@@ -363,6 +437,12 @@ export const AssistantAudio = z.object({
   mime: z.string().max(40),
   data: z.string().max(131_072),
   failed: z.string().max(200).optional(),
+  part: z.number().int().min(0).max(200).optional(),
+  text: z.string().max(2000).optional(),
+  lang: z.enum(["ta", "en"]).optional(),
+  done: z.boolean().optional(),
+  /** Said once when a voice runs out for the month, e.g. "Cartesia is used up; using ElevenLabs." */
+  note: z.string().max(200).optional(),
 });
 
 /** Sent when handover mode starts or ends. */

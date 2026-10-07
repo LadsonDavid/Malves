@@ -208,6 +208,72 @@ export async function listen(o: ListenOptions): Promise<Heard> {
   });
 }
 
+/** Words that cut Malves short, in English, Tamil and Tanglish. */
+const STOP_WORD =
+  /^(stop|wait|enough|cancel|malves|nill|nillu|niruthu|niruttu|podhum|pothum|kekkadhe|நில்|நில்லு|நிறுத்து|போதும்)$/i;
+const wordsOf = (text: string) =>
+  text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}']+/u)
+    .filter(Boolean);
+
+/**
+ * Listens while Malves speaks and calls `onInterrupt` when you talk over it.
+ * The mic also hears the phone's speaker, and Android's recognizer has no echo
+ * cancelling to ask for, so Malves' own words (`saying`) are ignored: it takes
+ * a stop word, or three words that are mostly not Malves'. Returns a stop function.
+ */
+export function watchForInterruption(
+  lang: Lang,
+  saying: () => string,
+  onInterrupt: () => void,
+): () => void {
+  const module = recognition?.ExpoSpeechRecognitionModule;
+  if (!module || active) return () => {};
+  let markEnded = () => {};
+  const ended = new Promise<void>((r) => {
+    markEnded = r;
+  });
+  let over = false;
+  let started = false;
+  const subs = [
+    module.addListener("result", (event) => {
+      const heard = wordsOf(event.results[0]?.transcript ?? "");
+      const own = new Set(wordsOf(saying()));
+      const foreign = heard.filter((w) => !own.has(w));
+      if (
+        foreign.some((w) => STOP_WORD.test(w)) ||
+        (heard.length >= 3 && foreign.length / heard.length > 0.6)
+      ) {
+        stop();
+        onInterrupt();
+      }
+    }),
+    module.addListener("end", () => finish()),
+  ];
+  const finish = () => {
+    for (const sub of subs) sub.remove();
+    if (active?.ended === ended) active = undefined;
+    markEnded();
+  };
+  const stop = () => {
+    if (over) return;
+    over = true;
+    // Not started yet: there'll be no "end" event to wait for.
+    if (started) module.abort();
+    else finish();
+  };
+  active = { stop, ended };
+  void module.getPermissionsAsync().then((p) => {
+    if (over) return;
+    if (!p.granted) return stop();
+    started = true;
+    // Continuous mode also spares the start/stop beep on Android 13+.
+    module.start({ lang, interimResults: true, continuous: true });
+  });
+  return stop;
+}
+
 /** Stops listening; the words heard so far are kept. */
 export function stopListening(): void {
   active?.stop();

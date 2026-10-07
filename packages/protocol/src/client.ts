@@ -14,6 +14,7 @@ import {
   LINK_VERSION,
   RunnerMessage,
   SealedFrame,
+  type Speak,
   type Welcome,
 } from "./link.js";
 
@@ -81,6 +82,11 @@ export type LinkClientOptions = {
     mime: string;
     data: string;
     failed?: string | undefined;
+    part: number;
+    text?: string | undefined;
+    lang?: "ta" | "en" | undefined;
+    done: boolean;
+    note?: string | undefined;
   }) => void;
   /** Handover mode started or ended. */
   onHandover?: (state: HandoverState) => void;
@@ -216,15 +222,19 @@ export class LinkClient {
     conversationId: string,
     text: string,
     alternatives: string[] = [],
-    speak = false,
+    speak: Speak = false,
+    commandId?: string,
   ): Promise<Ack> {
-    return this.send({
-      type: "assistant.say",
-      conversation_id: conversationId,
-      text,
-      ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
-      ...(speak ? { speak } : {}),
-    });
+    return this.send(
+      {
+        type: "assistant.say",
+        conversation_id: conversationId,
+        text,
+        ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
+        ...(speak ? { speak } : {}),
+      },
+      commandId,
+    );
   }
 
   /** Shows Malves a photo (JPEG, base64) and asks about it; the answer is in `ack.assistant`. */
@@ -232,7 +242,8 @@ export class LinkClient {
     conversationId: string,
     jpegBase64: string,
     question = "",
-    speak = false,
+    speak: Speak = false,
+    commandId?: string,
   ): Promise<Ack> {
     const uploadId = randomToken(12);
     const size = 131_072;
@@ -245,13 +256,16 @@ export class LinkClient {
       });
       if (!ack.ok) return ack;
     }
-    return this.send({
-      type: "assistant.look",
-      conversation_id: conversationId,
-      upload_id: uploadId,
-      ...(question ? { question } : {}),
-      ...(speak ? { speak } : {}),
-    });
+    return this.send(
+      {
+        type: "assistant.look",
+        conversation_id: conversationId,
+        upload_id: uploadId,
+        ...(question ? { question } : {}),
+        ...(speak ? { speak } : {}),
+      },
+      commandId,
+    );
   }
 
   /** Yes or no to the action Malves read back. */
@@ -259,15 +273,19 @@ export class LinkClient {
     conversationId: string,
     pendingId: string,
     yes: boolean,
-    speak = false,
+    speak: Speak = false,
+    commandId?: string,
   ): Promise<Ack> {
-    return this.send({
-      type: "assistant.confirm",
-      conversation_id: conversationId,
-      pending_id: pendingId,
-      yes,
-      ...(speak ? { speak } : {}),
-    });
+    return this.send(
+      {
+        type: "assistant.confirm",
+        conversation_id: conversationId,
+        pending_id: pendingId,
+        yes,
+        ...(speak ? { speak } : {}),
+      },
+      commandId,
+    );
   }
 
   /** What Malves remembers, in `ack.memories`. */
@@ -353,8 +371,8 @@ export class LinkClient {
     return this.send({ type: "leads.refresh" });
   }
 
-  private send(input: CommandInput): Promise<Ack> {
-    const command = { ...input, command_id: randomToken(12) } as Command;
+  private send(input: CommandInput, commandId = randomToken(12)): Promise<Ack> {
+    const command = { ...input, command_id: commandId } as Command;
     return new Promise((resolve, reject) => {
       this.pending.set(command.command_id, { command, resolve, reject });
       if (this.online) this.transmit(command);
@@ -448,6 +466,11 @@ export class LinkClient {
           mime: message.mime,
           data: message.data,
           failed: message.failed,
+          part: message.part ?? 0,
+          text: message.text,
+          lang: message.lang,
+          done: message.done === true,
+          note: message.note,
         });
         break;
       case "leads":

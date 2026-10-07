@@ -92,6 +92,8 @@ export class Assistant {
     conversationId: string,
     text: string,
     alternatives: string[] = [],
+    /** The reply's words as the brain writes them, for speaking early. */
+    onText?: (delta: string) => void,
   ): Promise<AssistantReply> {
     const conv = this.conversation(conversationId);
     // A waiting action is answered by a plain yes or no — decided here, not by the model.
@@ -121,7 +123,7 @@ export class Assistant {
 
     let first: Awaited<ReturnType<Llm["chat"]>>;
     try {
-      first = await this.d.llm.chat(messages, this.tools());
+      first = await this.d.llm.chat(messages, this.tools(), onText);
     } catch (error) {
       // No brain, no guessing: say so; the phone falls back to its simple commands.
       return {
@@ -163,6 +165,7 @@ export class Assistant {
             ...results,
           ],
           [],
+          onText,
         );
         reply = second.content || reply;
       } catch {

@@ -6,7 +6,7 @@ import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Handover } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
-import { geminiSpeech } from "./adapters/assistant/speech.js";
+import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
@@ -172,6 +172,7 @@ export async function serve(
   // Every session on this computer (Claude Code, Codex, Cursor, Antigravity); the first
   // full read takes a few seconds, so it starts now, in the background.
   const sessions = new Sessions(runner);
+  if (malves) warmPiper(process.env.MALVES_PIPER_URL);
   void sessions.list().catch(() => {});
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
@@ -224,15 +225,14 @@ export async function serve(
           return desktop.preview();
         }
       : undefined,
-    speech:
-      malves && process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
-        ? geminiSpeech({
-            url: process.env.MALVES_MODELS_URL,
-            key: process.env.MALVES_MODELS_KEY,
-            model: process.env.MALVES_VOICE_MODEL,
-            voice: process.env.MALVES_VOICE,
-          })
-        : undefined,
+    voice: malves
+      ? naturalVoice({
+          cartesiaKey: process.env.CARTESIA_API_KEY,
+          elevenlabsKey: process.env.ELEVENLABS_API_KEY,
+          piperUrl: process.env.MALVES_PIPER_URL,
+          stateFile: path.join(dir, "voice-credits.json"),
+        })
+      : undefined,
     leads,
   });
   // Everything said also reaches `malves console` while it's waiting for a command's output.

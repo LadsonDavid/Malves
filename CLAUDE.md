@@ -37,6 +37,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   Chrome + desktop via nut.js fork; screen looks free, clicks/typing read back).
   Sessions (Oct 7): one list across Claude Code, Codex, Cursor (Desktop Bridge) and
   Antigravity (read + continue as new); folders from sessions replace projects.
+  Natural voice (Oct 7): streamed brain replies spoken per sentence via Cartesia →
+  ElevenLabs → Piper (Oracle) → phone voice; voice picker; talk-over interruption.
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in

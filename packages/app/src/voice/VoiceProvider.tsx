@@ -1,4 +1,4 @@
-import type { LinkClient, LinkStatus } from "@malves/protocol";
+import { type LinkClient, type LinkStatus, randomToken } from "@malves/protocol";
 import {
   createContext,
   type ReactNode,
@@ -18,7 +18,7 @@ import {
   workspaceName,
 } from "../model";
 import { buzz } from "../ui";
-import { waitAudio } from "./audioInbox";
+import { type ReplyAudio, replyAudio } from "./audioInbox";
 import {
   canListen,
   canRecord,
@@ -31,6 +31,7 @@ import {
   speak,
   stopListening,
   stopSpeaking,
+  watchForInterruption,
 } from "./engine";
 import { type Intent, type Context as IntentContext, interpret } from "./intent";
 import { COMMAND_HINTS, phrases } from "./phrases";
@@ -56,6 +57,8 @@ import {
  * - starting or stopping a task is read back and needs "start"/"confirm".
  */
 export type Phase = "idle" | "speaking" | "listening" | "working";
+/** How a natural-voice reply went: nothing arrived, played through, or talked over. */
+type Played = "none" | "done" | "interrupted";
 
 type Pending =
   | { kind: "answer"; question: Question; choiceId: string; label: string }
@@ -161,6 +164,8 @@ export function VoiceProvider({
     /** Malves' read-back action, decided on the computer. */
     brainPending: undefined as { id: string; summary: string } | undefined,
     lastSaid: "",
+    /** Malves was talked over: listen next, whatever the mode. */
+    interrupted: false,
     reading: { text: "", offset: 0 },
     /** Questions already read out or answered, so they aren't read twice. */
     handled: new Set<string>(),
@@ -191,21 +196,78 @@ export function VoiceProvider({
     await speak(text, lang, live.current.settings.voices[lang]);
   };
 
+  /** How Malves is asked to sound: its natural voices, or not at all (the phone speaks). */
+  const speakAs = () => {
+    const s = live.current.settings;
+    return s.natural ? s.naturalVoices : false;
+  };
+
   /**
-   * Malves' reply: in its natural (Gemini) voice when that's chosen and the
-   * audio arrives in time, else in the phone's voice. Text shows at once.
+   * Plays Malves' reply a sentence at a time as it arrives (a sentence no
+   * natural voice could say is read by the phone). With interruptions on, the
+   * mic listens meanwhile: talking over Malves cuts it short.
    */
-  const sayReply = async (text: string, commandId: string | undefined) => {
-    const natural = live.current.settings.natural && commandId;
-    const turnId = live.current.turn;
-    const clip = natural ? await waitAudio(commandId, 15_000) : undefined;
-    if (turnId !== live.current.turn) return;
-    if (!clip) return sayIt(text, voiceFor(text));
-    setPhase("speaking");
-    setSaid(text);
+  const playReply = async (audio: ReplyAudio, id: number): Promise<Played> => {
+    const L = live.current;
+    let played = 0;
+    let spoken = "";
+    let interrupted = false;
+    let unwatch = () => {};
+    for (;;) {
+      const clip = await audio.next();
+      if (!clip || id !== L.turn || interrupted) break;
+      if (played === 0) {
+        stopSpeaking(); // the "one sec" filler, if it's still going
+        if (L.settings.bargeIn && canListen()) {
+          unwatch = watchForInterruption(
+            L.settings.lang,
+            () => spoken,
+            () => {
+              interrupted = true;
+              stopSpeaking();
+            },
+          );
+        }
+      }
+      played += 1;
+      spoken += ` ${clip.text}`;
+      if (clip.note) note("malves", clip.note);
+      setPhase("speaking");
+      if (clip.failed) {
+        const lang: Lang = clip.lang === "ta" ? "ta-IN" : englishVoice();
+        await speak(clip.text, lang, L.settings.voices[lang]);
+      } else await playClip(clip.data, clip.mime);
+      if (interrupted) break;
+    }
+    unwatch();
+    audio.cancel();
+    return interrupted ? "interrupted" : played > 0 ? "done" : "none";
+  };
+
+  /** Starts listening for a reply's natural voice before the command is even sent. */
+  const startReply = (id: number) => {
+    if (!live.current.settings.natural) {
+      return { commandId: undefined, playing: undefined, cancel: () => {} };
+    }
+    const commandId = randomToken(12);
+    const audio = replyAudio(commandId);
+    return { commandId, playing: playReply(audio, id), cancel: () => audio.cancel() };
+  };
+
+  /** Malves' reply: shown at once; heard in the natural voice as it streams, else the phone's. */
+  const sayReply = async (text: string, playing: Promise<Played> | undefined, id: number) => {
+    if (!playing) return sayIt(text, voiceFor(text));
     note("malves", text);
+    setSaid(text);
     live.current.lastSaid = text;
-    await playClip(clip.data, clip.mime);
+    const how = await playing;
+    if (id !== live.current.turn) return;
+    if (how === "none") {
+      setPhase("speaking");
+      const lang = voiceFor(text);
+      await speak(text, lang, live.current.settings.voices[lang]);
+    }
+    live.current.interrupted = how === "interrupted";
   };
 
   const setBrainPending = (next: { id: string; summary: string } | undefined) => {
@@ -246,32 +308,37 @@ export function VoiceProvider({
       if (id === live.current.turn) void sayIt(P().oneSec);
     }, 1500);
     let reply: Awaited<ReturnType<LinkClient["assistantSay"]>>["assistant"];
-    let commandId: string | undefined;
+    const voice = startReply(id);
     try {
       const ack = await c.assistantSay(
         conversationId,
         text,
         alternatives,
-        live.current.settings.natural,
+        speakAs(),
+        voice.commandId,
       );
       reply = ack.ok ? ack.assistant : undefined;
-      commandId = ack.command_id;
     } catch {
       reply = undefined;
     } finally {
       clearTimeout(slow);
     }
+    if (id !== live.current.turn || !reply || reply.offline) voice.cancel();
     if (id !== live.current.turn) return true;
     if (!reply || reply.offline) return false;
     setBrainPending(reply.pending);
     if (reply.did.length > 0) buzz();
-    await sayReply(reply.reply, commandId);
+    await sayReply(reply.reply, voice.playing, id);
     return true;
   };
 
   /** After Malves spoke: its read-back or its question gets an answer, else carry on. */
   const afterThink = (id: number) => {
     const L = live.current;
+    if (L.interrupted) {
+      L.interrupted = false;
+      return turn("command", undefined, id);
+    }
     if (L.brainPending || L.lastSaid.trim().endsWith("?")) return turn("command", undefined, id);
     return next(id);
   };
@@ -660,20 +727,24 @@ export function VoiceProvider({
     const id = fresh();
     note("you", question ? `(photo) ${question}` : "(photo)");
     setPhase("working");
+    const voice = startReply(id);
     try {
       const ack = await c.assistantLook(
         conversationId,
         jpegBase64,
         question,
-        live.current.settings.natural,
+        speakAs(),
+        voice.commandId,
       );
+      if (id !== live.current.turn || !ack.assistant) voice.cancel();
       if (id !== live.current.turn) return;
       const reply = ack.assistant?.reply ?? ack.error ?? "I couldn't look at it.";
-      await sayReply(reply, ack.assistant ? ack.command_id : undefined);
+      await sayReply(reply, ack.assistant ? voice.playing : undefined, id);
     } catch (error) {
+      voice.cancel();
       await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
     }
-    if (id === live.current.turn) await next(id);
+    if (id === live.current.turn) await afterThink(id);
   };
 
   const readAloud = (text: string) => {
@@ -689,24 +760,28 @@ export function VoiceProvider({
     setBrainPending(undefined);
     void (async () => {
       setPhase("working");
+      const voice = startReply(id);
       try {
         const ack = await c.assistantConfirm(
           conversationId,
           target.id,
           yes,
-          live.current.settings.natural,
+          speakAs(),
+          voice.commandId,
         );
+        if (id !== live.current.turn || !ack.assistant) voice.cancel();
         if (id !== live.current.turn) return;
         const reply = ack.assistant;
         if (reply) {
           setBrainPending(reply.pending);
           if (reply.did.length > 0) buzz();
-          await sayReply(reply.reply, ack.command_id);
+          await sayReply(reply.reply, voice.playing, id);
         } else await sayIt(P().problem(ack.error ?? "not applied"));
       } catch (error) {
+        voice.cancel();
         await sayIt(P().problem(error instanceof Error ? error.message : String(error)));
       }
-      await next(id);
+      if (id === live.current.turn) await afterThink(id);
     })();
   };
 

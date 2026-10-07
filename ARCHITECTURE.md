@@ -650,13 +650,36 @@ Each step ends in something demoable:
     Antigravity.
 11. Malves, the assistant: brain on freellmapi, Obsidian memory, Confirm/Cancel,
     lessons/skills, task notifications, "look at this", encrypted backup,
-    handover with live screen, natural voice option. **Built;** runner side and
+    handover with live screen. **Built;** runner side and
     backup tested live, phone side being tested.
 12. App redesign on the Malveon blueprint system (DESIGN.md). **Built.**
 13. Background autostart + `malves console`. **Built,** running on the owner's PC.
-14. **Next (agreed, not built):** the voice chain with streaming replies and
-    voice interruption; a Sessions screen across Claude Code, Codex, Cursor and
-    Antigravity that replaces hand-registered projects.
+14. Sessions across Claude Code, Codex, Cursor and Antigravity; folders replace
+    hand-registered projects. **Built.**
+15. Natural voice: the brain's reply streams and is spoken a sentence at a time
+    (Cartesia → ElevenLabs → Piper → the phone's voice), Tamil and English voices
+    picked in Settings, and talking over Malves stops it. **Built;** runner side
+    tested live, phone side awaiting a real test.
+
+### How Malves speaks
+
+1. The brain's reply streams from freellmapi; the runner cuts it into sentences
+   as they complete. Once the model starts proposing a tool call, its words stop
+   being passed on: what will be done is read back in code-written words.
+2. Each sentence goes, one at a time and in order, to Cartesia (sonic-3.6), then
+   ElevenLabs (Flash v2.5), then Piper on the Oracle server (tailnet only). Tamil
+   script is read by the Tamil voice, English and Tanglish by the English one.
+   A provider that answers "out of credit" is skipped until next month
+   (`~/.malves/voice-credits.json`), and the phone is told once.
+3. Each sentence is its own `assistant.audio` clip (in pieces of 128 KB, under
+   the relay's 256 KB frame). A sentence no voice could say goes as text, and
+   the phone reads it itself. A last message marks the end.
+4. The phone picks the command id itself, so it starts playing the first
+   sentence before the reply's ack arrives.
+5. Talking over Malves: while it speaks, the phone's recognizer listens. Android
+   gives no echo cancelling for this, so Malves' own words are ignored; a stop
+   word ("stop", "wait", "nillu", "போதும்"…) or three words that are mostly not
+   Malves' stop it, and it listens. Settings can turn this off.
 
 ---
 

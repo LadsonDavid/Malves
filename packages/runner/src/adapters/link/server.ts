@@ -18,10 +18,11 @@ import {
   type RunnerMessage,
   randomToken,
   SealedFrame,
+  type Speak,
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
-import type { Speech } from "../assistant/speech.js";
+import { langOf, sentences, splitSentences, type Voice } from "../assistant/voice.js";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
 import { Uploads } from "./uploads.js";
@@ -42,7 +43,8 @@ export type LinkServerOptions = {
   /** Malves, the assistant, when its brain is set up. */
   assistant?: AssistantPort | undefined;
   /** Malves' natural voice, when it's set up. */
-  speech?: Speech | undefined;
+  /** Malves' natural voice (Cartesia → ElevenLabs → Piper). */
+  voice?: Voice | undefined;
   /** Sessions across tools, and the folders they ran in (replacing hand-added projects). */
   sessions?: SessionsPort | undefined;
   /** A picture of the screen, during handover (the phone's live view). */
@@ -88,6 +90,7 @@ export interface AssistantPort {
     conversationId: string,
     text: string,
     alternatives: string[],
+    onText?: (delta: string) => void,
   ): Promise<NonNullable<Ack["assistant"]>>;
   confirm(
     conversationId: string,
@@ -216,46 +219,72 @@ export class LinkServer {
   }
 
   /**
-   * Malves' reply in its natural voice, sent after the ack in pieces (a frame
-   * is at most 256 KB). The phone falls back to its own voice if this fails.
+   * Malves' reply in its natural voice, a sentence at a time as the brain
+   * writes it. Each sentence is its own clip, sent in pieces (a frame is at
+   * most 256 KB); one no voice could say goes as text for the phone's own
+   * voice. `finish` says what's left of the final reply, then marks the end.
    */
-  private voice(commandId: string, text: string): void {
-    const speech = this.o.speech;
+  private speaker(commandId: string, choice: Speak) {
     const send = (message: RunnerMessage) => {
       for (const s of this.sessions) s.send(message);
     };
-    const fail = (why: string) =>
-      send({
-        type: "assistant.audio",
+    const cut = sentences();
+    const said = new Set<string>();
+    let part = 0;
+    let queue = Promise.resolve();
+    const speak = (sentence: string) => {
+      said.add(sentence);
+      const base = {
+        type: "assistant.audio" as const,
         command_id: commandId,
-        index: 0,
-        last: true,
-        mime: "",
-        data: "",
-        failed: why,
+        part: part++,
+        text: sentence.slice(0, 2000),
+        lang: langOf(sentence),
+      };
+      // One at a time, in order: the free tiers allow few calls at once.
+      queue = queue.then(async () => {
+        try {
+          if (!this.o.voice) throw new Error("No natural voice on this computer.");
+          const { mime, audio, note } = await this.o.voice(sentence, base.lang, choice);
+          const data = audio.toString("base64");
+          const size = 131_072;
+          const count = Math.max(1, Math.ceil(data.length / size));
+          for (let index = 0; index < count; index++) {
+            send({
+              ...base,
+              index,
+              last: index === count - 1,
+              mime,
+              data: data.slice(index * size, (index + 1) * size),
+              ...(note && index === 0 ? { note } : {}),
+            });
+          }
+        } catch (error) {
+          const why = error instanceof Error ? error.message : String(error);
+          send({ ...base, index: 0, last: true, mime: "", data: "", failed: why.slice(0, 200) });
+        }
       });
-    if (!speech) {
-      fail("No natural voice on this computer.");
-      return;
-    }
-    void speech(text).then(
-      ({ mime, audio }) => {
-        const data = audio.toString("base64");
-        const size = 131_072;
-        const count = Math.max(1, Math.ceil(data.length / size));
-        for (let index = 0; index < count; index++) {
+    };
+    return {
+      text: (delta: string) => {
+        for (const sentence of cut.push(delta)) speak(sentence);
+      },
+      finish: (reply: string) => {
+        for (const sentence of splitSentences(reply)) if (!said.has(sentence)) speak(sentence);
+        queue = queue.then(() =>
           send({
             type: "assistant.audio",
             command_id: commandId,
-            index,
-            last: index === count - 1,
-            mime,
-            data: data.slice(index * size, (index + 1) * size),
-          });
-        }
+            part,
+            index: 0,
+            last: true,
+            mime: "",
+            data: "",
+            done: true,
+          }),
+        );
       },
-      (error: Error) => fail(error.message.slice(0, 200)),
-    );
+    };
   }
 
   /** Tells every phone whether Malves has the computer (and every phone that connects later). */
@@ -508,22 +537,26 @@ export class LinkServer {
             photo,
             command.question ?? "",
           );
-          if (command.speak) this.voice(command.command_id, seen.reply);
+          if (command.speak) this.speaker(command.command_id, command.speak).finish(seen.reply);
           return ack(true, { assistant: seen });
         }
         case "assistant.say":
         case "assistant.confirm": {
           const assistant = this.o.assistant;
           if (!assistant) return ack(false, { error: ASSISTANT_OFF });
+          const speaker = command.speak
+            ? this.speaker(command.command_id, command.speak)
+            : undefined;
           const answer =
             command.type === "assistant.say"
               ? await assistant.say(
                   command.conversation_id,
                   command.text,
                   command.alternatives ?? [],
+                  speaker?.text,
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
-          if (command.speak) this.voice(command.command_id, answer.reply);
+          speaker?.finish(answer.reply);
           return ack(true, { assistant: answer });
         }
         case "memory.list":
