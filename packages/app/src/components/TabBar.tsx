@@ -6,7 +6,7 @@ export type Tab = "home" | "tasks" | "leads" | "settings";
 
 const TABS: Array<{ tab: Tab; label: string; icon: Icon }> = [
   { tab: "home", label: "Home", icon: Home },
-  { tab: "tasks", label: "Tasks", icon: Tasks },
+  { tab: "tasks", label: "Work", icon: Tasks },
   { tab: "leads", label: "Leads", icon: Leads },
   { tab: "settings", label: "Settings", icon: Settings },
 ];

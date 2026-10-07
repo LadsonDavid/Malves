@@ -23,6 +23,9 @@ import { LeadsScreen } from "./src/screens/LeadsScreen";
 import { MalvesScreen } from "./src/screens/MalvesScreen";
 import { NewTaskScreen } from "./src/screens/NewTaskScreen";
 import { PairScreen } from "./src/screens/PairScreen";
+import { ScreenScreen } from "./src/screens/ScreenScreen";
+import { SessionScreen } from "./src/screens/SessionScreen";
+import type { SessionRow } from "./src/screens/SessionsList";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { TaskScreen } from "./src/screens/TaskScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
@@ -37,7 +40,9 @@ type Overlay =
   | { kind: "new" }
   | { kind: "task"; id: string }
   | { kind: "ide"; id: string }
-  | { kind: "malves" };
+  | { kind: "malves" }
+  | { kind: "screen" }
+  | { kind: "session"; session: SessionRow };
 
 /** e.g. "Pixel 8" — shown in `devices` on the computer. */
 function phoneName(): string {
@@ -213,6 +218,18 @@ function Main() {
         onOpenTask={(id) => setStack((s) => [...s.slice(0, -1), { kind: "task", id }])}
         say={say}
       />
+    ) : top?.kind === "session" ? (
+      <SessionScreen
+        key={`${top.session.tool}:${top.session.id}`}
+        session={top.session}
+        client={client}
+        status={status}
+        onBack={back}
+        onOpenTask={(id) => setStack((s) => [...s.slice(0, -1), { kind: "task", id }])}
+        say={say}
+      />
+    ) : top?.kind === "screen" ? (
+      <ScreenScreen model={model} client={client} status={status} onBack={back} />
     ) : top?.kind === "malves" ? (
       <MalvesScreen onBack={back} />
     ) : top?.kind === "ide" ? (
@@ -227,7 +244,13 @@ function Main() {
         say={say}
       />
     ) : tab === "tasks" ? (
-      <TasksScreen model={model} client={client} onOpenTask={openTask} />
+      <TasksScreen
+        model={model}
+        client={client}
+        status={status}
+        onOpenTask={openTask}
+        onOpenSession={(session) => open({ kind: "session", session })}
+      />
     ) : tab === "leads" ? (
       <LeadsScreen model={model} client={client} lastAgent={lastAgent} onOpenTask={openTask} />
     ) : tab === "settings" ? (
@@ -251,6 +274,7 @@ function Main() {
         onAllTasks={() => setTab("tasks")}
         onOpenIde={(id) => open({ kind: "ide", id })}
         onOpenMalves={() => open({ kind: "malves" })}
+        onWatchScreen={() => open({ kind: "screen" })}
         onPairAgain={unpair}
       />
     );

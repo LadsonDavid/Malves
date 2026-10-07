@@ -13,8 +13,8 @@ pain points in [idea.txt](idea.txt) and the requirements R1–R10 below.
 |---|---|---|
 | 1 | Lead gen costs $50+/month | signalstack, self-hosted |
 | 2 | Can't carry the desktop everywhere | Android app ↔ desktop runner |
-| 3 | Remote desktop is unusable on a phone | Structured events, not pixels. No cursor, no screen mirroring |
-| 4 | Remote control only works for Claude and Codex | ACP (~50 agents) + a Cursor wrapper + Antigravity via API key |
+| 3 | Remote desktop is unusable on a phone | Structured events, not pixels: questions, results and decisions come to the phone, and Malves (voice) acts for you. A live, view-only screen only during handover |
+| 4 | Remote control only works for Claude and Codex | ACP (~50 agents) + Cursor's CLI + Antigravity via API key + one companion extension for the desktop IDEs |
 | 5 | Browser automation needs a paid subscription | Chrome extension + phone approval gate (§5) |
 | 6 | Credits drain fast | freellmapi (your own keys) + budget guard + disk snapshots |
 | 7 | Budget is low | Everything self-hosted; $0 required |
@@ -47,24 +47,31 @@ pain points in [idea.txt](idea.txt) and the requirements R1–R10 below.
 
 ## 1. The overall shape
 
-Two deployment topologies. The user picks one at setup; the desktop side is
-identical in both.
+Two deployment topologies for reaching the computer. The user picks one at
+setup; the desktop side is identical in both. Malves' brain lives on a small
+free server either way, so the laptop does no model work.
 
 ```
- TOPOLOGY A — free ($0)                     TOPOLOGY B — with a server (~$5/mo)
+ TOPOLOGY A — free ($0)                       TOPOLOGY B — with a relay (~$5/mo)
 
-  Android app                                Android app
-     │ Tailscale (WireGuard)                    │ WSS / TLS
-     ▼                                          ▼
- ┌────────────── Desktop ──────────────┐   ┌─────────── VPS ───────────┐
- │ runner ──ACP/stdio──▶ coding agents │   │ relay   (blind pipe)      │
- │   ├─ budget guard ──▶ freellmapi    │   │ ntfy    (push)            │
- │   ├─ gated browser ─▶ Playwright    │   │ signalstack (optional)    │
- │   └─ SQLite event log               │   └────────────▲──────────────┘
- │ signalstack (optional)              │                │ outbound WSS only
- └─────────────────────────────────────┘   ┌────────────┴── Desktop ───┐
-  push: ntfy app ◀─ runner, over Tailscale │ runner … (identical)      │
-                                           └───────────────────────────┘
+  Android app                                  Android app
+     │ Tailscale (WireGuard), E2E sealed          │ WSS / TLS, E2E sealed
+     ▼                                            ▼
+ ┌──────────────── Desktop (runner) ────────────────┐   ┌──── VPS ─────────┐
+ │ ACP/stdio ──▶ Claude Code · Codex · Antigravity · │   │ relay (blind)    │
+ │               Cursor CLI                          │   └────────▲─────────┘
+ │ Chrome extension ◀─ 127.0.0.1 (browser gate)      │            │ outbound only
+ │ IDE companion extension ◀─ 127.0.0.1 (IDE bridge) │   (desktop identical)
+ │ ntfy push · SQLite event log · git changes        │
+ │ Malves: assistant, memory index, handover, voice ─┼──Tailscale──┐
+ │ background supervisor (autostart) · console port  │             │
+ └───────────────────────────────────────────────────┘             ▼
+   memory: Obsidian vault on the desktop           ┌── Oracle free VM (ARM) ──┐
+   backup: encrypted, nightly ───────── SSH ──────▶│ freellmapi (brain, Whisper│
+                                                    │ vision, embeddings)       │
+                                                    │ Piper (backup voice)      │
+                                                    │ ~/malves-backups          │
+                                                    └───────────────────────────┘
 ```
 
 In topology B the desktop only *dials out* to the relay, so no ports are opened
@@ -90,7 +97,7 @@ nothing to pay for distribution with.
 ### Rules in the middle, tools on the outside
 
 Dependencies point inward only. The core holds the rules and names **none** of
-ACP, Playwright, freellmapi, Tailscale, the relay, ntfy or SQLite. Those sit
+ACP, Chrome, freellmapi, Tailscale, the relay, ntfy or SQLite. Those sit
 behind interfaces ("ports") that the core owns.
 
 ```
@@ -105,7 +112,7 @@ runner/
                          AgentHost · BrowserTools · ModelMeter · PhoneLink · Notifier · Store
   adapters/
     acp/                 AgentHost (Cursor gets wrapped into ACP here)
-    browser_gate/        BrowserTools: approval proxy in front of Playwright
+    browser_gate/        BrowserTools: approval proxy in front of the Chrome extension
     budget_proxy/        ModelMeter: sits in front of freellmapi or your own key
     link_tailscale/  link_relay/
     push_ntfy/  sqlite/
@@ -113,7 +120,7 @@ runner/
 ```
 
 **Boundary test:** tests for `core/` must run with fake ports — no agent, no
-browser, no network. If a core test ever needs Playwright installed, a tool has
+browser, no network. If a core test ever needs Chrome installed, a tool has
 leaked into the rules.
 
 ### One Questions module for every human decision
@@ -166,6 +173,25 @@ because it runs with its own `GEMINI_HOME`.
 Two writers would tangle it, so malves never runs two tasks in one
 conversation, and the phone warns when the chosen one was used in the last
 10 minutes ("close it on your computer first").
+
+### Sessions across tools, and folders instead of projects
+
+The phone's **Work → Sessions** lists every coding session on the computer,
+newest first, read where each tool keeps them (read only):
+
+| Tool | Where | Continue from the phone |
+|---|---|---|
+| Claude Code (terminal, desktop app, IDE extension) | `~/.claude/projects/*/*.jsonl` | resumed by Claude Code's agent |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | resumed by Codex's agent |
+| Cursor editor chats | Cursor's `state.vscdb` (chats, messages, folders) | sent into the chat through Cursor's **Desktop Bridge** (Settings → Beta); without it, a new session told the story so far |
+| Antigravity editor conversations | `~/.gemini/antigravity-ide/conversations/*.db` (protobuf, decoded by field path) | a **new** Antigravity session (API key) in the same folder, told the story so far; the editor's own agent API isn't driven (it runs on the Google login) |
+
+Folders replace hand-added projects: the phone may start work in any folder
+that appears in your own sessions or that was added on the computer, and it
+becomes a project on first use. A brand-new folder still has to be added on the
+computer (`malves console add <folder>`). The first full scan takes a few
+seconds and runs in the background when `serve` starts; later scans re-read
+only changed files.
 
 ### Reviewing and committing a task's changes
 
@@ -340,9 +366,11 @@ fixed rules above stay as the fallback when it's off or unreachable.
   themselves; anything else (and anything chained, piped, redirected or using
   variables) is read back and waits for a yes. Chrome: reading the page is
   free, opening, clicking, typing and pressing keys ask; password and payment
-  fields are refused, checked on the live page. It ends on the phone's Stop,
-  "I'm back", an unlock after the computer was locked (the lock screen's
-  process disappears), or after four hours, and the phone is told.
+  fields are refused, checked on the live page. It ends only on the phone's Stop,
+  "I'm back", or after four hours (not when he touches the computer: he may be
+  at the desk watching it work), and the phone is told. While it's on, the
+  phone can watch the screen live: view only, a 1000 px JPEG (~50 KB) about
+  once a second, not kept by the link's command cache.
   **Desktop (Windows):** mouse, keyboard and screen through nut.js (the
   community fork), loaded when handover starts. Looking at the screen is free:
   a screenshot, resized to the mouse's logical pixels, goes to a vision model.
@@ -351,8 +379,7 @@ fixed rules above stay as the fallback when it's off or unreachable.
   yes. In code editors Malves works as a co-developer (owner's choice, Oct
   2026); the read-back warns that a click there may accept or reject the
   editor AI's change, so those approvals still come to the phone. Never in
-  sign-in, password, payment or admin windows. Handover also ends when the
-  mouse moves and Malves didn't move it.
+  sign-in, password, payment or admin windows.
   (A PowerShell helper for this was blocked by Windows Defender as malicious;
   we don't work around antivirus.)
 
@@ -490,18 +517,25 @@ that too, and it keeps one pairing and one encrypted channel.
 
 ## 8. Security
 
-Threat model: others on the same wifi, internet scanners, a lost phone.
+Threat model: others on the same wifi, internet scanners, a lost phone, web
+pages and agent output trying to steer Malves (prompt injection), and the
+computer's own antivirus.
 
 | Control | How |
 |---|---|
-| Pairing | QR carries the runner's public key, a 120 s one-time secret, and how to reach it. Phone makes its own key pair; public keys are swapped; every message then uses libsodium `box`. Adapted from Happy |
-| Least privilege | The phone can only create tasks in workspaces **registered on the desktop**. Folders can't be added from the phone. No raw shell command |
-| Nothing built from strings | Every process starts from an argument list, enforced by the type the core hands out |
+| Pairing | QR carries the runner's public key, a 120 s one-time secret, and how to reach it. Phone makes its own key pair; public keys are swapped; every message then uses NaCl `box`. Adapted from Happy |
+| Least privilege | Tasks run only in folders the desktop knows. Outside handover the phone has no shell. In handover, commands run only in project folders: reading and tests/builds run alone; anything else, anything chained/bracketed/quoted, anything outside the project or touching secrets (`.env`, keys) is read back for a yes |
+| Malves | The brain proposes tool calls; runner code decides. Risky actions are read back in words the code writes, and the yes is matched by rules, never by the model. Text from agents, pages, photos and screens is marked as data. Memories it thought of itself, lessons, skills and forgetting all need a yes |
+| Desktop control (handover) | nut.js; every click/keystroke read back with the window's title, done only if the same window is still in front; never in sign-in, password, payment or admin windows. Editors allowed (owner's choice), with a warning that a click may accept the editor AI's change |
+| Local ports | Chrome bridge, IDE bridge and `malves console` listen on 127.0.0.1 only, each with its own secret from the data folder, and refuse requests with an Origin header (web pages) |
+| Nothing built from strings | Every process starts from an argument list, enforced by the type the core hands out (handover's shell is the one deliberate exception, behind the rules above) |
 | Workspace confinement | In ACP the client provides file and terminal access, so the runner confines those requests to the workspace |
-| Blast radius | Per-device revocable keys; tokens scoped per workspace |
-| Breakglass | "Stop everything" from the desktop tray always wins |
-| Secrets | OS keychain, never files |
-| Antigravity | API key only, never a consumer Google login |
+| Blast radius | Per-device revocable keys; handover ends on Stop, "I'm back" or after 4 h |
+| Breakglass | "Stop all" on the phone, or `malves console stop` on the desktop, always wins |
+| Secrets | Phone: Android Keystore. Desktop: owner-only files in the data folder (see §15 deviation); API keys in `.env`, never committed |
+| Backups | The vault is encrypted on the laptop (AES-256-GCM) before it leaves; the key never leaves |
+| Antigravity | API key only, never a consumer Google login: the IDE's internal agent API is not driven, because it runs on the Google login |
+| Antivirus | Never worked around. A PowerShell desktop helper Defender flagged was dropped for nut.js |
 
 **Known limit:** agent processes run with the user's normal permissions, and
 some agents read the disk directly rather than through ACP, so workspace
@@ -514,7 +548,10 @@ confinement is partial. Full isolation needs containers — out of scope.
 | Outside piece | Protection | What the user sees |
 |---|---|---|
 | Agent process | one process per task; activity timeout | task failed, with a clear error |
-| Playwright | separate process; navigation timeouts | browser task failed, coding tasks unaffected |
+| Chrome extension | separate connection; call timeouts | browser task failed, coding tasks unaffected |
+| Malves' brain (freellmapi) | timeouts; the phone falls back to fixed voice rules | "My brain isn't reachable", rules still work |
+| Natural voice | Cartesia → ElevenLabs → Piper on the server → the phone's voice | Malves says once when it steps down |
+| `malves serve` crash | the background supervisor restarts it (5 quick crashes: gives up) | phone reconnects by itself |
 | freellmapi | timeout; on running out, ask via questions | the pause-or-own-key prompt |
 | Link (Tailscale or relay) | backoff with jitter; resume from sequence number | "last seen…", then catches up |
 | ntfy app | it reconnects and catches up on open questions; failure is harmless | inbox correct when the app opens |
@@ -537,6 +574,11 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 8 | Browser tasks through the same questions pipeline, via the gate |
 | 9 | Budget guard with a quality floor |
 | 10 | Malves, the assistant: a hosted brain proposes tool calls; runner code decides, reads risky actions back in its own words and needs a yes; memory is an Obsidian vault |
+| 11 | Desktop IDEs through one companion extension using public extension APIs |
+| 12 | `serve` runs in the background at login (supervisor, no window); `malves console` replaces the terminal |
+| 13 | Handover mode: shell, Chrome and screen, low-risk alone and the rest read back; ends only on Stop, "I'm back" or 4 h; a view-only live screen on the phone |
+| 14 | Desktop control through nut.js; never work around antivirus |
+| 15 | Voice: natural cloud voices with a self-hosted backup (Piper) and the phone's voice last; Tamil at every level |
 
 ---
 
@@ -547,8 +589,11 @@ confinement is partial. Full isolation needs containers — out of scope.
 | Encryption, pairing, encrypted push, relay server | Happy (`slopus/happy`) | MIT |
 | ACP bridging and agent detection | Runmote | MIT |
 | ACP client | official ACP TypeScript library | Apache-2.0 |
-| Browser tools | Playwright MCP | Apache-2.0 |
+| Browser tools | Our own Chrome extension, served to agents with the official MCP SDK | MIT (MCP SDK) |
 | Model gateway | freellmapi | MIT |
+| Desktop control | nut.js (community fork) | Apache-2.0 |
+| Icons, fonts | Heroicons; Geist, Geist Mono, Fraunces | MIT; OFL 1.1 |
+| Backup voice | Piper + Tamil voices (Jeyaram-K) + official English voices | MIT / Apache-2.0 (per voice) |
 
 Every row goes in `THIRD-PARTY.md` and in the dissertation's declaration of
 original work. Run ntfy as a separate service and check its licence before
@@ -600,25 +645,69 @@ Each step ends in something demoable:
 8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
    `malves serve --leads <url>`, the app's Leads screen with "Research in
    browser". Awaiting a test against real signalstack data.
+9. Voice (English India/US, Tamil), hands-free, Whisper dictation. **Built.**
+10. Desktop IDE companion extension. **Built;** connects in VS Code and
+    Antigravity.
+11. Malves, the assistant: brain on freellmapi, Obsidian memory, Confirm/Cancel,
+    lessons/skills, task notifications, "look at this", encrypted backup,
+    handover with live screen. **Built;** runner side and
+    backup tested live, phone side being tested.
+12. App redesign on the Malveon blueprint system (DESIGN.md). **Built.**
+13. Background autostart + `malves console`. **Built,** running on the owner's PC.
+14. Sessions across Claude Code, Codex, Cursor and Antigravity; folders replace
+    hand-registered projects. **Built.**
+15. Natural voice: the brain's reply streams and is spoken a sentence at a time
+    (Cartesia → ElevenLabs → Piper → the phone's voice), Tamil and English voices
+    picked in Settings, and talking over Malves stops it. **Built;** runner side
+    tested live, phone side awaiting a real test.
+
+### How Malves speaks
+
+1. The brain's reply streams from freellmapi; the runner cuts it into sentences
+   as they complete. Once the model starts proposing a tool call, its words stop
+   being passed on: what will be done is read back in code-written words.
+2. Each sentence goes, one at a time and in order, to Cartesia (sonic-3.6), then
+   ElevenLabs (Flash v2.5), then Piper on the Oracle server (tailnet only). Tamil
+   script is read by the Tamil voice, English and Tanglish by the English one.
+   A provider that answers "out of credit" is skipped until next month
+   (`~/.malves/voice-credits.json`), and the phone is told once.
+3. Each sentence is its own `assistant.audio` clip (in pieces of 128 KB, under
+   the relay's 256 KB frame). A sentence no voice could say goes as text, and
+   the phone reads it itself. A last message marks the end.
+4. The phone picks the command id itself, so it starts playing the first
+   sentence before the reply's ack arrives.
+5. Talking over Malves: while it speaks, the phone's recognizer listens. Android
+   gives no echo cancelling for this, so Malves' own words are ignored; a stop
+   word ("stop", "wait", "nillu", "போதும்"…) or three words that are mostly not
+   Malves' stop it, and it listens. Settings can turn this off.
 
 ---
 
 ## 14. To verify before relying on it
 
-- **Cursor headless mode may not ask questions interactively** — it may run
-  under a fixed allow/deny policy. If so, the Cursor wrapper supports "run, then
-  approve the result". Test in week 1; it shapes what R5 can claim.
-- **Claude Code uses Anthropic's API format**, so the budget guard must
-  translate or pass it through. Subscription users bypass it entirely.
-- **Android Doze mode** must still deliver ntfy's notifications quickly, with
-  buttons that work from the lock screen. Test on a real phone (R1, R2).
-- **Topology A needs Tailscale switched on** on the phone — a setup step that
-  counts against R10.
-- ~~**Android blocks plain `ws://` outside Expo Go.**~~ Done: the APK sets
-  `usesCleartextTraffic` (expo-build-properties). Payloads are end-to-end
-  encrypted either way, so this is a platform rule, not a security gap. The APK
-  is built by `.github/workflows/apk.yml` (expo prebuild + Gradle, no
-  accounts); awaiting its first run and an install on a real phone.
+Checked:
+- ~~Topology A needs Tailscale on the phone.~~ Set up; the phone reaches the
+  runner over mobile data.
+- ~~Android blocks plain `ws://` outside Expo Go.~~ The APK sets
+  `usesCleartextTraffic`; payloads are end-to-end sealed anyway. The APK is
+  built by `.github/workflows/apk.yml` and installed on the owner's phone.
+- ~~ntfy delivers questions with answer buttons.~~ Worked on the real phone.
+- ~~Claude Code speaks Anthropic's format through the budget guard.~~ The guard
+  passes it through.
+
+Still open:
+- **Cursor headless questions:** the CLI isn't installed yet; whether it asks
+  questions or runs on a fixed policy shapes what R5 can claim.
+- **Antigravity session reload:** the official ACP server (1.2.1, Windows) has a
+  reported bug where reloading a session replays no history.
+- **Cursor Desktop Bridge** is Beta and server-gated; check it's available on
+  the owner's account before relying on it.
+- **Vision pointing:** the free vision models describe screens well but give
+  imprecise click coordinates; clicks are always read back.
+- **Free voice credits** (Cartesia, ElevenLabs) cover part of a month at
+  "always natural"; the backup voice covers the rest.
+- **Doze mode** delays on a locked phone over hours (R1, R2), measured over a
+  few days of real use.
 
 ---
 
@@ -632,13 +721,15 @@ TypeScript everywhere except signalstack (Python). Two languages in total.
 packages/
   protocol/   message schemas, envelope encryption, versions   ← shared by all
   core/       tasks · questions · budget · workspaces · events ← depends only on protocol
-  runner/     adapters + wiring (ACP, Playwright, budget proxy, link, push, SQLite)
+  runner/     adapters + wiring (ACP, Chrome bridge, IDE bridge, budget proxy, link, push, SQLite, assistant)
   relay/      blind WebSocket forwarder, topology B only
   app/        Expo Android app                                  ← depends on protocol
+  extension/  Chrome extension (MV3, unpacked): the browser tools
+  ide/        VS Code-fork companion extension (malves.vsix)
 ```
 
 - `core` as its own package means the package manager enforces the Dependency
-  Rule: it cannot import ACP or Playwright because they aren't its dependencies.
+  Rule: it cannot import ACP, Chrome or nut.js because they aren't its dependencies.
 - `protocol` is shared, so phone and runner use the same message definitions and
   encryption code.
 
@@ -661,7 +752,10 @@ packages/
 | Relay (B) | Node + `ws` in Docker, Caddy for HTTPS | Small blind forwarder; automatic certificates |
 | Push | The ntfy Android app; the runner speaks ntfy's subscribe API itself | No extra server, no Google; Tailscale only |
 | App | Expo **SDK 57** (React Native 0.86) + TypeScript | Shares `protocol` (via its built `dist`); state is a pure reducer over the event stream |
-| App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`; `expo-notifications` in step 3 | QR scanning, Android Keystore, secure random — all in Expo Go |
+| App modules | `expo-camera`, `expo-secure-store`, `expo-crypto`, `expo-speech`, `expo-speech-recognition`, `expo-audio`, `expo-file-system`, `expo-font`, `react-native-svg` + Heroicons | QR and photos, Android Keystore, secure random, voice in and out, fonts and icons |
+| Assistant | freellmapi (OpenAI-compatible chat, tools, embeddings, Whisper, vision) on an Oracle free VM; Obsidian vault + SQLite index | No model work on the laptop; memory the owner can read and edit |
+| Desktop control | `@nut-tree-fork/nut-js`, loaded only in handover | Mouse, keyboard, screenshots; no PowerShell helper (Defender) |
+| Voices | Cartesia, ElevenLabs (cloud, free tiers); Piper on the VM; the phone's own | Natural first, always a free fallback, Tamil at every level |
 | Pairing QR | `qrcode-terminal` | QR shown in the desktop terminal |
 | Models | freellmapi | OpenAI-compatible, your own keys |
 | Leads | signalstack + one JSON endpoint (`/api/leads`) | Reached through the runner (§7); add a notifier to its scheduler |
@@ -674,7 +768,7 @@ packages/
 
 ### Left out of v1
 
-- **Desktop tray app** — "stop everything" is `malves stop` in the terminal.
+- **Desktop tray app** — "stop everything" is Stop all on the phone or `malves console stop`.
 - **App state library** — React's own state is enough.
 - **Navigation library (Expo Router)** — four tabs and a small stack of screens
   (new task, task) are plain React state, with Android's back button handled.

@@ -3,12 +3,13 @@ import type { Desktop } from "./desktop.js";
 
 /**
  * Handover mode: "I'm leaving, take over." While it's on, Malves may run
- * commands in your project folders and use Chrome through the extension, on
- * top of what it always does. Tests and builds run by themselves; anything
- * else that changes something is read back to your phone and waits for yes.
+ * commands in your project folders, use Chrome, and use the screen; tests and
+ * builds run by themselves, anything else that changes something is read back
+ * to your phone and waits for yes. The phone can watch the screen live.
  *
- * It ends when you press Stop (phone), say you're back, unlock the computer
- * after it was locked, or after four hours, whichever comes first.
+ * It ends only when you say so (Stop on the phone, or "I'm back") or after
+ * four hours. Touching the computer doesn't end it: you may be at the desk,
+ * watching it work.
  */
 export type HandoverState =
   | { active: false; reason?: string }
@@ -16,8 +17,6 @@ export type HandoverState =
 
 export type HandoverOptions = {
   onChange: (state: HandoverState) => void;
-  /** Whether the computer shows its lock screen; undefined where that can't be told. */
-  locked?: (() => Promise<boolean>) | undefined;
   /** Mouse, keyboard and screen (loaded when handover starts). */
   desktop?: (() => Promise<Desktop>) | undefined;
   maxMs?: number;
@@ -29,10 +28,7 @@ const FOUR_HOURS = 4 * 60 * 60_000;
 export class Handover {
   private current: HandoverState = { active: false };
   private timer: NodeJS.Timeout | undefined;
-  private wasLocked = false;
   private loading: Promise<Desktop | undefined> | undefined;
-  private lastMouse: { x: number; y: number } | undefined;
-  private ownInputAt = 0;
 
   constructor(private readonly o: HandoverOptions) {}
 
@@ -44,10 +40,8 @@ export class Handover {
     if (this.current.active) return this.current;
     const since = Date.now();
     this.current = { active: true, since, until: since + (this.o.maxMs ?? FOUR_HOURS) };
-    this.wasLocked = false;
-    this.lastMouse = undefined;
     this.loading = this.o.desktop?.().catch(() => undefined);
-    this.timer = setInterval(() => void this.check(), this.o.pollMs ?? 5_000);
+    this.timer = setInterval(() => void this.check(), this.o.pollMs ?? 30_000);
     this.timer.unref();
     this.o.onChange(this.current);
     return this.current;
@@ -66,45 +60,10 @@ export class Handover {
     return this.current.active ? await this.loading : undefined;
   }
 
-  /** Malves just moved the mouse or typed: that isn't him coming back. */
-  noteOwnInput(): void {
-    this.ownInputAt = Date.now();
-  }
-
-  /** Time's up, or he came back: moved the mouse, or locked while away and unlocked now. */
+  /** Four hours are up. */
   async check(): Promise<void> {
-    if (!this.current.active) return;
-    if (Date.now() >= this.current.until) return this.stop("Four hours are up.");
-    const desktop = await this.loading;
-    const mouse = await desktop?.mouse().catch(() => undefined);
-    if (mouse) {
-      const moved =
-        this.lastMouse && (mouse.x !== this.lastMouse.x || mouse.y !== this.lastMouse.y);
-      this.lastMouse = mouse;
-      if (moved && Date.now() - this.ownInputAt > 4_000) {
-        return this.stop("You're back at the computer.");
-      }
-    }
-    const locked = await this.o.locked?.().catch(() => undefined);
-    if (locked === undefined) return;
-    if (locked) this.wasLocked = true;
-    else if (this.wasLocked) this.stop("You're back at the computer.");
+    if (this.current.active && Date.now() >= this.current.until) this.stop("Four hours are up.");
   }
-}
-
-/** Windows shows LogonUI.exe while the lock screen is up. */
-export function windowsLocked(): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("tasklist.exe", ["/FI", "IMAGENAME eq LogonUI.exe", "/NH"], {
-      windowsHide: true,
-    });
-    let out = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      out += chunk.toString();
-    });
-    child.once("error", reject);
-    child.once("exit", () => resolve(/logonui\.exe/i.test(out)));
-  });
 }
 
 // ── Commands ────────────────────────────────────────────────────────────────

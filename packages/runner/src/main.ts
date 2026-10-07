@@ -6,11 +6,13 @@ import { samePath, type Workspace } from "@malves/core";
 import { DEFAULT_PORT } from "@malves/protocol";
 import { backupKey, backupNow, restoreVault } from "./adapters/assistant/backup.js";
 import { guardFromEnv } from "./adapters/budget/guard.js";
+import { console_ } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
 import { autostart, startNow } from "./autostart.js";
+import { supervise } from "./background.js";
 import { serve } from "./serve.js";
-import { dataDir, parseDuration, resolveFolder } from "./system.js";
+import { controlToken, dataDir, parseDuration, resolveFolder } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
 
 const USAGE = `malves — run coding agents and answer their questions
@@ -24,6 +26,7 @@ const USAGE = `malves — run coding agents and answer their questions
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
   malves autostart on|off|status|start   start serve when you log in to Windows
+  malves console [command]               type serve's commands while it runs in the background
   malves backup now                      back up Malves' memory to MALVES_BACKUP_SSH now
   malves backup restore <file> --to <folder>   open a backup into a new folder
 
@@ -48,6 +51,7 @@ async function main(argv: string[]): Promise<number> {
       leads: { type: "string" },
       relay: { type: "string" },
       to: { type: "string" },
+      background: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -67,6 +71,22 @@ async function main(argv: string[]): Promise<number> {
   // Before opening the runner: it must not take the lock a running serve holds.
   if (cmd === "autostart") return sub === "start" ? startNow() : autostart(sub, dir);
   if (cmd === "backup") return backup(sub, rest[0], values.to, dir);
+  if (cmd === "console")
+    return console_(
+      controlToken(dir),
+      [sub, ...rest].filter((s) => s !== undefined),
+    );
+  if (cmd === "serve" && values.background) {
+    // No window, output to ~/.malves/serve.log, restarted if it crashes.
+    const pass = [
+      ...(values.host ? ["--host", values.host] : []),
+      ...(values.port ? ["--port", values.port] : []),
+      ...(values.leads ? ["--leads", values.leads] : []),
+      ...(values.relay ? ["--relay", values.relay] : []),
+      ...(values.timeout ? ["--timeout", values.timeout] : []),
+    ];
+    return supervise(dir, pass);
+  }
   const runner = openRunner({ dir, questionTimeoutMs: parseDuration(values.timeout) });
   const guard = guardFromEnv(runner);
   if (guard) {

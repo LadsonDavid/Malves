@@ -1,4 +1,4 @@
-import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
+import { type AgentInfo, type LinkClient, type LinkStatus, NATURAL_VOICES } from "@malves/protocol";
 import { useEffect, useState } from "react";
 import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Speaker } from "../icons";
@@ -12,6 +12,7 @@ import {
   Chip,
   Choices,
   Section,
+  space,
   styles,
   Title,
   type Tone,
@@ -135,16 +136,54 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
               <Choices<"phone" | "natural">
                 options={[
                   { value: "phone", label: "Phone voice (instant)" },
-                  { value: "natural", label: "Natural (Gemini)" },
+                  { value: "natural", label: "Natural" },
                 ]}
                 value={voice.settings.natural ? "natural" : "phone"}
                 onChange={(v) => voice.setSettings({ ...voice.settings, natural: v === "natural" })}
               />
               {voice.settings.natural ? (
+                <>
+                  <Text style={styles.muted}>
+                    Malves starts speaking as soon as its first sentence is written. Each sentence
+                    is tried with Cartesia, then ElevenLabs, then Piper on your server; if all three
+                    fail, the phone reads it. Tamil script is read by the Tamil voice, English and
+                    Tanglish by the English one. Questions and results are read by the phone.
+                  </Text>
+                  {(["ta", "en"] as const).map((lang) => (
+                    <View key={lang} style={{ gap: space.xs }}>
+                      <Text style={styles.muted}>
+                        {lang === "ta" ? "Tamil voice" : "English voice"}
+                      </Text>
+                      <Choices<string>
+                        options={NATURAL_VOICES.filter((v) => v.lang === lang).map((v) => ({
+                          value: v.id,
+                          label: `${v.name} (${v.gender === "male" ? "m" : "f"})`,
+                        }))}
+                        value={voice.settings.naturalVoices[lang]}
+                        onChange={(id) =>
+                          voice.setSettings({
+                            ...voice.settings,
+                            naturalVoices: { ...voice.settings.naturalVoices, [lang]: id },
+                          })
+                        }
+                      />
+                    </View>
+                  ))}
+                </>
+              ) : null}
+              <Text style={styles.muted}>Talking over Malves</Text>
+              <Choices<"on" | "off">
+                options={[
+                  { value: "on", label: "Stops it" },
+                  { value: "off", label: "Off" },
+                ]}
+                value={voice.settings.bargeIn ? "on" : "off"}
+                onChange={(v) => voice.setSettings({ ...voice.settings, bargeIn: v === "on" })}
+              />
+              {voice.settings.bargeIn ? (
                 <Text style={styles.muted}>
-                  Sounds like a person, but each reply takes 5 to 15 seconds longer, and Google is
-                  sometimes busy. If it takes over 15 seconds, Malves uses the phone voice for that
-                  reply. Questions and results are always read by the phone.
+                  While Malves speaks, the mic listens: say "stop", "wait" or "nillu", or just start
+                  talking, and it stops to hear you. Turn this off if it stops by itself.
                 </Text>
               ) : null}
             </>

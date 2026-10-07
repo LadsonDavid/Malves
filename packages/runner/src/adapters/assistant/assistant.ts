@@ -92,6 +92,8 @@ export class Assistant {
     conversationId: string,
     text: string,
     alternatives: string[] = [],
+    /** The reply's words as the brain writes them, for speaking early. */
+    onText?: (delta: string) => void,
   ): Promise<AssistantReply> {
     const conv = this.conversation(conversationId);
     // A waiting action is answered by a plain yes or no — decided here, not by the model.
@@ -121,7 +123,7 @@ export class Assistant {
 
     let first: Awaited<ReturnType<Llm["chat"]>>;
     try {
-      first = await this.d.llm.chat(messages, this.tools());
+      first = await this.d.llm.chat(messages, this.tools(), onText);
     } catch (error) {
       // No brain, no guessing: say so; the phone falls back to its simple commands.
       return {
@@ -163,6 +165,7 @@ export class Assistant {
             ...results,
           ],
           [],
+          onText,
         );
         reply = second.content || reply;
       } catch {
@@ -450,12 +453,35 @@ export class Assistant {
         );
       }
       case "open_changes_in_ide": {
-        const task = this.findTask(args.task_id, "latest");
         const ide = (this.d.ides?.() ?? []).find((i) => i.id === args.ide_id) ?? this.d.ides?.()[0];
-        if (!task || !ide || !this.d.ide)
-          return { text: "I need a finished task and an open IDE for that." };
-        const text = await this.d.ide.openChanges(ide.id, task.id);
-        return { text, did: text };
+        const control = this.d.ide;
+        if (!ide || !control) return { text: "No IDE is connected right now." };
+        const named = args.task_id ? this.d.core.tasks.get(args.task_id) : undefined;
+        // No task named: the newest finished one that actually changed files,
+        // not just the newest (which may have changed nothing).
+        const candidates = named
+          ? [named]
+          : this.d.core.tasks
+              .list()
+              .filter((t) => TERMINAL_STATES.includes(t.state))
+              .reverse()
+              .slice(0, 20);
+        for (const task of candidates) {
+          try {
+            const text = await control.openChanges(ide.id, task.id);
+            return {
+              text,
+              did: `Opened the changes from "${task.prompt.slice(0, 60)}" in ${ide.app}`,
+            };
+          } catch (error) {
+            if (!/no recorded changes/i.test(messageOf(error))) throw error;
+          }
+        }
+        return {
+          text: named
+            ? "That task didn't record any changes. I can only track changes in projects that use git."
+            : "None of your recent tasks recorded any changes. I can only track changes in projects that use git: run git init in the project folder, and the next task's changes will show.",
+        };
       }
       case "leads": {
         const leads = (await this.d.leads?.().catch(() => undefined)) ?? [];
@@ -522,7 +548,7 @@ export class Assistant {
         if (!handover) return { text: "Handover isn't set up on this computer." };
         if (handover.state.active) return { text: "I already have the computer." };
         return this.ask(
-          "Take over while you're away? I can run commands in your projects and use Chrome; tests and builds go by themselves, anything else asks you first. It ends when you press Stop, say you're back, unlock the computer, or after four hours.",
+          "Take over while you're away? I can run commands in your projects and use Chrome; tests and builds go by themselves, anything else asks you first. It ends when you press Stop or say you're back, or after four hours. You can watch the screen from your phone.",
           async () => {
             handover.start();
             return "Got it. I have the computer until you're back.";
@@ -591,9 +617,7 @@ export class Assistant {
           if ((await desktop.activeTitle().catch(() => "")) !== title) {
             return "The window changed, so I didn't do it. Let me look again.";
           }
-          handover.noteOwnInput();
           await what();
-          handover.noteOwnInput();
           return done;
         };
         if (name === "click_screen") {

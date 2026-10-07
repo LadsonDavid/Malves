@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
-import { Handover, windowsLocked } from "./adapters/assistant/handover.js";
+import { Handover } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
-import { geminiSpeech } from "./adapters/assistant/speech.js";
+import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
 import { BrowserBridge } from "./adapters/browser/bridge.js";
 import { BrowserTools } from "./adapters/browser/tools.js";
@@ -17,10 +17,13 @@ import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { Sessions } from "./adapters/sessions/index.js";
+import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import { agentProfiles } from "./agents.js";
 import {
+  controlToken,
   extensionToken,
   ideToken,
   lanAddresses,
@@ -65,7 +68,16 @@ export async function serve(
     console.error(`--port must be a port number, not "${o.port}"`);
     return 1;
   }
-  const host = o.host ?? tailscaleAddress() ?? "127.0.0.1";
+  // Started at login, Tailscale may not be up yet: give it a minute and a half.
+  let tailscale = tailscaleAddress();
+  if (!o.host && !tailscale) {
+    console.log("Waiting for Tailscale (up to 90 s)…");
+    for (let waited = 0; !tailscale && waited < 90_000; waited += 3_000) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      tailscale = tailscaleAddress();
+    }
+  }
+  const host = o.host ?? tailscale ?? "127.0.0.1";
   const computer = hostname();
   // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
   const push =
@@ -130,7 +142,6 @@ export async function serve(
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
   // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
   const handover = new Handover({
-    locked: process.platform === "win32" ? windowsLocked : undefined,
     // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
     desktop:
       process.platform === "win32"
@@ -158,6 +169,13 @@ export async function serve(
       call: (op, args) => bridge.call(op, args),
     },
   });
+  // Every session on this computer (Claude Code, Codex, Cursor, Antigravity); the first
+  // full read takes a few seconds, so it starts now, in the background.
+  const sessions = new Sessions(runner);
+  if (malves) warmPiper(process.env.MALVES_PIPER_URL);
+  void sessions.list().catch(() => {});
+  const ready = (agent: string) =>
+    runner.agents.list().some((a) => a.name === agent && a.state === "ready");
   const server = new LinkServer(runner, {
     host,
     port,
@@ -172,18 +190,57 @@ export async function serve(
     ide: ideCtl,
     assistant: malves?.port,
     stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
-    speech:
-      malves && process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
-        ? geminiSpeech({
-            url: process.env.MALVES_MODELS_URL,
-            key: process.env.MALVES_MODELS_KEY,
-            model: process.env.MALVES_VOICE_MODEL,
-            voice: process.env.MALVES_VOICE,
-          })
-        : undefined,
+    sessions: {
+      list: async (tool) =>
+        (await sessions.list(tool)).map((s) => ({
+          tool: s.tool,
+          id: s.id,
+          title: s.title,
+          ...(s.folder ? { folder: s.folder } : {}),
+          updated_at: Math.round(s.updatedAt),
+          how: s.how,
+          ...(s.source ? { source: s.source } : {}),
+        })),
+      folders: async () =>
+        (await sessions.folders()).map((f) => ({
+          path: f.path,
+          name: f.name,
+          last_used: Math.round(f.lastUsed),
+        })),
+      read: (tool, id) => sessions.read(tool, id),
+      continue: (tool, id, text) => sessions.continue(tool, id, text, ready),
+      workspaceFor: (folder) => sessions.workspaceFor(folder),
+    },
+    // The live view: only while Malves has the computer.
+    screen: malves
+      ? async () => {
+          const desktop = await handover.desktop();
+          if (!desktop) {
+            throw new Error(
+              handover.state.active
+                ? "The screen isn't available (yet) on this computer."
+                : "You can watch the screen only during handover.",
+            );
+          }
+          return desktop.preview();
+        }
+      : undefined,
+    voice: malves
+      ? naturalVoice({
+          cartesiaKey: process.env.CARTESIA_API_KEY,
+          elevenlabsKey: process.env.ELEVENLABS_API_KEY,
+          piperUrl: process.env.MALVES_PIPER_URL,
+          stateFile: path.join(dir, "voice-credits.json"),
+        })
+      : undefined,
     leads,
   });
-  const say = (line: string) => console.log(line);
+  // Everything said also reaches `malves console` while it's waiting for a command's output.
+  const hearing = new Set<(line: string) => void>();
+  const say = (line: string) => {
+    console.log(line);
+    for (const listener of hearing) listener(line);
+  };
   let pushOn = false;
   if (push) {
     try {
@@ -405,12 +462,29 @@ export async function serve(
     { input: process.stdin, output: process.stdout },
     commands,
   );
+  // The same commands from another terminal: `malves console` (serve in the background).
+  const control = await startControl({
+    token: controlToken(dir),
+    run: (line) => {
+      const [word = "", ...args] = line.trim().split(/\s+/);
+      if (word === "stop") {
+        void runner.tasks.stopAll();
+        say("Stopping every running task.");
+      } else if (Object.hasOwn(commands, word)) commands[word]?.(args);
+      else say(`Unknown command "${word}". Type help.`);
+    },
+    listen: (listener) => {
+      hearing.add(listener);
+      return () => hearing.delete(listener);
+    },
+  }).catch(() => undefined);
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
 
   say("\nStopping…");
+  control?.close();
   await runner.tasks.stopAll();
   relay?.close();
   await server.close();

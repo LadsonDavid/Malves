@@ -22,7 +22,11 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { AcpHost } from "../src/adapters/acp/host.js";
 import type { LeadSource } from "../src/adapters/leads/signalstack.js";
-import { LinkServer } from "../src/adapters/link/server.js";
+import {
+  type AssistantPort,
+  LinkServer,
+  type LinkServerOptions,
+} from "../src/adapters/link/server.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { randomIds, systemClock } from "../src/system.js";
 
@@ -61,6 +65,7 @@ async function runner(
   agentList: AgentInfo[] = [{ name: "demo", label: "Demo", state: "ready" }],
   leads?: LeadSource,
   listSessions?: (agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>,
+  extra: Partial<LinkServerOptions> = {},
 ) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-link-")));
   const site = path.join(dir, "site");
@@ -86,6 +91,7 @@ async function runner(
     agents: fakeAgents(agentList),
     leads,
     listSessions,
+    ...extra,
   });
   await server.start();
   // Same order as `malves serve` shutting down: stop tasks, then close the log.
@@ -107,6 +113,14 @@ type Phone = {
   agentUpdates: AgentInfo[][];
   leads: Lead[][];
   activity: string[];
+  /** Natural-voice pieces, as the phone gets them. */
+  audio: Array<{
+    part: number;
+    text?: string | undefined;
+    failed?: string | undefined;
+    done: boolean;
+    data: string;
+  }>;
   welcome?: Welcome;
 };
 
@@ -127,6 +141,7 @@ function phone(
     agentUpdates: [],
     leads: [],
     activity: [],
+    audio: [],
     client: undefined as never,
   };
   p.client = new LinkClient({
@@ -144,6 +159,7 @@ function phone(
     onAgents: (agents) => p.agentUpdates.push(agents),
     onLeads: (leads) => p.leads.push(leads),
     onActivity: (taskId, text) => p.activity.push(`${taskId}: ${text}`),
+    onAudio: (piece) => p.audio.push(piece),
     maxBackoffMs: 200,
   });
   p.client.connect();
@@ -170,6 +186,46 @@ async function pairedPhone(r: Awaited<ReturnType<typeof runner>>, extra = {}) {
 }
 
 describe("phone link, end to end", () => {
+  it("speaks Malves' reply a sentence at a time as it streams, then marks the end", async () => {
+    const heard: string[] = [];
+    const assistant = {
+      say: async (_c: string, _t: string, _a: string[], onText?: (d: string) => void) => {
+        for (const d of ["Sure. I'll st", "op the build"]) onText?.(d);
+        // The model proposed an action: the reply becomes the code-written read-back.
+        return { reply: "I'll stop the build in site. Shall I go ahead?", did: [] };
+      },
+    } as unknown as AssistantPort;
+    const r = await runner(undefined, undefined, undefined, {
+      assistant,
+      voice: async (text, lang) => {
+        heard.push(`${lang}:${text}`);
+        if (text.startsWith("Shall")) throw new Error("No natural voice answered.");
+        return { mime: "audio/mpeg", audio: Buffer.from(text) };
+      },
+    });
+    const p = await pairedPhone(r);
+    const ack = await p.client.assistantSay(
+      "conv-1",
+      "stop the build",
+      [],
+      { en: "janvi" },
+      "cmd-voice-1",
+    );
+    expect(ack).toMatchObject({ ok: true, command_id: "cmd-voice-1" });
+    await waitFor(() => p.audio.some((a) => a.done), "the end of the spoken reply");
+    // Streamed words that stopped mid-sentence aren't said; the read-back is, in full.
+    expect(heard).toEqual(["en:Sure.", "en:I'll stop the build in site.", "en:Shall I go ahead?"]);
+    expect(p.audio.map((a) => [a.part, a.text, a.failed ?? null, a.done])).toEqual([
+      [0, "Sure.", null, false],
+      [1, "I'll stop the build in site.", null, false],
+      [2, "Shall I go ahead?", "No natural voice answered.", false],
+      [3, undefined, null, true],
+    ]);
+    expect(Buffer.from(p.audio[1]?.data ?? "", "base64").toString()).toBe(
+      "I'll stop the build in site.",
+    );
+  });
+
   it("pairs with the QR code, then reconnects without it", async () => {
     const r = await runner();
     const first = await pairedPhone(r);

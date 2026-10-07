@@ -118,6 +118,17 @@ describe("view changes and commit", () => {
     expect(readFileSync(path.join(s.site, "user.txt"), "utf8")).toBe("v2, my own edit\n");
   }, 30_000);
 
+  it("still knows a task's changes after a restart", async () => {
+    const s = setup();
+    const id = await runTask(s);
+    await waitFor(() => s.events.some((e) => e.type === "task.changes"), "the changes");
+    // A fresh tracker on the same log, as after restarting malves serve.
+    const again = new GitChanges(s.runner, { questionTimeoutMs: 10_000 });
+    cleanup.push(() => again.close());
+    expect(again.files(id)?.files).toEqual(["malves-demo.txt"]);
+    expect(again.diff(id)).toContain("+Written by the malves demo agent.");
+  }, 30_000);
+
   it("'Leave uncommitted' commits nothing", async () => {
     const s = setup();
     await runTask(s);
