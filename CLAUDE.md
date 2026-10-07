@@ -79,7 +79,8 @@ Set these locally in every new environment. Never commit here as
 | Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
-| Handover mode: shell in project folders + Chrome; looking and tests/builds auto, the rest asks; ends on Stop, "I'm back", unlock, or 4 h | Owner's choice (Oct 2026) |
+| Handover mode: shell in project folders + Chrome + screen; looking and tests/builds auto, the rest asks; ends **only** on Stop, "I'm back", or 4 h (not on mouse movement or unlock) | Owner's choice (Oct 2026): he may sit at the desk watching it work |
+| During handover the phone shows the PC screen live (view only, ~1 fps, ~50 KB/frame) | Owner's choice (Oct 2026), replacing "no screen mirroring" for handover only |
 | Never work around Windows Defender/antivirus | The desktop-control PowerShell helper was flagged as malicious; evasion is what malware does |
 | Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API |
 | In handover mode Malves uses editors on screen as a co-developer | Owner's choice (Oct 2026, reversing the earlier ban); every click/keystroke is read back, editor ones say they may accept/reject the AI's change |
@@ -94,7 +95,7 @@ Set these locally in every new environment. Never commit here as
 | Publishing the Chrome extension to the Web Store | It's loaded unpacked; all logic is bundled, the runner sends only operation names (no remote code). See ARCHITECTURE §5 |
 | Browser tasks in a separate Playwright browser | Owner chose Claude-in-Chrome style: real Chrome, current tab, tools always available |
 | Free LLM tiers as the foundation | Tiers are shrinking and some train on prompts. freellmapi with the user's own keys; never silently downgrade |
-| iOS in v1, shared team accounts, code editing on the phone, screen mirroring | Out of scope — see ARCHITECTURE.md §0 |
+| iOS in v1, shared team accounts, code editing on the phone, screen mirroring outside handover | Out of scope — see ARCHITECTURE.md §0 |
 
 ## Windows traps — the owner develops on Windows
 

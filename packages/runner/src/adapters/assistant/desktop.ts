@@ -10,6 +10,8 @@
 export interface Desktop {
   /** The screen as a JPEG, at most 1600 px wide; clicks use this picture's coordinates. */
   screenshot(): Promise<{ jpeg: string; width: number; height: number }>;
+  /** A small, quick picture of the screen for watching it live on the phone (doesn't change click coordinates). */
+  preview(): Promise<{ jpeg: string; width: number; height: number }>;
   click(x: number, y: number): Promise<void>;
   type(text: string): Promise<void>;
   /** e.g. "enter", "ctrl+s", "alt+tab". */
@@ -73,6 +75,15 @@ export async function nutDesktop(): Promise<Desktop> {
       const picture = await nut.imageToJimp(await nut.screen.grab());
       factor = Math.min(1, 1600 / width);
       picture.resize(Math.round(width * factor), Math.round(height * factor)).quality(60);
+      const jpeg = (await picture.getBufferAsync("image/jpeg")).toString("base64");
+      return { jpeg, width: picture.getWidth(), height: picture.getHeight() };
+    },
+    async preview() {
+      const picture = await nut.imageToJimp(await nut.screen.grab());
+      const scale = Math.min(1, 1000 / picture.getWidth());
+      picture
+        .resize(Math.round(picture.getWidth() * scale), Math.round(picture.getHeight() * scale))
+        .quality(50);
       const jpeg = (await picture.getBufferAsync("image/jpeg")).toString("base64");
       return { jpeg, width: picture.getWidth(), height: picture.getHeight() };
     },

@@ -545,7 +545,7 @@ export class Assistant {
         if (!handover) return { text: "Handover isn't set up on this computer." };
         if (handover.state.active) return { text: "I already have the computer." };
         return this.ask(
-          "Take over while you're away? I can run commands in your projects and use Chrome; tests and builds go by themselves, anything else asks you first. It ends when you press Stop, say you're back, unlock the computer, or after four hours.",
+          "Take over while you're away? I can run commands in your projects and use Chrome; tests and builds go by themselves, anything else asks you first. It ends when you press Stop or say you're back, or after four hours. You can watch the screen from your phone.",
           async () => {
             handover.start();
             return "Got it. I have the computer until you're back.";
@@ -614,9 +614,7 @@ export class Assistant {
           if ((await desktop.activeTitle().catch(() => "")) !== title) {
             return "The window changed, so I didn't do it. Let me look again.";
           }
-          handover.noteOwnInput();
           await what();
-          handover.noteOwnInput();
           return done;
         };
         if (name === "click_screen") {

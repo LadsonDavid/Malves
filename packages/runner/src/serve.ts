@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
-import { Handover, windowsLocked } from "./adapters/assistant/handover.js";
+import { Handover } from "./adapters/assistant/handover.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { geminiSpeech } from "./adapters/assistant/speech.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
@@ -141,7 +141,6 @@ export async function serve(
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
   // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
   const handover = new Handover({
-    locked: process.platform === "win32" ? windowsLocked : undefined,
     // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
     desktop:
       process.platform === "win32"
@@ -183,6 +182,20 @@ export async function serve(
     ide: ideCtl,
     assistant: malves?.port,
     stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
+    // The live view: only while Malves has the computer.
+    screen: malves
+      ? async () => {
+          const desktop = await handover.desktop();
+          if (!desktop) {
+            throw new Error(
+              handover.state.active
+                ? "The screen isn't available (yet) on this computer."
+                : "You can watch the screen only during handover.",
+            );
+          }
+          return desktop.preview();
+        }
+      : undefined,
     speech:
       malves && process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
         ? geminiSpeech({

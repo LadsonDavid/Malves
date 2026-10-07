@@ -3,7 +3,7 @@ import { useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { QuestionCard } from "../components/QuestionCard";
 import { TaskRow } from "../components/TaskRow";
-import { Plus } from "../icons";
+import { Desktop, Plus } from "../icons";
 import { ago, ideName, type Model, needsYou, recent, running } from "../model";
 import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, List, Row, Section, space, styles, Title } from "../ui";
@@ -21,6 +21,7 @@ type Props = {
   onAllTasks: () => void;
   onOpenIde: (ideId: string) => void;
   onOpenMalves: () => void;
+  onWatchScreen: () => void;
   onPairAgain: () => void;
 };
 
@@ -39,6 +40,7 @@ export function HomeScreen({
   onAllTasks,
   onOpenIde,
   onOpenMalves,
+  onWatchScreen,
   onPairAgain,
 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
@@ -68,6 +70,7 @@ export function HomeScreen({
         <HandoverBar
           since={model.handover.since}
           onStop={() => void client?.stopHandover().catch(() => {})}
+          onWatch={onWatchScreen}
         />
       ) : null}
 
@@ -151,35 +154,46 @@ export function HomeScreen({
 }
 
 /** Malves has the computer: a navy bar, always on top of Home, with Stop. */
-function HandoverBar({ since, onStop }: { since: number | undefined; onStop: () => void }) {
+function HandoverBar({
+  since,
+  onStop,
+  onWatch,
+}: {
+  since: number | undefined;
+  onStop: () => void;
+  onWatch: () => void;
+}) {
   const at = since
     ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "";
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={{
-        backgroundColor: color.zone,
-        borderRadius: 18,
-        padding: space.lg,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-      }}
+      style={{ backgroundColor: color.zone, borderRadius: 18, padding: space.lg, gap: space.md }}
     >
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ gap: 2 }}>
         <Text style={[styles.eyebrow, { color: color.zoneMuted }]}>Handover</Text>
         <Text style={[styles.body, { color: color.zoneText }]}>
           Malves has your computer{at ? ` since ${at}` : ""}.
         </Text>
       </View>
-      <Button
-        title="Stop"
-        kind="danger"
-        onZone
-        onPress={onStop}
-        hint="Take the computer back now"
-      />
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            title="Watch screen"
+            icon={Desktop}
+            onPress={onWatch}
+            hint="See the computer's screen live"
+          />
+        </View>
+        <Button
+          title="Stop"
+          kind="danger"
+          onZone
+          onPress={onStop}
+          hint="Take the computer back now"
+        />
+      </View>
     </View>
   );
 }

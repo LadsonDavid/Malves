@@ -43,6 +43,8 @@ export type LinkServerOptions = {
   assistant?: AssistantPort | undefined;
   /** Malves' natural voice, when it's set up. */
   speech?: Speech | undefined;
+  /** A picture of the screen, during handover (the phone's live view). */
+  screen?: (() => Promise<{ jpeg: string; width: number; height: number }>) | undefined;
   /** Ends handover mode (the phone's Stop button). */
   stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
@@ -331,6 +333,8 @@ export class LinkServer {
     const known = this.results.get(command.command_id);
     if (known) return known;
     const result = this.run(command);
+    // Screen pictures are many and large, and a re-sent one may as well be fresh: not kept.
+    if (command.type === "screen.frame") return result;
     this.results.set(command.command_id, result);
     if (this.results.size > REMEMBERED_COMMANDS) {
       const oldest = this.results.keys().next().value;
@@ -503,6 +507,10 @@ export class LinkServer {
           return ack(true, {
             result: await this.o.transcriber.transcribe(command.upload_id, command.language),
           });
+        case "screen.frame":
+          if (!this.o.screen)
+            return ack(false, { error: "The live view isn't available on this computer." });
+          return ack(true, { frame: await this.o.screen() });
         case "handover.stop":
           if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
           this.o.stopHandover();

@@ -1,5 +1,6 @@
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { CONTROL_PORT, startControl } from "../src/adapters/terminal/control.js";
+import { startControl } from "../src/adapters/terminal/control.js";
 
 let close: (() => void) | undefined;
 afterEach(() => close?.());
@@ -9,6 +10,7 @@ describe("malves console (serve in the background)", () => {
     const heard = new Set<(line: string) => void>();
     const ran: string[] = [];
     const server = await startControl({
+      port: 0,
       token: "s3cret-token-0123456789",
       run: (line) => {
         ran.push(line);
@@ -21,7 +23,7 @@ describe("malves console (serve in the background)", () => {
     });
     close = () => server.close();
     const post = (headers: Record<string, string>) =>
-      fetch(`http://127.0.0.1:${CONTROL_PORT}/run`, {
+      fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/run`, {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify({ line: "devices" }),

@@ -133,6 +133,7 @@ describe("Malves, the assistant", () => {
     const clicks: string[] = [];
     const desktop = {
       screenshot: async () => ({ jpeg: "AAAA", width: 1536, height: 864 }),
+      preview: async () => ({ jpeg: "AAAA", width: 1000, height: 562 }),
       activeTitle: async () => title,
       click: async (x: number, y: number) => {
         clicks.push(`${x},${y}`);

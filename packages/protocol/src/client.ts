@@ -303,6 +303,11 @@ export class LinkClient {
     });
   }
 
+  /** One picture of the computer's screen, during handover; it's in `ack.frame`. */
+  screenFrame(): Promise<Ack> {
+    return this.send({ type: "screen.frame" });
+  }
+
   /** Takes the computer back from Malves (ends handover mode). */
   stopHandover(): Promise<Ack> {
     return this.send({ type: "handover.stop" });

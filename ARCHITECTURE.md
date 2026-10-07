@@ -340,9 +340,11 @@ fixed rules above stay as the fallback when it's off or unreachable.
   themselves; anything else (and anything chained, piped, redirected or using
   variables) is read back and waits for a yes. Chrome: reading the page is
   free, opening, clicking, typing and pressing keys ask; password and payment
-  fields are refused, checked on the live page. It ends on the phone's Stop,
-  "I'm back", an unlock after the computer was locked (the lock screen's
-  process disappears), or after four hours, and the phone is told.
+  fields are refused, checked on the live page. It ends only on the phone's Stop,
+  "I'm back", or after four hours (not when he touches the computer: he may be
+  at the desk watching it work), and the phone is told. While it's on, the
+  phone can watch the screen live: view only, a 1000 px JPEG (~50 KB) about
+  once a second, not kept by the link's command cache.
   **Desktop (Windows):** mouse, keyboard and screen through nut.js (the
   community fork), loaded when handover starts. Looking at the screen is free:
   a screenshot, resized to the mouse's logical pixels, goes to a vision model.
@@ -351,8 +353,7 @@ fixed rules above stay as the fallback when it's off or unreachable.
   yes. In code editors Malves works as a co-developer (owner's choice, Oct
   2026); the read-back warns that a click there may accept or reject the
   editor AI's change, so those approvals still come to the phone. Never in
-  sign-in, password, payment or admin windows. Handover also ends when the
-  mouse moves and Malves didn't move it.
+  sign-in, password, payment or admin windows.
   (A PowerShell helper for this was blocked by Windows Defender as malicious;
   we don't work around antivirus.)
 

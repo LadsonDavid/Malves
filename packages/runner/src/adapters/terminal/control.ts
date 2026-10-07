@@ -16,6 +16,8 @@ export async function startControl(o: {
   run: (line: string) => void;
   /** Lines serve prints, while a command's output is being collected. */
   listen: (listener: (line: string) => void) => () => void;
+  /** Tests use 0 (any free port). */
+  port?: number;
 }): Promise<Server> {
   const server = createServer((req, res) => {
     const given = Buffer.from(String(req.headers["x-malves-token"] ?? ""));
@@ -53,7 +55,7 @@ export async function startControl(o: {
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(CONTROL_PORT, "127.0.0.1", resolve);
+    server.listen(o.port ?? CONTROL_PORT, "127.0.0.1", resolve);
   });
   return server;
 }

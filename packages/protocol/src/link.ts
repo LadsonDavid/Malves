@@ -207,6 +207,9 @@ export const VoiceTranscribe = z.object({
   language: z.string().min(2).max(8),
 });
 
+/** One picture of the computer's screen, during handover (answered in `ack.frame`). */
+export const ScreenFrame = z.object({ type: z.literal("screen.frame"), command_id: Id });
+
 /** Take the computer back from Malves (handover mode). */
 export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
 
@@ -229,6 +232,7 @@ export const Command = z.discriminatedUnion("type", [
   TaskStop,
   TasksStopAll,
   HandoverStop,
+  ScreenFrame,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,
@@ -363,6 +367,10 @@ export const Ack = z.object({
       did: z.array(z.string()),
       offline: z.boolean().optional(),
     })
+    .optional(),
+  /** The answer to `screen.frame`: a JPEG of the screen. */
+  frame: z
+    .object({ jpeg: z.string().max(400_000), width: z.number().int(), height: z.number().int() })
     .optional(),
   /** The answer to `memory.list`. */
   memories: z

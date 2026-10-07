@@ -39,46 +39,27 @@ describe("handover", () => {
     expect(commandRisk("get-content config/secrets.json")).toBe("ask");
   });
 
-  it("ends when he unlocks the computer after it was locked, or when time is up", async () => {
+  it("ends only on Stop or after four hours; touching the computer doesn't end it", async () => {
     const seen: HandoverState[] = [];
-    let locked = false;
+    let at = { x: 10, y: 10 };
+    const desktop = { mouse: async () => at } as unknown as Desktop;
     const h = new Handover({
       onChange: (s) => seen.push(s),
-      locked: async () => locked,
+      desktop: async () => desktop,
       pollMs: 60_000,
     });
     h.start();
     await h.check();
-    expect(h.state.active).toBe(true); // unlocked from the start: he hasn't left yet
-    locked = true;
+    at = { x: 500, y: 300 }; // he moved the mouse: he may be at the desk, watching
     await h.check();
     expect(h.state.active).toBe(true);
-    locked = false;
-    await h.check();
-    expect(h.state).toEqual({ active: false, reason: "You're back at the computer." });
+    h.stop("You took it back.");
+    expect(h.state).toEqual({ active: false, reason: "You took it back." });
 
     const timed = new Handover({ onChange: () => {}, maxMs: -1, pollMs: 60_000 });
     timed.start();
     await timed.check();
     expect(timed.state).toEqual({ active: false, reason: "Four hours are up." });
-    expect(seen.map((s) => s.active)).toEqual([true, false]);
-  });
-  it("ends when he moves the mouse, but not when Malves does", async () => {
-    let at = { x: 10, y: 10 };
-    const desktop = { mouse: async () => at } as unknown as Desktop;
-    const h = new Handover({ onChange: () => {}, desktop: async () => desktop, pollMs: 60_000 });
-    h.start();
-    await h.check(); // first look: remembers where the mouse is
-    h.noteOwnInput();
-    at = { x: 500, y: 300 }; // Malves clicked
-    await h.check();
-    expect(h.state.active).toBe(true);
-    await h.check();
-    expect(h.state.active).toBe(true);
-    // Five seconds later, the mouse moves again: that's him.
-    (h as unknown as { ownInputAt: number }).ownInputAt = Date.now() - 5_000;
-    at = { x: 501, y: 300 };
-    await h.check();
-    expect(h.state).toEqual({ active: false, reason: "You're back at the computer." });
+    expect(seen.map((x) => x.active)).toEqual([true, false]);
   });
 });
