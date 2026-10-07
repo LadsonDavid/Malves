@@ -17,10 +17,12 @@ import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import { agentProfiles } from "./agents.js";
 import {
+  controlToken,
   extensionToken,
   ideToken,
   lanAddresses,
@@ -65,7 +67,16 @@ export async function serve(
     console.error(`--port must be a port number, not "${o.port}"`);
     return 1;
   }
-  const host = o.host ?? tailscaleAddress() ?? "127.0.0.1";
+  // Started at login, Tailscale may not be up yet: give it a minute and a half.
+  let tailscale = tailscaleAddress();
+  if (!o.host && !tailscale) {
+    console.log("Waiting for Tailscale (up to 90 s)…");
+    for (let waited = 0; !tailscale && waited < 90_000; waited += 3_000) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      tailscale = tailscaleAddress();
+    }
+  }
+  const host = o.host ?? tailscale ?? "127.0.0.1";
   const computer = hostname();
   // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
   const push =
@@ -183,7 +194,12 @@ export async function serve(
         : undefined,
     leads,
   });
-  const say = (line: string) => console.log(line);
+  // Everything said also reaches `malves console` while it's waiting for a command's output.
+  const hearing = new Set<(line: string) => void>();
+  const say = (line: string) => {
+    console.log(line);
+    for (const listener of hearing) listener(line);
+  };
   let pushOn = false;
   if (push) {
     try {
@@ -405,12 +421,29 @@ export async function serve(
     { input: process.stdin, output: process.stdout },
     commands,
   );
+  // The same commands from another terminal: `malves console` (serve in the background).
+  const control = await startControl({
+    token: controlToken(dir),
+    run: (line) => {
+      const [word = "", ...args] = line.trim().split(/\s+/);
+      if (word === "stop") {
+        void runner.tasks.stopAll();
+        say("Stopping every running task.");
+      } else if (Object.hasOwn(commands, word)) commands[word]?.(args);
+      else say(`Unknown command "${word}". Type help.`);
+    },
+    listen: (listener) => {
+      hearing.add(listener);
+      return () => hearing.delete(listener);
+    },
+  }).catch(() => undefined);
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
 
   say("\nStopping…");
+  control?.close();
   await runner.tasks.stopAll();
   relay?.close();
   await server.close();

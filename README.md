@@ -107,7 +107,7 @@ pnpm malves workspace add ~/code/my-site
 pnpm malves serve                 # shows a QR code to pair the phone
 ```
 
-On Windows, `pnpm malves autostart on` starts `serve` minimized every time you log in (restarted if it crashes; `autostart status` checks it, `autostart off` undoes it). Restore its window from the taskbar to pair a phone or type commands.
+On Windows, `pnpm malves autostart on` starts `serve` in the background every time you log in: no window, output in `~/.malves/serve.log`, restarted if it crashes (`autostart status` checks it, `autostart off` undoes it). Type its commands from any terminal with `pnpm malves console` (e.g. `pnpm malves console pair` for a QR code).
 
 **Malves (optional).** It needs an OpenAI-compatible brain and a folder for its
 memory. We run [freellmapi](https://github.com/tashfeenahmed/freellmapi) on a

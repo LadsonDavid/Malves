@@ -8,7 +8,7 @@ describe("runner lock", () => {
   it("refuses a second runner, and replaces a lock left from an earlier boot", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "malves-lock-"));
     const release = acquireLock(dir);
-    expect(() => acquireLock(dir)).toThrow(/Another malves runner/);
+    expect(() => acquireLock(dir)).toThrow(/malves is already running/);
     release();
 
     // Our own (live) pid, but written before the computer last started: stale.

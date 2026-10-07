@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -46,18 +47,47 @@ export function acquireLock(dir: string): () => void {
       return () => rmSync(file, { force: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const [pidText, bootText] = readFileSync(file, "utf8").split(" ");
-      const pid = Number.parseInt(pidText ?? "", 10);
-      // After a restart the old pid may belong to another program: a lock from
-      // an earlier boot is always stale. ponytail: a crash and pid reuse within
-      // one boot still blocks; delete runner.lock by hand then.
-      const sameBoot = Math.abs(Number(bootText) - bootTime()) < 120_000;
-      if (sameBoot && isAlive(pid))
-        throw new Error(`Another malves runner is using ${dir} (pid ${pid}).`);
+      const pid = runningRunner(dir);
+      if (pid !== undefined) {
+        throw new Error(
+          `malves is already running (pid ${pid}), maybe in the background. Type its commands with: pnpm malves console`,
+        );
+      }
       rmSync(file, { force: true });
     }
   }
   throw new Error(`Could not lock ${dir}`);
+}
+
+/**
+ * The pid of the runner holding the lock, if one really is: same boot, still
+ * alive, and still Node. Windows reuses pids, and Fast Startup keeps the boot
+ * time across "shut down", so the pid alone can point at another program.
+ */
+export function runningRunner(dir: string): number | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path.join(dir, "runner.lock"), "utf8");
+  } catch {
+    return undefined;
+  }
+  const [pidText, bootText] = text.split(" ");
+  const pid = Number.parseInt(pidText ?? "", 10);
+  const sameBoot = Math.abs(Number(bootText) - bootTime()) < 120_000;
+  return sameBoot && isAlive(pid) && isNode(pid) ? pid : undefined;
+}
+
+/** Whether a process is Node (so a reused pid isn't mistaken for malves). */
+function isNode(pid: number): boolean {
+  const out =
+    process.platform === "win32"
+      ? spawnSync("tasklist.exe", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
+          encoding: "utf8",
+          windowsHide: true,
+        }).stdout
+      : spawnSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" }).stdout;
+  // If the check itself can't run, err on the side of "still running".
+  return out === undefined || /node/i.test(out);
 }
 
 /** When the computer started, to the minute. */
@@ -111,6 +141,11 @@ export function runnerKeys(dir: string): KeyPair {
  */
 export function extensionToken(dir: string, renew = false): string {
   return secret(dir, "extension-token.json", renew);
+}
+
+/** The secret `malves console` proves itself with, to a serve running in the background. */
+export function controlToken(dir: string): string {
+  return secret(dir, "control-token.json", false);
 }
 
 /** The secret malves' IDE extension proves itself with; it reads it from this folder. */

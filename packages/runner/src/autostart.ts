@@ -35,14 +35,16 @@ function on(dataDir: string): number {
     [
       "$Host.UI.RawUI.WindowTitle = 'malves serve'",
       `Set-Location -LiteralPath ${quote(process.cwd())}`,
-      `& ${quote(process.execPath)} --env-file-if-exists=.env ${quote(main)} serve`,
+      // In the background: no window, output in serve.log, restarted if it crashes.
+      `& ${quote(process.execPath)} --env-file-if-exists=.env ${quote(main)} serve --background`,
       "exit $LASTEXITCODE",
       "",
     ].join("\r\n"),
   );
   const ok = powershell(`
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ${quote(
-      `-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File "${launcher}"`,
+    # conhost.exe: the classic console, which honours "hidden" (Windows Terminal doesn't).
+    $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument ${quote(
+      `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${launcher}"`,
     )}
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
@@ -50,7 +52,8 @@ function on(dataDir: string): number {
     Register-ScheduledTask -TaskName ${quote(TASK)} -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
   `);
   if (!ok) return 1;
-  console.log(`On. malves serve starts minimized each time you log in, from ${process.cwd()}.
+  console.log(`On. malves serve starts in the background each time you log in, from ${process.cwd()}.
+No window: type its commands with pnpm malves console; its output is in ${path.join(dataDir, "serve.log")}.
 To start it now, close any open malves serve, then run: pnpm malves autostart start
 Turn it off with: pnpm malves autostart off`);
   return 0;
