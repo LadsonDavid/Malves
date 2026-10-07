@@ -67,11 +67,40 @@ export type Hello = z.infer<typeof Hello>;
 export const TaskCreate = z.object({
   type: z.literal("task.create"),
   command_id: Id,
-  workspace_id: Id,
+  /** A project id, or (newer) a `folder` from `sessions.all`: one of the two. */
+  workspace_id: Id.optional(),
+  folder: z.string().min(1).max(1000).optional(),
   agent: Id,
   prompt: z.string().min(1).max(20_000),
   /** An agent session id from `sessions.list`, to continue it. */
   resume: z.string().min(1).max(200).optional(),
+});
+
+/** Which coding tool a session belongs to. */
+export const SessionTool = z.enum(["claude", "codex", "cursor", "antigravity"]);
+
+/** Every session on the computer, across tools, newest first, and the folders they ran in. */
+export const SessionsAll = z.object({
+  type: z.literal("sessions.all"),
+  command_id: Id,
+  tool: SessionTool.optional(),
+});
+
+/** A session's conversation (answered in `ack.messages`). */
+export const SessionRead = z.object({
+  type: z.literal("session.read"),
+  command_id: Id,
+  tool: SessionTool,
+  session_id: z.string().regex(/^[\w.:-]{1,128}$/),
+});
+
+/** Continue a session with a new message: resumed, sent to Cursor, or a new session told the story so far. */
+export const SessionContinue = z.object({
+  type: z.literal("session.continue"),
+  command_id: Id,
+  tool: SessionTool,
+  session_id: z.string().regex(/^[\w.:-]{1,128}$/),
+  text: z.string().min(1).max(20_000),
 });
 
 /** Continue a finished task's conversation with the same agent. */
@@ -227,6 +256,9 @@ export const Command = z.discriminatedUnion("type", [
   TaskCreate,
   TaskReply,
   SessionsList,
+  SessionsAll,
+  SessionRead,
+  SessionContinue,
   ChangesDiff,
   AnswerCommand,
   TaskStop,
@@ -357,6 +389,27 @@ export const Ack = z.object({
   /** e.g. the new task's id, or how an answer was applied. */
   result: z.string().optional(),
   error: z.string().optional(),
+  /** The answer to `sessions.all`. */
+  all_sessions: z
+    .array(
+      z.object({
+        tool: SessionTool,
+        id: z.string(),
+        title: z.string(),
+        folder: z.string().optional(),
+        updated_at: z.number(),
+        how: z.enum(["resume", "bridge", "new"]),
+        source: z.string().optional(),
+      }),
+    )
+    .optional(),
+  folders: z
+    .array(z.object({ path: z.string(), name: z.string(), last_used: z.number() }))
+    .optional(),
+  /** The answer to `session.read`. */
+  messages: z.array(z.object({ who: z.enum(["you", "agent"]), text: z.string() })).optional(),
+  /** A task this command started, e.g. by continuing a session. */
+  task_id: z.string().optional(),
   /** The answer to `sessions.list`. */
   sessions: z.array(AgentSessionInfo).optional(),
   /** Malves' answer to `assistant.say` / `assistant.confirm`. */

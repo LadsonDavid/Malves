@@ -1,9 +1,14 @@
-import type { AgentInfo, AgentSessionInfo, LinkClient, LinkStatus } from "@malves/protocol";
-import { useState } from "react";
+import type { Ack, AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
+import { useEffect, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { Mic, Stop } from "../icons";
-import { ago, type Model, mayStillBeOpen, pickAgent, recentPrompts, workspaceName } from "../model";
-import { Banner, Button, buzz, Card, Choices, Section, styles, Title } from "../ui";
+import { type Model, pickAgent, recentPrompts } from "../model";
+import { Banner, Button, buzz, Choices, Section, styles, Title } from "../ui";
+
+type Folder = NonNullable<Ack["folders"]>[number];
+/** The folder picker shows the most recently used ones. */
+const SHOWN_FOLDERS = 12;
+
 import { useVoice } from "../voice/VoiceProvider";
 
 type Props = {
@@ -26,7 +31,7 @@ const STATE_WORDS: Record<AgentInfo["state"], string> = {
   unavailable: "not available",
 };
 
-/** Three steps (R4): describe it, pick where and with what, go. */
+/** Three steps (R4): describe it, pick a folder and an agent, go. Folders come from your sessions. */
 export function NewTaskScreen({
   model,
   client,
@@ -37,16 +42,13 @@ export function NewTaskScreen({
   onOpenTask,
   say,
 }: Props) {
-  const [workspaceId, setWorkspaceId] = useState(model.workspaces[0]?.id);
+  const [folders, setFolders] = useState<Folder[]>();
+  const [folder, setFolder] = useState<string>();
   const [chosen, setChosen] = useState<string>();
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string>();
-  /** Earlier conversations of this agent in this project, once asked for. */
-  const [earlier, setEarlier] = useState<{ key: string; list: AgentSessionInfo[] }>();
-  const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const [resume, setResume] = useState<AgentSessionInfo>();
 
   // Only a ready agent can be selected; otherwise suggest one that will work.
   const isReady = (name: string | undefined) =>
@@ -67,34 +69,23 @@ export function NewTaskScreen({
     await voice.dictate((text) => setPrompt(before ? `${before} ${text}` : text));
     setDictating(false);
   };
-  // A conversation belongs to one agent in one project: changing either forgets the choice.
-  const key = `${agent}@${workspaceId}`;
-  const shown = earlier?.key === key ? earlier.list : undefined;
-  const continuing = shown && resume && shown.some((s) => s.id === resume.id) ? resume : undefined;
-
-  const loadEarlier = async () => {
-    if (!client || !workspaceId || !agent) return;
-    setLoadingEarlier(true);
-    setProblem(undefined);
-    try {
-      const ack = await client.listSessions({ workspaceId, agent });
-      if (ack.ok) setEarlier({ key, list: ack.sessions ?? [] });
-      else setProblem(ack.error ?? "The computer couldn't list earlier conversations.");
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingEarlier(false);
-    }
-  };
+  // Your folders: the ones you worked in with Claude, Codex, Cursor or Antigravity, newest first.
+  useEffect(() => {
+    if (!client || status !== "online") return;
+    void client
+      .allSessions()
+      .then((ack) => {
+        const list = ack.ok ? (ack.folders ?? []) : [];
+        setFolders(list);
+        setFolder((current) => current ?? list[0]?.path);
+      })
+      .catch(() => setFolders([]));
+  }, [client, status]);
+  const folderName = folders?.find((f) => f.path === folder)?.name;
 
   const start = async () => {
-    if (!client || !workspaceId || !agent) return;
-    const request = client.createTask({
-      workspaceId,
-      agent,
-      prompt: prompt.trim(),
-      resume: continuing?.id,
-    });
+    if (!client || !folder || !agent) return;
+    const request = client.createTask({ folder, agent, prompt: prompt.trim() });
     // Offline: it waits in the queue; don't keep the user on a spinner.
     if (status !== "online") {
       void request
@@ -143,7 +134,7 @@ export function NewTaskScreen({
         style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
         multiline
         autoFocus
-        placeholder={continuing ? "What next?" : "What should the agent do?"}
+        placeholder="What should the agent do?"
         value={prompt}
         onChangeText={setPrompt}
       />
@@ -183,34 +174,34 @@ export function NewTaskScreen({
       ) : null}
 
       <Text style={styles.muted}>
-        {workspaceId && agent
-          ? `In ${workspaceName(model, workspaceId)} with ${model.agents.find((a) => a.name === agent)?.label ?? agent}${continuing ? ` · continuing “${continuing.title || "untitled"}”` : ""}. Change below.`
-          : "Pick a project and an agent below."}
+        {folder && agent
+          ? `In ${folderName ?? folder} with ${model.agents.find((a) => a.name === agent)?.label ?? agent}. Change below.`
+          : "Pick a folder and an agent below."}
       </Text>
       {problem ? <Banner tone="bad">{problem}</Banner> : null}
       <Button
-        title={sending ? "Sending…" : continuing ? "Continue" : "Start"}
+        title={sending ? "Sending…" : "Start"}
         busy={sending}
-        disabled={!client || !workspaceId || !agent || prompt.trim() === ""}
+        disabled={!client || !folder || !agent || prompt.trim() === ""}
         onPress={() => void start()}
       />
 
-      <Section title="Project">
-        {model.workspaces.length === 0 ? (
+      <Section title="Folder">
+        {folders === undefined ? (
+          <Text style={styles.muted}>Loading your folders…</Text>
+        ) : folders.length === 0 ? (
           <Banner tone="info">
-            No project folders yet. In malves serve on the computer, type: add &lt;folder&gt;
+            No folders yet. Work in one with Claude, Codex, Cursor or Antigravity on the computer,
+            or add one there: pnpm malves console add &lt;folder&gt;
           </Banner>
-        ) : null}
-        <View style={styles.row}>
-          {model.workspaces.map((w) => (
-            <Button
-              key={w.id}
-              title={w.name}
-              kind={w.id === workspaceId ? "primary" : "plain"}
-              onPress={() => setWorkspaceId(w.id)}
-            />
-          ))}
-        </View>
+        ) : (
+          <Choices
+            options={folders.slice(0, SHOWN_FOLDERS).map((f) => ({ value: f.path, label: f.name }))}
+            value={folder ?? ""}
+            onChange={setFolder}
+          />
+        )}
+        {folder ? <Text style={styles.meta}>{folder}</Text> : null}
       </Section>
 
       <Section title="Agent">
@@ -243,51 +234,6 @@ export function NewTaskScreen({
             onPress={() => void checkAgain()}
           />
         ) : null}
-      </Section>
-
-      <Section title="Conversation">
-        {continuing ? (
-          <Card>
-            <Text style={styles.body}>Continuing: {continuing.title || "untitled"}</Text>
-            {mayStillBeOpen(continuing.updated_at) ? (
-              <Banner tone="info">
-                Used {ago(continuing.updated_at)}. If it's still open on your computer, close it
-                there first, or the two will get mixed up.
-              </Banner>
-            ) : null}
-            <Button
-              title="Start a new one instead"
-              kind="plain"
-              onPress={() => setResume(undefined)}
-            />
-          </Card>
-        ) : (
-          <Text style={styles.muted}>A new conversation.</Text>
-        )}
-        {!continuing && !shown ? (
-          <Button
-            title="Continue an earlier one"
-            kind="plain"
-            busy={loadingEarlier}
-            disabled={!client || !workspaceId || !agent}
-            onPress={() => void loadEarlier()}
-          />
-        ) : null}
-        {!continuing && shown?.length === 0 ? (
-          <Text style={styles.muted}>
-            No earlier conversations with this agent in this project.
-          </Text>
-        ) : null}
-        {!continuing
-          ? shown?.map((s) => (
-              <Button
-                key={s.id}
-                title={`${s.title || "untitled"}${s.updated_at ? ` · ${ago(s.updated_at)}` : ""}`}
-                kind="plain"
-                onPress={() => setResume(s)}
-              />
-            ))
-          : null}
       </Section>
     </ScrollView>
   );

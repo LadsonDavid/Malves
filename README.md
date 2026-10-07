@@ -84,6 +84,7 @@ public issue before it's decided, not after.
 | Look at this | Point the phone camera at a screen, an error or a diagram; Malves says what it sees and can act on it |
 | Handover mode | "I'm leaving, take over": Malves runs commands in your projects, uses Chrome and your desktop (including your editors, as a co-developer). Reading and tests/builds go by themselves; everything else is read back for your yes; passwords and sign-ins are off limits. Ends on Stop, when you're back, or after four hours |
 | Natural voice | Optional: Malves speaks with Gemini's voice (a few seconds slower); the phone's own voices are the instant default |
+| Sessions | Every Claude Code, Codex, Cursor and Antigravity session on your computer in one list (Work → Sessions): read it, and carry it on from the phone. No projects to set up: your folders come from your sessions |
 | Desktop IDEs | One extension for VS Code, Cursor, Antigravity and Windsurf: from the phone, start the IDE's own agent, open a task's changes there, continue your Claude Code / Codex IDE conversations (or reopen them at the desk); agent questions also appear in the IDE |
 | Notifications | Through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale: questions with answer buttons on the lock screen, and "task finished / couldn't finish" (with quiet hours) |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |

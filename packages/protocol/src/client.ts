@@ -148,14 +148,17 @@ export class LinkClient {
 
   /** `resume`: an agent session id from `listSessions`, to continue it. */
   createTask(input: {
-    workspaceId: string;
+    /** A project id, or a folder from `allSessions`. */
+    workspaceId?: string | undefined;
+    folder?: string | undefined;
     agent: string;
     prompt: string;
     resume?: string | undefined;
   }): Promise<Ack> {
     return this.send({
       type: "task.create",
-      workspace_id: input.workspaceId,
+      ...(input.workspaceId ? { workspace_id: input.workspaceId } : {}),
+      ...(input.folder ? { folder: input.folder } : {}),
       agent: input.agent,
       prompt: input.prompt,
       ...(input.resume ? { resume: input.resume } : {}),
@@ -306,6 +309,28 @@ export class LinkClient {
   /** One picture of the computer's screen, during handover; it's in `ack.frame`. */
   screenFrame(): Promise<Ack> {
     return this.send({ type: "screen.frame" });
+  }
+
+  /** Every session on the computer (Claude Code, Codex, Cursor, Antigravity) and their folders. */
+  allSessions(tool?: "claude" | "codex" | "cursor" | "antigravity"): Promise<Ack> {
+    return this.send({ type: "sessions.all", ...(tool ? { tool } : {}) });
+  }
+
+  /** One session's conversation; it's in `ack.messages`. */
+  readSession(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    sessionId: string,
+  ): Promise<Ack> {
+    return this.send({ type: "session.read", tool, session_id: sessionId });
+  }
+
+  /** Continues a session; a new task's id is in `ack.task_id`, what happened in `ack.result`. */
+  continueSession(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    sessionId: string,
+    text: string,
+  ): Promise<Ack> {
+    return this.send({ type: "session.continue", tool, session_id: sessionId, text });
   }
 
   /** Takes the computer back from Malves (ends handover mode). */

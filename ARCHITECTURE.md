@@ -174,6 +174,25 @@ Two writers would tangle it, so malves never runs two tasks in one
 conversation, and the phone warns when the chosen one was used in the last
 10 minutes ("close it on your computer first").
 
+### Sessions across tools, and folders instead of projects
+
+The phone's **Work → Sessions** lists every coding session on the computer,
+newest first, read where each tool keeps them (read only):
+
+| Tool | Where | Continue from the phone |
+|---|---|---|
+| Claude Code (terminal, desktop app, IDE extension) | `~/.claude/projects/*/*.jsonl` | resumed by Claude Code's agent |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | resumed by Codex's agent |
+| Cursor editor chats | Cursor's `state.vscdb` (chats, messages, folders) | sent into the chat through Cursor's **Desktop Bridge** (Settings → Beta); without it, a new session told the story so far |
+| Antigravity editor conversations | `~/.gemini/antigravity-ide/conversations/*.db` (protobuf, decoded by field path) | a **new** Antigravity session (API key) in the same folder, told the story so far; the editor's own agent API isn't driven (it runs on the Google login) |
+
+Folders replace hand-added projects: the phone may start work in any folder
+that appears in your own sessions or that was added on the computer, and it
+becomes a project on first use. A brand-new folder still has to be added on the
+computer (`malves console add <folder>`). The first full scan takes a few
+seconds and runs in the background when `serve` starts; later scans re-read
+only changed files.
+
 ### Reviewing and committing a task's changes
 
 In a git project, the runner snapshots the uncommitted files (path and content

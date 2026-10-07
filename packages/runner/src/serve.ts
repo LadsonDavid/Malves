@@ -17,6 +17,7 @@ import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
@@ -168,6 +169,12 @@ export async function serve(
       call: (op, args) => bridge.call(op, args),
     },
   });
+  // Every session on this computer (Claude Code, Codex, Cursor, Antigravity); the first
+  // full read takes a few seconds, so it starts now, in the background.
+  const sessions = new Sessions(runner);
+  void sessions.list().catch(() => {});
+  const ready = (agent: string) =>
+    runner.agents.list().some((a) => a.name === agent && a.state === "ready");
   const server = new LinkServer(runner, {
     host,
     port,
@@ -182,6 +189,27 @@ export async function serve(
     ide: ideCtl,
     assistant: malves?.port,
     stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
+    sessions: {
+      list: async (tool) =>
+        (await sessions.list(tool)).map((s) => ({
+          tool: s.tool,
+          id: s.id,
+          title: s.title,
+          ...(s.folder ? { folder: s.folder } : {}),
+          updated_at: Math.round(s.updatedAt),
+          how: s.how,
+          ...(s.source ? { source: s.source } : {}),
+        })),
+      folders: async () =>
+        (await sessions.folders()).map((f) => ({
+          path: f.path,
+          name: f.name,
+          last_used: Math.round(f.lastUsed),
+        })),
+      read: (tool, id) => sessions.read(tool, id),
+      continue: (tool, id, text) => sessions.continue(tool, id, text, ready),
+      workspaceFor: (folder) => sessions.workspaceFor(folder),
+    },
     // The live view: only while Malves has the computer.
     screen: malves
       ? async () => {

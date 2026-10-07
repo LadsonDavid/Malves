@@ -43,6 +43,8 @@ export type LinkServerOptions = {
   assistant?: AssistantPort | undefined;
   /** Malves' natural voice, when it's set up. */
   speech?: Speech | undefined;
+  /** Sessions across tools, and the folders they ran in (replacing hand-added projects). */
+  sessions?: SessionsPort | undefined;
   /** A picture of the screen, during handover (the phone's live view). */
   screen?: (() => Promise<{ jpeg: string; width: number; height: number }>) | undefined;
   /** Ends handover mode (the phone's Stop button). */
@@ -64,6 +66,23 @@ export type LinkServerOptions = {
 };
 
 /** Malves, the assistant (see `Assistant`), and its memory. */
+export interface SessionsPort {
+  list(
+    tool?: "claude" | "codex" | "cursor" | "antigravity",
+  ): Promise<NonNullable<Ack["all_sessions"]>>;
+  folders(): Promise<NonNullable<Ack["folders"]>>;
+  read(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    id: string,
+  ): Promise<NonNullable<Ack["messages"]>>;
+  continue(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    id: string,
+    text: string,
+  ): Promise<{ taskId?: string | undefined; result: string }>;
+  workspaceFor(folder: string): Promise<string>;
+}
+
 export interface AssistantPort {
   say(
     conversationId: string,
@@ -398,8 +417,15 @@ export class LinkServer {
     try {
       switch (command.type) {
         case "task.create": {
+          // A folder (from the Sessions list) becomes a project on first use, if it's one you've worked in.
+          const workspaceId =
+            command.workspace_id ??
+            (command.folder && this.o.sessions
+              ? await this.o.sessions.workspaceFor(command.folder)
+              : undefined);
+          if (!workspaceId) return ack(false, { error: "Pick a folder to work in." });
           const id = this.core.tasks.create({
-            workspaceId: command.workspace_id,
+            workspaceId,
             agent: command.agent,
             prompt: command.prompt,
             resume: command.resume,
@@ -441,6 +467,34 @@ export class LinkServer {
           // Every phone gets them, not just the one that asked.
           for (const s of this.sessions) s.send({ type: "leads", leads, fetched_at: Date.now() });
           return ack(true, { result: String(leads.length) });
+        }
+        case "sessions.all": {
+          if (!this.o.sessions)
+            return ack(false, { error: "Sessions aren't available on this computer." });
+          const [all_sessions, folders] = await Promise.all([
+            this.o.sessions.list(command.tool),
+            this.o.sessions.folders(),
+          ]);
+          return ack(true, { all_sessions, folders });
+        }
+        case "session.read":
+          if (!this.o.sessions)
+            return ack(false, { error: "Sessions aren't available on this computer." });
+          return ack(true, {
+            messages: await this.o.sessions.read(command.tool, command.session_id),
+          });
+        case "session.continue": {
+          if (!this.o.sessions)
+            return ack(false, { error: "Sessions aren't available on this computer." });
+          const done = await this.o.sessions.continue(
+            command.tool,
+            command.session_id,
+            command.text,
+          );
+          return ack(true, {
+            result: done.result,
+            ...(done.taskId ? { task_id: done.taskId } : {}),
+          });
         }
         case "image.chunk":
           if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
