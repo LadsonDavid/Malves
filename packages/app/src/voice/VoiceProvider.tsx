@@ -19,6 +19,7 @@ import {
 } from "../model";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
+import { callHandled, onAnsweredCall, registerForCalls } from "./calls";
 import {
   canListen,
   canRecord,
@@ -66,7 +67,8 @@ type Pending =
   | { kind: "stop"; taskId: string };
 
 /** One line of the conversation with Malves. */
-export type Line = { who: "you" | "malves"; text: string; at: number };
+/** `from`: skills from his library that Malves' reply drew on. */
+export type Line = { who: "you" | "malves"; text: string; at: number; from?: string[] | undefined };
 /** Lines kept on the phone for this session. */
 const MAX_LINES = 100;
 
@@ -105,6 +107,9 @@ type Voice = {
   stopDictation: () => void;
   /** Stops talking and listening at once. */
   hush: () => void;
+  /** Why calls can't reach this phone, if they can't (undefined: they can). */
+  callsProblem: string | undefined;
+  testCall: () => Promise<string>;
 };
 
 const VoiceContext = createContext<Voice | undefined>(undefined);
@@ -129,12 +134,15 @@ export function VoiceProvider({
   client,
   status,
   lastAgent,
+  onCall,
   children,
 }: {
   model: Model;
   client: LinkClient | undefined;
   status: LinkStatus;
   lastAgent: string | undefined;
+  /** A call from Malves was answered: show the Malves screen. */
+  onCall: () => void;
   children: ReactNode;
 }) {
   const [settings, setSettingsState] = useState<VoiceSettings>(DEFAULT_VOICE);
@@ -145,8 +153,12 @@ export function VoiceProvider({
   const [problem, setProblem] = useState<string>();
   const [pending, setPendingState] = useState<{ id: string; summary: string }>();
   const [log, setLog] = useState<Line[]>([]);
-  const note = (who: Line["who"], text: string) =>
-    setLog((lines) => [...lines, { who, text, at: Date.now() }].slice(-MAX_LINES));
+  const note = (who: Line["who"], text: string) => {
+    // The next reply line carries the skills it drew on (set just before it's said).
+    const from = who === "malves" ? live.current.from : undefined;
+    if (who === "malves") live.current.from = undefined;
+    setLog((lines) => [...lines, { who, text, at: Date.now(), from }].slice(-MAX_LINES));
+  };
   // One conversation per app session: Malves keeps its short-term context per id.
   const conversationId = useRef(`app-${Date.now().toString(36)}`).current;
 
@@ -166,6 +178,8 @@ export function VoiceProvider({
     lastSaid: "",
     /** Malves was talked over: listen next, whatever the mode. */
     interrupted: false,
+    /** Skills the reply being said drew on. */
+    from: undefined as string[] | undefined,
     reading: { text: "", offset: 0 },
     /** Questions already read out or answered, so they aren't read twice. */
     handled: new Set<string>(),
@@ -328,6 +342,7 @@ export function VoiceProvider({
     if (!reply || reply.offline) return false;
     setBrainPending(reply.pending);
     if (reply.did.length > 0) buzz();
+    live.current.from = reply.skills;
     await sayReply(reply.reply, voice.playing, id);
     return true;
   };
@@ -676,6 +691,59 @@ export function VoiceProvider({
     return live.current.turn;
   };
 
+  /**
+   * You answered Malves' call: it says why it called (in its natural voice),
+   * then the conversation goes on hands-free, as if you'd turned voice mode on.
+   */
+  const answerCall = async (callId: string) => {
+    const c = live.current.client;
+    if (!c) return;
+    callHandled(callId);
+    const id = fresh();
+    live.current.mode = true;
+    live.current.quietSince = Date.now();
+    live.current.modeSince = Date.now();
+    setMode(true);
+    setPhase("working");
+    const voice = startReply(id);
+    try {
+      const ack = await c.answerCall(callId, speakAs(), voice.commandId);
+      if (!ack.ok) {
+        voice.cancel();
+        await sayIt(ack.error ?? "That call is over.");
+      } else await sayReply(ack.result ?? "", voice.playing, id);
+    } catch {
+      voice.cancel();
+      await sayIt(P().problem("Couldn't reach the computer."));
+    }
+    if (id === live.current.turn) await afterThink(id);
+  };
+
+  // Calls: let the computer ring this phone, and pick up answered calls.
+  const [callsProblem, setCallsProblem] = useState<string>();
+  useEffect(() => {
+    if (!client || status !== "online" || !model.assistant) return;
+    void registerForCalls(client).then(setCallsProblem);
+  }, [client, status, model.assistant]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: answerCall reads the latest state from live.current
+  useEffect(() => {
+    if (!client || status !== "online") return;
+    return onAnsweredCall((callId) => {
+      onCall();
+      void answerCall(callId);
+    });
+  }, [client, status, onCall]);
+  const testCall = async () => {
+    const c = live.current.client;
+    if (!c) return "Not connected to the computer.";
+    try {
+      const ack = await c.testCall();
+      return ack.ok ? (ack.result ?? "Calling.") : (ack.error ?? "The computer couldn't call.");
+    } catch {
+      return "Couldn't reach the computer.";
+    }
+  };
+
   const toggleMode = () => {
     if (live.current.mode) {
       fresh();
@@ -775,6 +843,7 @@ export function VoiceProvider({
         if (reply) {
           setBrainPending(reply.pending);
           if (reply.did.length > 0) buzz();
+          live.current.from = reply.skills;
           await sayReply(reply.reply, voice.playing, id);
         } else await sayIt(P().problem(ack.error ?? "not applied"));
       } catch (error) {
@@ -874,6 +943,8 @@ export function VoiceProvider({
   };
 
   const value: Voice = {
+    callsProblem,
+    testCall,
     log,
     canListen: canListen(),
     canBePrecise: canRecord() && model.transcribe,

@@ -1,12 +1,16 @@
+import { homedir } from "node:os";
 import path from "node:path";
 import type { Core } from "@malves/core";
 import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
 import type { Browser } from "../browser/bridge.js";
 import type { AssistantPort, IdeControl } from "../link/server.js";
 import { Assistant } from "./assistant.js";
+import type { Caller } from "./caller.js";
 import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
+import { Profile } from "./profile.js";
+import { SkillLibrary } from "./skills.js";
 
 /**
  * Malves, the assistant, if its brain and memory are set up:
@@ -23,7 +27,8 @@ export function assistantFromEnv(o: {
   leads?: (() => Promise<Lead[]>) | undefined;
   handover?: Handover | undefined;
   browser?: Browser | undefined;
-}): { port: AssistantPort; close: () => void } | undefined {
+  caller?: Caller | undefined;
+}): { port: AssistantPort; close: () => void; reviewProfile: () => Promise<number> } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
   const vault = process.env.MALVES_VAULT;
@@ -42,6 +47,14 @@ export function assistantFromEnv(o: {
     indexFile: path.join(o.dataDir, "memory-index.db"),
     embed: (texts) => llm.embed(texts),
   });
+  const profile = new Profile({ vault, dataDir: o.dataDir, llm });
+  const library = new SkillLibrary({
+    root: process.env.MALVES_SKILLS ?? path.join(homedir(), ".claude", "skills"),
+    dataDir: o.dataDir,
+    embed: (texts) => llm.embed(texts),
+  });
+  // The first indexing takes a few seconds: start it now, in the background.
+  void library.fill().catch(() => {});
   const ides: (() => IdeInfo[]) | undefined = o.ide ? () => o.ide?.list() ?? [] : undefined;
   const assistant = new Assistant({
     core: o.core,
@@ -54,6 +67,9 @@ export function assistantFromEnv(o: {
     userName: "Ladson",
     ...(o.handover ? { handover: o.handover } : {}),
     ...(o.browser ? { browser: o.browser } : {}),
+    profile,
+    library,
+    ...(o.caller ? { caller: o.caller } : {}),
   });
   return {
     port: {
@@ -72,5 +88,7 @@ export function assistantFromEnv(o: {
       forget: (id) => memory.forget(id) !== undefined,
     },
     close: () => memory.close(),
+    reviewProfile: () =>
+      profile.review(o.core.tasks.list().map((t) => `${t.agent}: ${t.prompt.slice(0, 160)}`)),
   };
 }

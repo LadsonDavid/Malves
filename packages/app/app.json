@@ -44,7 +44,14 @@
         }
       ],
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      "expo-notifications",
+      [
+        "react-native-full-screen-notification-incoming-call",
+        {
+          "statusBarColor": "#0B1F3A"
+        }
+      ]
     ],
     "scheme": "malves"
   }

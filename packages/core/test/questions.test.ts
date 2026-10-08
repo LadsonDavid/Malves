@@ -195,3 +195,20 @@ describe("questions.ask", () => {
     ).toBe("closed");
   });
 });
+
+describe("questions.shutdown", () => {
+  it("stops every timer, so a timeout never writes into a closed log", () => {
+    const c = setup();
+    void ask(c.questions, 10_000);
+    const before = c.store.events.length;
+    c.questions.shutdown();
+    // The log closes here in malves serve; any write now would throw.
+    c.store.append = () => {
+      throw new Error("The database connection is not open");
+    };
+    expect(() => c.clock.advance(20_000)).not.toThrow();
+    expect(c.store.events).toHaveLength(before);
+    // Still open in the log: the next start's recover() closes it as cancelled.
+    expect(c.questions.pending()).toHaveLength(1);
+  });
+});

@@ -98,6 +98,7 @@ async function runner(
   cleanup.push(async () => {
     await core.tasks.stopAll();
     host.killAll();
+    core.questions.shutdown();
     store.close();
   });
   cleanup.push(() => server.close());
@@ -190,7 +191,7 @@ describe("phone link, end to end", () => {
     const heard: string[] = [];
     const assistant = {
       say: async (_c: string, _t: string, _a: string[], onText?: (d: string) => void) => {
-        for (const d of ["Sure. I'll st", "op the build"]) onText?.(d);
+        for (const d of ["On it. I'll st", "op the build"]) onText?.(d);
         // The model proposed an action: the reply becomes the code-written read-back.
         return { reply: "I'll stop the build in site. Shall I go ahead?", did: [] };
       },
@@ -208,15 +209,15 @@ describe("phone link, end to end", () => {
       "conv-1",
       "stop the build",
       [],
-      { en: "janvi" },
+      { en: "en-female-1" },
       "cmd-voice-1",
     );
     expect(ack).toMatchObject({ ok: true, command_id: "cmd-voice-1" });
     await waitFor(() => p.audio.some((a) => a.done), "the end of the spoken reply");
     // Streamed words that stopped mid-sentence aren't said; the read-back is, in full.
-    expect(heard).toEqual(["en:Sure.", "en:I'll stop the build in site.", "en:Shall I go ahead?"]);
+    expect(heard).toEqual(["en:On it.", "en:I'll stop the build in site.", "en:Shall I go ahead?"]);
     expect(p.audio.map((a) => [a.part, a.text, a.failed ?? null, a.done])).toEqual([
-      [0, "Sure.", null, false],
+      [0, "On it.", null, false],
       [1, "I'll stop the build in site.", null, false],
       [2, "Shall I go ahead?", "No natural voice answered.", false],
       [3, undefined, null, true],

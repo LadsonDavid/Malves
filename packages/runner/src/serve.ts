@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
+import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
+import { startProfileReview } from "./adapters/assistant/profile.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
@@ -16,7 +18,9 @@ import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
+import { fcmSender } from "./adapters/push/fcm.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -154,6 +158,23 @@ export async function serve(
         push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
     },
   });
+  const remoteScreen =
+    process.platform === "win32"
+      ? new RemoteScreen({
+          load: () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop()),
+          notice: (text) => windowsNotice(text, say),
+        })
+      : undefined;
+  // Malves ringing the phone: Google's push (Firebase) carries only a call id.
+  const fcmKey = process.env.MALVES_FCM_KEY;
+  const caller = fcmKey
+    ? new Caller({
+        send: fcmSender(fcmKey),
+        dataDir: dir,
+        paired: () => runner.devices.list().map((d) => d.id),
+        quietHours: process.env.MALVES_QUIET_HOURS,
+      })
+    : undefined;
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
@@ -161,6 +182,7 @@ export async function serve(
     ide: ideCtl,
     leads: leads ? () => leads.fetch() : undefined,
     handover,
+    caller,
     // The bridge is replaced when the extension gets a new token: always use the current one.
     browser: {
       get connected() {
@@ -211,20 +233,9 @@ export async function serve(
       continue: (tool, id, text) => sessions.continue(tool, id, text, ready),
       workspaceFor: (folder) => sessions.workspaceFor(folder),
     },
-    // The live view: only while Malves has the computer.
-    screen: malves
-      ? async () => {
-          const desktop = await handover.desktop();
-          if (!desktop) {
-            throw new Error(
-              handover.state.active
-                ? "The screen isn't available (yet) on this computer."
-                : "You can watch the screen only during handover.",
-            );
-          }
-          return desktop.preview();
-        }
-      : undefined,
+    // Your screen on the phone, any time (Windows: nut.js); the computer says when it's watched.
+    screen: remoteScreen,
+    caller,
     voice: malves
       ? naturalVoice({
           cartesiaKey: process.env.CARTESIA_API_KEY,
@@ -272,6 +283,21 @@ export async function serve(
           label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
           notify: (title, message, click) => push.notify(title, message, click),
           quietHours: process.env.MALVES_QUIET_HOURS,
+        })
+      : () => {};
+  const stopCalls = caller
+    ? caller.follow({
+        subscribe: (listener) => runner.log.subscribe(listener),
+        task: (id) => runner.tasks.get(id),
+        label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+      })
+    : () => {};
+  const stopProfileReview =
+    malves && pushOn && push
+      ? startProfileReview({
+          dataDir: dir,
+          review: () => malves.reviewProfile(),
+          notify: (title, message, click) => push.notify(title, message, click),
         })
       : () => {};
   const backupTarget = process.env.MALVES_BACKUP_SSH;
@@ -486,6 +512,8 @@ export async function serve(
   say("\nStopping…");
   control?.close();
   await runner.tasks.stopAll();
+  // Open questions (e.g. a commit approval) must not time out into a closed log.
+  runner.questions.shutdown();
   relay?.close();
   await server.close();
   stopRenewing();
@@ -494,6 +522,8 @@ export async function serve(
   stopActivity();
   stopDigest();
   stopWatcher();
+  stopProfileReview();
+  stopCalls();
   stopBackups();
   await push?.close();
   await tools.close();

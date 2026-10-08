@@ -146,8 +146,8 @@ export const TaskStop = z.object({
  */
 export const NATURAL_VOICES = [
   {
-    id: "karthik",
-    name: "Karthik",
+    id: "ta-male",
+    name: "Male",
     lang: "ta",
     gender: "male",
     cartesia: "19f28c21-ae34-499f-b64a-f7b09cd9b516",
@@ -155,8 +155,8 @@ export const NATURAL_VOICES = [
     piper: "ta_IN-ValluvarNeural-medium",
   },
   {
-    id: "janani",
-    name: "Janani",
+    id: "ta-female",
+    name: "Female",
     lang: "ta",
     gender: "female",
     cartesia: "fb7d8d97-9730-4165-bd79-36b5ce61b5f2",
@@ -164,8 +164,8 @@ export const NATURAL_VOICES = [
     piper: "ta_IN-HemaLatha-medium",
   },
   {
-    id: "aarav",
-    name: "Aarav",
+    id: "en-male-1",
+    name: "Male 1",
     lang: "en",
     gender: "male",
     cartesia: "39d518b7-fd0b-4676-9b8b-29d64ff31e12",
@@ -173,8 +173,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-kusal-medium",
   },
   {
-    id: "krishna",
-    name: "Krishna",
+    id: "en-male-2",
+    name: "Male 2",
     lang: "en",
     gender: "male",
     cartesia: "c63361f8-d142-4c62-8da7-8f8149d973d6",
@@ -182,8 +182,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-kusal-medium",
   },
   {
-    id: "janvi",
-    name: "Janvi",
+    id: "en-female-1",
+    name: "Female 1",
     lang: "en",
     gender: "female",
     cartesia: "7ea5e9c2-b719-4dc3-b870-5ba5f14d31d8",
@@ -191,8 +191,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-amy-medium",
   },
   {
-    id: "priya",
-    name: "Priya",
+    id: "en-female-2",
+    name: "Female 2",
     lang: "en",
     gender: "female",
     cartesia: "f6141af3-5f94-418c-80ed-a45d450e7e2e",
@@ -306,8 +306,50 @@ export const VoiceTranscribe = z.object({
   language: z.string().min(2).max(8),
 });
 
-/** One picture of the computer's screen, during handover (answered in `ack.frame`). */
+/** One picture of the computer's screen (answered in `ack.frame`); the computer says when a phone starts watching. */
 export const ScreenFrame = z.object({ type: z.literal("screen.frame"), command_id: Id });
+
+/**
+ * You, controlling the computer from the phone: a click where you tapped (x and y
+ * are fractions of the picture), scrolling, typing or a key combination.
+ */
+export const ScreenInput = z.object({
+  type: z.literal("screen.input"),
+  command_id: Id,
+  action: z.enum(["click", "double", "right", "scroll", "type", "keys"]),
+  x: z.number().min(0).max(1).optional(),
+  y: z.number().min(0).max(1).optional(),
+  lines: z.number().int().min(-20).max(20).optional(),
+  text: z.string().max(500).optional(),
+  keys: z.string().max(40).optional(),
+});
+export type ScreenInput = z.infer<typeof ScreenInput>;
+
+/** This phone's Firebase token, so Malves can ring it (a call; the push carries no content). */
+export const CallRegister = z.object({
+  type: z.literal("call.register"),
+  command_id: Id,
+  token: z.string().min(1).max(4096),
+});
+
+/** You answered Malves' call: why it called is in `ack.result`. */
+export const CallAnswer = z.object({
+  type: z.literal("call.answer"),
+  command_id: Id,
+  call_id: Id,
+  /** Also say it in Malves' natural voice, as `assistant.audio`. */
+  speak: Speak.optional(),
+});
+
+/** You declined Malves' call. */
+export const CallDecline = z.object({
+  type: z.literal("call.decline"),
+  command_id: Id,
+  call_id: Id,
+});
+
+/** A test call from Settings (rings even in quiet hours). */
+export const CallTest = z.object({ type: z.literal("call.test"), command_id: Id });
 
 /** Take the computer back from Malves (handover mode). */
 export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
@@ -335,6 +377,11 @@ export const Command = z.discriminatedUnion("type", [
   TasksStopAll,
   HandoverStop,
   ScreenFrame,
+  ScreenInput,
+  CallRegister,
+  CallAnswer,
+  CallDecline,
+  CallTest,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,
@@ -499,6 +546,8 @@ export const Ack = z.object({
       pending: z.object({ id: Id, summary: z.string() }).optional(),
       did: z.array(z.string()),
       offline: z.boolean().optional(),
+      /** Skills from his library the reply drew on. */
+      skills: z.array(z.string().max(80)).max(4).optional(),
     })
     .optional(),
   /** The answer to `screen.frame`: a JPEG of the screen. */

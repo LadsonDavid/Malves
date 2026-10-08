@@ -1,6 +1,6 @@
 import { type AgentInfo, type LinkClient, type LinkStatus, NATURAL_VOICES } from "@malves/protocol";
 import { useEffect, useState } from "react";
-import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Speaker } from "../icons";
 import { ago, type Model, running } from "../model";
 import { PushCard } from "../PushCard";
@@ -118,6 +118,12 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         <PushCard link={model.push} />
       </Section>
 
+      {model.assistant ? (
+        <Section title="Calls">
+          <CallsCard voice={voice} />
+        </Section>
+      ) : null}
+
       <Section title="Voice">
         <Card>
           <Text style={styles.muted}>Language you speak</Text>
@@ -157,7 +163,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
                       <Choices<string>
                         options={NATURAL_VOICES.filter((v) => v.lang === lang).map((v) => ({
                           value: v.id,
-                          label: `${v.name} (${v.gender === "male" ? "m" : "f"})`,
+                          label: v.name,
                         }))}
                         value={voice.settings.naturalVoices[lang]}
                         onChange={(id) =>
@@ -412,6 +418,50 @@ function MemoryCard({
         busy={loading}
         disabled={!client || !online}
         onPress={() => void load()}
+      />
+    </Card>
+  );
+}
+
+/** Malves can ring this phone ("call me when Codex finishes"); a test call checks it works. */
+function CallsCard({ voice }: { voice: ReturnType<typeof useVoice> }) {
+  const [result, setResult] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Card>
+      {voice.callsProblem ? (
+        <Banner tone="warn">{voice.callsProblem}</Banner>
+      ) : (
+        <Text style={styles.body}>
+          Malves can call this phone, for example when you say "call me when Codex finishes".
+        </Text>
+      )}
+      <Text style={styles.muted}>
+        The call goes through Google's push with no content; what Malves says comes over your own
+        link once you answer. No calls in quiet hours, at most three an hour, and "don't call me
+        today" stops them.
+      </Text>
+      <Button
+        title={busy ? "Calling…" : "Test call"}
+        busy={busy}
+        disabled={!!voice.callsProblem}
+        onPress={() => {
+          setBusy(true);
+          void voice
+            .testCall()
+            .then(setResult)
+            .finally(() => setBusy(false));
+        }}
+      />
+      {result ? <Text style={styles.meta}>{result}</Text> : null}
+      <Text style={styles.muted}>
+        If the call shows only as a notification instead of the full call screen, allow "Full screen
+        notifications" for malves in Android settings.
+      </Text>
+      <Button
+        title="Open Android settings"
+        kind="secondary"
+        onPress={() => void Linking.openSettings()}
       />
     </Card>
   );

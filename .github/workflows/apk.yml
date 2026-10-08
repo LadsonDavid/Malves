@@ -27,6 +27,15 @@ jobs:
           java-version: 17
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @malves/protocol build
+      # Malves' calls: the Firebase file comes from a repository secret (never
+      # committed). Without the secret the app builds the same, without calls.
+      - name: Firebase file for calls
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > packages/app/google-services.json
+          fi
       # Generates the native Android project from app.json (it isn't committed).
       - run: pnpm --filter @malves/app exec expo prebuild --platform android --no-install
       - run: ./gradlew assembleRelease --no-daemon

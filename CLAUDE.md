@@ -39,8 +39,16 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   Antigravity (read + continue as new); folders from sessions replace projects.
   Natural voice (Oct 7): streamed brain replies spoken per sentence via Cartesia →
   ElevenLabs → Piper (Oracle) → phone voice; voice picker; talk-over interruption.
+  Oct 8: work profile ("About me.md" in the vault, edits only on his yes, weekly
+  check), skill library from ~/.claude/skills (shortlist + read_skill), screen any
+  time with control from the phone, Malves calling the phone (Firebase, awaiting his
+  Firebase project and a real test).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
+- **No Claude attribution:** never add a Claude `Co-Authored-By` line to commits or
+  PR descriptions. Open a PR (feature branch → main) for pushed work.
+- **Private profile stays local:** only the work profile (`About me.md`) may go to
+  the brain; the personal one (`ladson.md`) never leaves the computer.
 - **Expo changes APIs every SDK.** Check the versioned docs for the SDK in
   `packages/app/package.json` (docs.expo.dev/versions/v<major>.0.0/) before
   writing Expo code — don't rely on memory.
@@ -80,11 +88,12 @@ Set these locally in every new environment. Never commit here as
 | Unanswered question → **stop**, never proceed | R3 |
 | Push is a hint; the event log is the truth | Lost pushes never break anything |
 | Push via the ntfy app, with the runner as its server over Tailscale | `expo-unified-push` has no answer buttons (R1) and needs a custom build |
+| Malves' calls use Firebase (FCM) data pushes with no content (only a call id) and Android's call screen (react-native-full-screen-notification-incoming-call); the reason travels over the sealed link | Owner's choice (Oct 8, 2026): a ringing call screen needs the app itself woken; everything else stays on ntfy |
 | Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
 | Handover mode: shell in project folders + Chrome + screen; looking and tests/builds auto, the rest asks; ends **only** on Stop, "I'm back", or 4 h (not on mouse movement or unlock) | Owner's choice (Oct 2026): he may sit at the desk watching it work |
-| During handover the phone shows the PC screen live (view only, ~1 fps, ~50 KB/frame) | Owner's choice (Oct 2026), replacing "no screen mirroring" for handover only |
+| The phone shows the PC screen live **any time** (~3 fps, ~60 KB/frame) and can control it (tap to click, scroll, type, keys); no fingerprint gate; the PC shows a Windows notification when a phone starts watching or takes control | Owner's choice (Oct 8, 2026), replacing "view only, during handover only" |
 | Never work around Windows Defender/antivirus | The desktop-control PowerShell helper was flagged as malicious; evasion is what malware does |
 | Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API |
 | In handover mode Malves uses editors on screen as a co-developer | Owner's choice (Oct 2026, reversing the earlier ban); every click/keystroke is read back, editor ones say they may accept/reject the AI's change |
@@ -99,7 +108,7 @@ Set these locally in every new environment. Never commit here as
 | Publishing the Chrome extension to the Web Store | It's loaded unpacked; all logic is bundled, the runner sends only operation names (no remote code). See ARCHITECTURE §5 |
 | Browser tasks in a separate Playwright browser | Owner chose Claude-in-Chrome style: real Chrome, current tab, tools always available |
 | Free LLM tiers as the foundation | Tiers are shrinking and some train on prompts. freellmapi with the user's own keys; never silently downgrade |
-| iOS in v1, shared team accounts, code editing on the phone, screen mirroring outside handover | Out of scope — see ARCHITECTURE.md §0 |
+| iOS in v1, shared team accounts, code editing on the phone | Out of scope — see ARCHITECTURE.md §0 |
 
 ## Windows traps — the owner develops on Windows
 

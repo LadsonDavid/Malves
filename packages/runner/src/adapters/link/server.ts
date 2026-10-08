@@ -17,11 +17,13 @@ import {
   type PairingOffer,
   type RunnerMessage,
   randomToken,
+  type ScreenInput,
   SealedFrame,
   type Speak,
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import { humanizeSentence } from "../assistant/humanize.js";
 import { langOf, sentences, splitSentences, type Voice } from "../assistant/voice.js";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
@@ -45,10 +47,24 @@ export type LinkServerOptions = {
   /** Malves' natural voice, when it's set up. */
   /** Malves' natural voice (Cartesia → ElevenLabs → Piper). */
   voice?: Voice | undefined;
+  /** Malves ringing the phone (Firebase), if set up. */
+  caller?:
+    | {
+        register(deviceId: string, token: string): void;
+        answer(callId: string): string | undefined;
+        decline(callId: string): void;
+        call(reason: string, test?: boolean): Promise<string>;
+      }
+    | undefined;
   /** Sessions across tools, and the folders they ran in (replacing hand-added projects). */
   sessions?: SessionsPort | undefined;
-  /** A picture of the screen, during handover (the phone's live view). */
-  screen?: (() => Promise<{ jpeg: string; width: number; height: number }>) | undefined;
+  /** The computer's screen on the phone: watching it, and your clicks and typing. */
+  screen?:
+    | {
+        frame(): Promise<{ jpeg: string; width: number; height: number }>;
+        input(input: Omit<ScreenInput, "type" | "command_id">): Promise<void>;
+      }
+    | undefined;
   /** Ends handover mode (the phone's Stop button). */
   stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
@@ -125,6 +141,8 @@ export interface AgentDirectory {
 const PAGE = 500;
 const ASSISTANT_OFF =
   "Malves' brain isn't set up on the computer (MALVES_MODELS_URL, MALVES_MODELS_KEY, MALVES_VAULT).";
+const CALLS_OFF =
+  "Calls aren't set up on the computer (MALVES_FCM_KEY, the Firebase service-account key).";
 const PRECISE_OFF =
   "Precise mode needs freellmapi on the computer (MALVES_MODELS_URL and MALVES_MODELS_KEY).";
 const MAX_FRAME_BYTES = 256 * 1024;
@@ -266,11 +284,19 @@ export class LinkServer {
       });
     };
     return {
+      // Streamed text is always the brain's own words: fully cleaned up.
       text: (delta: string) => {
-        for (const sentence of cut.push(delta)) speak(sentence);
+        for (const sentence of cut.push(delta)) {
+          const clean = humanizeSentence(sentence);
+          if (clean) speak(clean);
+        }
       },
-      finish: (reply: string) => {
-        for (const sentence of splitSentences(reply)) if (!said.has(sentence)) speak(sentence);
+      /** `exact`: a code-written read-back, said as written apart from punctuation. */
+      finish: (reply: string, exact = false) => {
+        for (const sentence of splitSentences(reply)) {
+          const clean = humanizeSentence(sentence, { words: !exact });
+          if (clean && !said.has(clean)) speak(clean);
+        }
         queue = queue.then(() =>
           send({
             type: "assistant.audio",
@@ -377,10 +403,10 @@ export class LinkServer {
   }
 
   /** @internal Runs a command once per id; a repeat gets the first result. */
-  execute(command: Command): Promise<Ack> {
+  execute(command: Command, deviceId = ""): Promise<Ack> {
     const known = this.results.get(command.command_id);
     if (known) return known;
-    const result = this.run(command);
+    const result = this.run(command, deviceId);
     // Screen pictures are many and large, and a re-sent one may as well be fresh: not kept.
     if (command.type === "screen.frame") return result;
     this.results.set(command.command_id, result);
@@ -436,7 +462,7 @@ export class LinkServer {
     return this.o.agents.subscribe(listener);
   }
 
-  private async run(command: Command): Promise<Ack> {
+  private async run(command: Command, deviceId: string): Promise<Ack> {
     const ack = (ok: boolean, detail?: Omit<Partial<Ack>, "type" | "command_id" | "ok">): Ack => ({
       type: "ack",
       command_id: command.command_id,
@@ -556,7 +582,7 @@ export class LinkServer {
                   speaker?.text,
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
-          speaker?.finish(answer.reply);
+          speaker?.finish(answer.reply, answer.pending !== undefined);
           return ack(true, { assistant: answer });
         }
         case "memory.list":
@@ -597,7 +623,34 @@ export class LinkServer {
         case "screen.frame":
           if (!this.o.screen)
             return ack(false, { error: "The live view isn't available on this computer." });
-          return ack(true, { frame: await this.o.screen() });
+          return ack(true, { frame: await this.o.screen.frame() });
+        case "screen.input": {
+          if (!this.o.screen)
+            return ack(false, {
+              error: "Control from the phone isn't available on this computer.",
+            });
+          const { type: _type, command_id: _id, ...input } = command;
+          await this.o.screen.input(input);
+          return ack(true);
+        }
+        case "call.register":
+          if (!this.o.caller) return ack(false, { error: CALLS_OFF });
+          this.o.caller.register(deviceId, command.token);
+          return ack(true);
+        case "call.answer": {
+          const said = this.o.caller?.answer(command.call_id);
+          if (!said) return ack(false, { error: "That call is over." });
+          if (command.speak) this.speaker(command.command_id, command.speak).finish(said, true);
+          return ack(true, { result: said });
+        }
+        case "call.decline":
+          this.o.caller?.decline(command.call_id);
+          return ack(true);
+        case "call.test":
+          if (!this.o.caller) return ack(false, { error: CALLS_OFF });
+          return ack(true, {
+            result: await this.o.caller.call("This is Malves' test call. Calls work.", true),
+          });
         case "handover.stop":
           if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
           this.o.stopHandover();
@@ -636,7 +689,7 @@ class Session {
 
   constructor(
     private readonly ws: WebSocket,
-    device: Device,
+    private readonly device: Device,
     private readonly key: string,
     hello: Hello,
     core: Core,
@@ -684,7 +737,7 @@ class Session {
       }
       return;
     }
-    void this.server.execute(command).then((ack) => this.send(ack));
+    void this.server.execute(command, this.device.id).then((ack) => this.send(ack));
   }
 
   dispose(): void {

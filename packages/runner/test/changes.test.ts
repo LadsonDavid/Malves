@@ -60,6 +60,7 @@ function setup({ repo = true } = {}) {
   const runner = { ...core, diff: (id: string) => changes.diff(id) };
   cleanup.push(() => {
     changes.close();
+    core.questions.shutdown();
     store.close();
   });
   const ws = runner.workspaces.register("site", site);
