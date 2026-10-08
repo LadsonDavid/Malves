@@ -79,13 +79,15 @@ export function runningRunner(dir: string): number | undefined {
 
 /** Whether a process is Node (so a reused pid isn't mistaken for malves). */
 function isNode(pid: number): boolean {
+  if (pid === process.pid) return true;
   const out =
     process.platform === "win32"
       ? spawnSync("tasklist.exe", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
           encoding: "utf8",
           windowsHide: true,
         }).stdout
-      : spawnSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" }).stdout;
+      : // The full command line: a renamed process (e.g. a test worker) still shows "node" there.
+        spawnSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf8" }).stdout;
   // If the check itself can't run, err on the side of "still running".
   return out === undefined || /node/i.test(out);
 }
