@@ -1,6 +1,7 @@
 import type { Ack, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
+import { Markdown } from "../components/Markdown";
 import { ago, mayStillBeOpen } from "../model";
 import { BackBar, Banner, Button, buzz, color, space, styles, Title } from "../ui";
 import { type SessionRow, TOOL_LABEL } from "./SessionsList";
@@ -113,9 +114,7 @@ export function SessionScreen({
           // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list, read once
           <View key={i} style={{ gap: 2 }}>
             <Text style={styles.meta}>{TOOL_LABEL[session.tool].toUpperCase()}</Text>
-            <Text style={styles.body} selectable numberOfLines={16}>
-              {m.text}
-            </Text>
+            <Markdown text={m.text} />
           </View>
         ),
       )}
