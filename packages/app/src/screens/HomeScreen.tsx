@@ -87,37 +87,48 @@ export function HomeScreen({
         </Banner>
       ) : null}
 
-      {status === "online" ? <PushCard link={model.push} quiet /> : null}
-
-      {status === "online" && !model.handover.active ? (
-        <Button
-          title="Your screen"
-          kind="secondary"
-          icon={Desktop}
-          onPress={onWatchScreen}
-          hint="Watch the computer's screen live, and control it"
-        />
-      ) : null}
-
       {status !== "rejected" ? (
         <VoiceBar onOpenConversation={onOpenMalves} handover={model.handover.active} />
       ) : null}
 
-      <Section title={questions.length > 0 ? `Needs you · ${questions.length}` : "Needs you"}>
-        {questions.length === 0 ? <Text style={styles.muted}>Nothing needs you.</Text> : null}
-        {questions.map((q) => (
-          <QuestionCard
-            key={q.id}
-            question={q}
-            model={model}
-            client={client}
-            status={status}
-            onOpenTask={() => onOpenTask(q.taskId)}
-          />
-        ))}
-      </Section>
+      {questions.length > 0 ? (
+        <Section title={`Needs you · ${questions.length}`}>
+          {questions.map((q) => (
+            <QuestionCard
+              key={q.id}
+              question={q}
+              model={model}
+              client={client}
+              status={status}
+              onOpenTask={() => onOpenTask(q.taskId)}
+            />
+          ))}
+        </Section>
+      ) : null}
 
-      <Button title="New task" icon={Plus} onPress={onNewTask} disabled={status === "rejected"} />
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            title="New task"
+            icon={Plus}
+            onPress={onNewTask}
+            disabled={status === "rejected"}
+          />
+        </View>
+        {status === "online" && !model.handover.active ? (
+          <View style={{ flex: 1 }}>
+            <Button
+              title="Your screen"
+              kind="secondary"
+              icon={Desktop}
+              onPress={onWatchScreen}
+              hint="Watch the computer's screen live, and control it"
+            />
+          </View>
+        ) : null}
+      </View>
+
+      {status === "online" ? <PushCard link={model.push} quiet /> : null}
 
       {firstRun ? <FirstRun model={model} /> : null}
 
