@@ -108,6 +108,8 @@ export function LeadsScreen({ model, client, lastAgent, onOpenTask }: Props) {
 
 function LeadCard({ lead, onResearch }: { lead: Lead; onResearch: () => void }) {
   const mail = mailtoFor(lead);
+  // Who and why at a glance; the opener, contact and actions on request.
+  const [open, setOpen] = useState(false);
   return (
     <Card>
       <View style={[styles.row, { alignItems: "center" }]}>
@@ -119,30 +121,35 @@ function LeadCard({ lead, onResearch }: { lead: Lead; onResearch: () => void }) 
       </View>
       <Text style={styles.h3}>{lead.name}</Text>
       <Text style={styles.body}>{lead.why}</Text>
-      {lead.trigger ? <Text style={styles.muted}>Latest: {lead.trigger}</Text> : null}
-      {lead.opener ? (
+      {!open ? <Button title="Details" kind="ghost" onPress={() => setOpen(true)} /> : null}
+      {open && lead.trigger ? <Text style={styles.muted}>Latest: {lead.trigger}</Text> : null}
+      {open && lead.opener ? (
         <Text style={styles.body} selectable>
           Opener: “{lead.opener}”
         </Text>
       ) : null}
-      <Text style={styles.muted} selectable>
-        {lead.contact
-          ? `${lead.contact.name}, ${lead.contact.title} · ${lead.contact.email}`
-          : "No contact found yet."}
-      </Text>
-      <View style={styles.row}>
-        {mail ? (
-          <Button title="Email" onPress={() => void Linking.openURL(mail).catch(() => {})} />
-        ) : null}
-        {lead.opener ? (
-          <Button
-            title="Share opener"
-            kind="plain"
-            onPress={() => void Share.share({ message: lead.opener })}
-          />
-        ) : null}
-        <Button title="Research in browser" kind="plain" onPress={onResearch} />
-      </View>
+      {open ? (
+        <>
+          <Text style={styles.muted} selectable>
+            {lead.contact
+              ? `${lead.contact.name}, ${lead.contact.title} · ${lead.contact.email}`
+              : "No contact found yet."}
+          </Text>
+          <View style={styles.row}>
+            {mail ? (
+              <Button title="Email" onPress={() => void Linking.openURL(mail).catch(() => {})} />
+            ) : null}
+            {lead.opener ? (
+              <Button
+                title="Share opener"
+                kind="plain"
+                onPress={() => void Share.share({ message: lead.opener })}
+              />
+            ) : null}
+            <Button title="Research in browser" kind="plain" onPress={onResearch} />
+          </View>
+        </>
+      ) : null}
     </Card>
   );
 }

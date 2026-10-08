@@ -151,20 +151,13 @@ export function HomeScreen({
         </Section>
       ) : null}
 
-      {active.length > 0 ? (
-        <Section title={`Running · ${active.length}`}>
+      {active.length + done.length > 0 ? (
+        <Section
+          title={active.length > 0 ? `Tasks · ${active.length} running` : "Tasks"}
+          action={{ label: "See all", onPress: onAllTasks }}
+        >
           <List>
-            {active.map((t) => (
-              <TaskRow key={t.id} task={t} model={model} onOpen={() => onOpenTask(t.id)} />
-            ))}
-          </List>
-        </Section>
-      ) : null}
-
-      {done.length > 0 ? (
-        <Section title="Recent" action={{ label: "See all", onPress: onAllTasks }}>
-          <List>
-            {done.map((t) => (
+            {[...active, ...done].map((t) => (
               <TaskRow key={t.id} task={t} model={model} onOpen={() => onOpenTask(t.id)} />
             ))}
           </List>
