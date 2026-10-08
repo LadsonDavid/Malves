@@ -77,6 +77,31 @@ describe("agent status", () => {
     expect(status.list()[0]?.hint).toBe("It didn't respond in time.");
   });
 
+  it("a slow agent is usable, marked slow; at most two are checked at once", async () => {
+    const many = new Map<string, AgentProfile>(
+      ["a", "b", "c", "d", "e"].map((n) => [n, { label: n, command: command(n), signInHint: "" }]),
+    );
+    let running = 0;
+    let most = 0;
+    const status = new AgentStatus(many, async (name) => {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((r) => setTimeout(r, 5));
+      running -= 1;
+      return name === "a"
+        ? { state: "unavailable", detail: "It didn't respond in time.", slow: true }
+        : { state: "ready" };
+    });
+    await status.checkAll();
+    expect(most).toBe(2);
+    expect(status.list()[0]).toEqual({
+      name: "a",
+      label: "a",
+      state: "ready",
+      hint: "Slow to start: give it a minute.",
+    });
+  });
+
   it("tells listeners only when something actually changed", async () => {
     const status = new AgentStatus(agents, async () => ({ state: "ready" }));
     await status.checkAll();

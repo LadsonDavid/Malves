@@ -57,7 +57,8 @@ if (callScreen) {
           notificationBody: "Malves is calling",
           answerText: "Answer",
           declineText: "Decline",
-          notificationColor: "#0B1F3A",
+          // No notificationColor: the library wants a colour *resource name*; a hex
+          // value isn't found and its ringing service crashes the app.
         });
       }
     }

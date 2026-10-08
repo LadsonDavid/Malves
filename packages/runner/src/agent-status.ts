@@ -36,18 +36,30 @@ export class AgentStatus {
     return () => this.listeners.delete(listener);
   }
 
-  /** Asks every agent at once. Calls made while a check is running share it. */
+  /**
+   * Asks every agent, two at a time: starting all seven at once (at the
+   * background serve's low priority) made slow starters miss their time limit.
+   * Calls made while a check is running share it.
+   */
   checkAll(): Promise<void> {
     if (this.checking) return this.checking;
     for (const name of this.profiles.keys()) this.set(name, "checking");
-    this.checking = Promise.all(
-      [...this.profiles].map(async ([name, profile]) => {
+    const queue = [...this.profiles];
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const [name, profile] = next;
         // Not installed: say so, without trying to start it.
-        if (profile.missing) return this.set(name, "unavailable", profile.missing);
+        if (profile.missing) {
+          this.set(name, "unavailable", profile.missing);
+          continue;
+        }
         const result = await this.probe(name, profile);
-        this.set(name, result.state, result.detail);
-      }),
-    )
+        // Started but slow to answer: usable. A real task that fails still says why.
+        if (result.slow) this.set(name, "ready", "Slow to start: give it a minute.");
+        else this.set(name, result.state, result.detail);
+      }
+    };
+    this.checking = Promise.all([worker(), worker()])
       .then(() => {})
       .finally(() => {
         this.checking = undefined;
@@ -63,9 +75,9 @@ export class AgentStatus {
     const hint =
       state === "needs_sign_in"
         ? profile.signInHint || undefined
-        : state === "unavailable"
-          ? detail
-          : undefined;
+        : state === "checking"
+          ? undefined
+          : detail;
     const next: AgentInfo = {
       name,
       label: current.label,
