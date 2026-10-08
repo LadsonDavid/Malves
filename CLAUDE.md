@@ -24,7 +24,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   Voice (APK): en-IN/en-US/Tamil, rule-based commands, hands-free mode, precise
   dictation via Whisper/freellmapi (ARCHITECTURE "Voice"). IDE companion extension
   (`packages/ide`, ARCHITECTURE "Desktop IDEs"): start the IDE's agent, open changes,
-  reopen conversations, answer questions in the IDE — awaiting a real IDE test.
+  reopen conversations, answer questions in the IDE — connects in VS Code and
+  Antigravity; the phone side awaits a real test.
   Malves the assistant (ARCHITECTURE "Malves, the assistant"): brain on freellmapi
   on an Oracle Cloud VM over Tailscale, memory in an Obsidian vault, phone voice
   routed to it with rule fallback, Confirm/Cancel, voice picker, memory screen —

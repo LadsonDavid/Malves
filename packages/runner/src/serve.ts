@@ -144,7 +144,7 @@ export async function serve(
       })
     : undefined;
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
-  // Handover mode: Malves keeps the computer until Stop, "I'm back", an unlock, or four hours.
+  // Handover mode: Malves keeps the computer until Stop, "I'm back", or four hours (not on an unlock).
   const handover = new Handover({
     // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
     desktop:

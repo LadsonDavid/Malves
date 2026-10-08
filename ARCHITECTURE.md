@@ -112,10 +112,10 @@ runner/
                          AgentHost · BrowserTools · ModelMeter · PhoneLink · Notifier · Store
   adapters/
     acp/                 AgentHost (Cursor gets wrapped into ACP here)
-    browser_gate/        BrowserTools: approval proxy in front of the Chrome extension
-    budget_proxy/        ModelMeter: sits in front of freellmapi or your own key
-    link_tailscale/  link_relay/
-    push_ntfy/  sqlite/
+    browser/             BrowserTools: approval proxy in front of the Chrome extension
+    budget/              ModelMeter: sits in front of freellmapi or your own key
+    link/            (Tailscale or relay)
+    push/  sqlite/
   main                   the only place where core and adapters are wired together
 ```
 
@@ -647,7 +647,7 @@ Each step ends in something demoable:
    browser". Awaiting a test against real signalstack data.
 9. Voice (English India/US, Tamil), hands-free, Whisper dictation. **Built.**
 10. Desktop IDE companion extension. **Built;** connects in VS Code and
-    Antigravity.
+    Antigravity; the phone side awaits a real test.
 11. Malves, the assistant: brain on freellmapi, Obsidian memory, Confirm/Cancel,
     lessons/skills, task notifications, "look at this", encrypted backup,
     handover with live screen. **Built;** runner side and

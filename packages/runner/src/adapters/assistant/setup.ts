@@ -64,7 +64,10 @@ export function assistantFromEnv(o: {
     ...(ides ? { ides } : {}),
     ...(o.ide ? { ide: o.ide } : {}),
     ...(o.leads ? { leads: o.leads } : {}),
-    userName: "Ladson",
+    // The owner's name, as Malves says it; unset means "the owner".
+    ...(process.env.MALVES_USER_NAME?.trim()
+      ? { userName: process.env.MALVES_USER_NAME.trim() }
+      : {}),
     ...(o.handover ? { handover: o.handover } : {}),
     ...(o.browser ? { browser: o.browser } : {}),
     profile,

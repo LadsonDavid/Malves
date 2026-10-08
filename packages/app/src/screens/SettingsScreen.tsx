@@ -359,8 +359,8 @@ function VoiceCard({
         onPress={() =>
           voice.readAloud(
             s.lang === "ta-IN"
-              ? "வணக்கம் Ladson. நான் Malves. என்ன செய்யலாம்?"
-              : "Hi Ladson, Malves here. What are we building today?",
+              ? "வணக்கம். நான் Malves. என்ன செய்யலாம்?"
+              : "Hi, Malves here. What are we building today?",
           )
         }
       />
