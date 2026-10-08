@@ -18,6 +18,7 @@ import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -155,6 +156,13 @@ export async function serve(
         push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
     },
   });
+  const remoteScreen =
+    process.platform === "win32"
+      ? new RemoteScreen({
+          load: () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop()),
+          notice: (text) => windowsNotice(text, say),
+        })
+      : undefined;
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
@@ -212,20 +220,8 @@ export async function serve(
       continue: (tool, id, text) => sessions.continue(tool, id, text, ready),
       workspaceFor: (folder) => sessions.workspaceFor(folder),
     },
-    // The live view: only while Malves has the computer.
-    screen: malves
-      ? async () => {
-          const desktop = await handover.desktop();
-          if (!desktop) {
-            throw new Error(
-              handover.state.active
-                ? "The screen isn't available (yet) on this computer."
-                : "You can watch the screen only during handover.",
-            );
-          }
-          return desktop.preview();
-        }
-      : undefined,
+    // Your screen on the phone, any time (Windows: nut.js); the computer says when it's watched.
+    screen: remoteScreen,
     voice: malves
       ? naturalVoice({
           cartesiaKey: process.env.CARTESIA_API_KEY,

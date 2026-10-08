@@ -89,6 +89,16 @@ export function HomeScreen({
 
       {status === "online" ? <PushCard link={model.push} quiet /> : null}
 
+      {status === "online" && !model.handover.active ? (
+        <Button
+          title="Your screen"
+          kind="secondary"
+          icon={Desktop}
+          onPress={onWatchScreen}
+          hint="Watch the computer's screen live, and control it"
+        />
+      ) : null}
+
       {status !== "rejected" ? (
         <VoiceBar onOpenConversation={onOpenMalves} handover={model.handover.active} />
       ) : null}

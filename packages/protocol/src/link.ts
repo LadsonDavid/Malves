@@ -306,8 +306,24 @@ export const VoiceTranscribe = z.object({
   language: z.string().min(2).max(8),
 });
 
-/** One picture of the computer's screen, during handover (answered in `ack.frame`). */
+/** One picture of the computer's screen (answered in `ack.frame`); the computer says when a phone starts watching. */
 export const ScreenFrame = z.object({ type: z.literal("screen.frame"), command_id: Id });
+
+/**
+ * You, controlling the computer from the phone: a click where you tapped (x and y
+ * are fractions of the picture), scrolling, typing or a key combination.
+ */
+export const ScreenInput = z.object({
+  type: z.literal("screen.input"),
+  command_id: Id,
+  action: z.enum(["click", "double", "right", "scroll", "type", "keys"]),
+  x: z.number().min(0).max(1).optional(),
+  y: z.number().min(0).max(1).optional(),
+  lines: z.number().int().min(-20).max(20).optional(),
+  text: z.string().max(500).optional(),
+  keys: z.string().max(40).optional(),
+});
+export type ScreenInput = z.infer<typeof ScreenInput>;
 
 /** Take the computer back from Malves (handover mode). */
 export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
@@ -335,6 +351,7 @@ export const Command = z.discriminatedUnion("type", [
   TasksStopAll,
   HandoverStop,
   ScreenFrame,
+  ScreenInput,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,

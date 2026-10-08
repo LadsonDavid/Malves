@@ -1,7 +1,7 @@
 /**
- * Mouse, keyboard and screen for handover mode, through nut.js (the free
- * community fork, Apache-2.0). Loaded only when handover starts: it takes a
- * few seconds and pulls in native code.
+ * Mouse, keyboard and screen for handover mode and the phone's remote view,
+ * through nut.js (the free community fork, Apache-2.0). Loaded only when first
+ * needed: it takes a few seconds and pulls in native code.
  *
  * Coordinates are the mouse's (logical pixels): screenshots are resized to the
  * screen's logical size, so a point picked on the picture is where the click
@@ -17,6 +17,10 @@ export interface Desktop {
   /** e.g. "enter", "ctrl+s", "alt+tab". */
   keys(combo: string): Promise<void>;
   mouse(): Promise<{ x: number; y: number }>;
+  /** For you, from the phone: x and y are fractions of the screen (0 to 1). */
+  point(x: number, y: number, button: "left" | "double" | "right"): Promise<void>;
+  /** Positive scrolls down. */
+  scroll(lines: number): Promise<void>;
   activeTitle(): Promise<string>;
 }
 
@@ -82,7 +86,12 @@ export async function nutDesktop(): Promise<Desktop> {
       const picture = await nut.imageToJimp(await nut.screen.grab());
       const scale = Math.min(1, 1000 / picture.getWidth());
       picture
-        .resize(Math.round(picture.getWidth() * scale), Math.round(picture.getHeight() * scale))
+        // Bilinear: about twice as fast as the default, and text stays readable.
+        .resize(
+          Math.round(picture.getWidth() * scale),
+          Math.round(picture.getHeight() * scale),
+          "bilinearInterpolation",
+        )
         .quality(50);
       const jpeg = (await picture.getBufferAsync("image/jpeg")).toString("base64");
       return { jpeg, width: picture.getWidth(), height: picture.getHeight() };
@@ -98,6 +107,20 @@ export async function nutDesktop(): Promise<Desktop> {
       const keys = combo.toLowerCase().replace(/\s+/g, "").split("+").filter(Boolean).map(keyOf);
       await nut.keyboard.pressKey(...keys);
       await nut.keyboard.releaseKey(...keys.reverse());
+    },
+    async point(fx, fy, button) {
+      const width = await nut.screen.width();
+      const height = await nut.screen.height();
+      await nut.mouse.setPosition(
+        new nut.Point(Math.round(fx * (width - 1)), Math.round(fy * (height - 1))),
+      );
+      if (button === "right") await nut.mouse.rightClick();
+      else if (button === "double") await nut.mouse.doubleClick(nut.Button.LEFT);
+      else await nut.mouse.leftClick();
+    },
+    async scroll(lines) {
+      if (lines > 0) await nut.mouse.scrollDown(lines);
+      else if (lines < 0) await nut.mouse.scrollUp(-lines);
     },
     async mouse() {
       const p = await nut.mouse.getPosition();

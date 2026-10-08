@@ -17,6 +17,7 @@ import {
   type PairingOffer,
   type RunnerMessage,
   randomToken,
+  type ScreenInput,
   SealedFrame,
   type Speak,
   seal,
@@ -47,8 +48,13 @@ export type LinkServerOptions = {
   voice?: Voice | undefined;
   /** Sessions across tools, and the folders they ran in (replacing hand-added projects). */
   sessions?: SessionsPort | undefined;
-  /** A picture of the screen, during handover (the phone's live view). */
-  screen?: (() => Promise<{ jpeg: string; width: number; height: number }>) | undefined;
+  /** The computer's screen on the phone: watching it, and your clicks and typing. */
+  screen?:
+    | {
+        frame(): Promise<{ jpeg: string; width: number; height: number }>;
+        input(input: Omit<ScreenInput, "type" | "command_id">): Promise<void>;
+      }
+    | undefined;
   /** Ends handover mode (the phone's Stop button). */
   stopHandover?: (() => void) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
@@ -597,7 +603,16 @@ export class LinkServer {
         case "screen.frame":
           if (!this.o.screen)
             return ack(false, { error: "The live view isn't available on this computer." });
-          return ack(true, { frame: await this.o.screen() });
+          return ack(true, { frame: await this.o.screen.frame() });
+        case "screen.input": {
+          if (!this.o.screen)
+            return ack(false, {
+              error: "Control from the phone isn't available on this computer.",
+            });
+          const { type: _type, command_id: _id, ...input } = command;
+          await this.o.screen.input(input);
+          return ack(true);
+        }
         case "handover.stop":
           if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
           this.o.stopHandover();
