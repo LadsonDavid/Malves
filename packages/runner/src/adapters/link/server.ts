@@ -23,6 +23,7 @@ import {
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import { humanizeSentence } from "../assistant/humanize.js";
 import { langOf, sentences, splitSentences, type Voice } from "../assistant/voice.js";
 import type { LeadSource } from "../leads/signalstack.js";
 import type { Transcriber } from "../voice/whisper.js";
@@ -283,11 +284,19 @@ export class LinkServer {
       });
     };
     return {
+      // Streamed text is always the brain's own words: fully cleaned up.
       text: (delta: string) => {
-        for (const sentence of cut.push(delta)) speak(sentence);
+        for (const sentence of cut.push(delta)) {
+          const clean = humanizeSentence(sentence);
+          if (clean) speak(clean);
+        }
       },
-      finish: (reply: string) => {
-        for (const sentence of splitSentences(reply)) if (!said.has(sentence)) speak(sentence);
+      /** `exact`: a code-written read-back, said as written apart from punctuation. */
+      finish: (reply: string, exact = false) => {
+        for (const sentence of splitSentences(reply)) {
+          const clean = humanizeSentence(sentence, { words: !exact });
+          if (clean && !said.has(clean)) speak(clean);
+        }
         queue = queue.then(() =>
           send({
             type: "assistant.audio",
@@ -573,7 +582,7 @@ export class LinkServer {
                   speaker?.text,
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
-          speaker?.finish(answer.reply);
+          speaker?.finish(answer.reply, answer.pending !== undefined);
           return ack(true, { assistant: answer });
         }
         case "memory.list":
@@ -631,7 +640,7 @@ export class LinkServer {
         case "call.answer": {
           const said = this.o.caller?.answer(command.call_id);
           if (!said) return ack(false, { error: "That call is over." });
-          if (command.speak) this.speaker(command.command_id, command.speak).finish(said);
+          if (command.speak) this.speaker(command.command_id, command.speak).finish(said, true);
           return ack(true, { result: said });
         }
         case "call.decline":

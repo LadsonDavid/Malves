@@ -680,6 +680,12 @@ Each step ends in something demoable:
    gives no echo cancelling for this, so Malves' own words are ignored; a stop
    word ("stop", "wait", "nillu", "போதும்"…) or three words that are mostly not
    Malves' stop it, and it listens. Settings can turn this off.
+6. It sounds like a person, not a chatbot (the humanizer skill, after Wikipedia's
+   "Signs of AI writing"). The brain's instructions ask for short spoken
+   replies with no openers, closers, flattery, AI vocabulary, em dashes,
+   emojis or markdown; then code cleans every reply and every spoken sentence
+   anyway. Filler words are swapped only in the brain's words: code-written
+   read-backs stay exact.
 
 16. His profile, his skill library, his screen from the phone, and Malves
     calling him (Oct 8). **Built;** awaiting real-world tests.
