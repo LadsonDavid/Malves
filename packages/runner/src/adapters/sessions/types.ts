@@ -44,3 +44,10 @@ export function titleFrom(text: string | undefined, fallback: string): string {
     .find((l) => l.length > 0);
   return (line ?? fallback).slice(0, 120);
 }
+
+/**
+ * Lets everything else run between files. The first scan reads every session
+ * (over a GB for a busy Claude Code user, minutes on a cold disk after Windows
+ * starts): done in one go it froze malves serve until it finished.
+ */
+export const breathe = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));

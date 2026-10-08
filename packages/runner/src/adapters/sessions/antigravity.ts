@@ -3,7 +3,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { type SessionInfo, type SessionMessage, type SessionSource, titleFrom } from "./types.js";
+import {
+  breathe,
+  type SessionInfo,
+  type SessionMessage,
+  type SessionSource,
+  titleFrom,
+} from "./types.js";
 
 /**
  * Antigravity's own editor conversations: ~/.gemini/antigravity-ide/conversations/<id>.db,
@@ -38,6 +44,7 @@ export function antigravitySessions(
           continue;
         }
         const info = withDb(full, (db) => describe(db, name.slice(0, -3), mtime));
+        await breathe();
         if (!info) continue;
         cache.set(full, { mtime, info });
         out.push(info);

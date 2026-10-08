@@ -12,7 +12,7 @@ import { knownAgents } from "./agents.js";
 import { autostart, startNow } from "./autostart.js";
 import { supervise } from "./background.js";
 import { serve } from "./serve.js";
-import { controlToken, dataDir, parseDuration, resolveFolder } from "./system.js";
+import { controlToken, dataDir, parseDuration, resolveFolder, runningRunner } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
 
 const USAGE = `malves — run coding agents and answer their questions
@@ -75,6 +75,7 @@ async function main(argv: string[]): Promise<number> {
     return console_(
       controlToken(dir),
       [sub, ...rest].filter((s) => s !== undefined),
+      () => runningRunner(dir) !== undefined,
     );
   if (cmd === "serve" && values.background) {
     // No window, output to ~/.malves/serve.log, restarted if it crashes.

@@ -1,7 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { type SessionInfo, type SessionMessage, type SessionSource, titleFrom } from "./types.js";
+import {
+  breathe,
+  type SessionInfo,
+  type SessionMessage,
+  type SessionSource,
+  titleFrom,
+} from "./types.js";
 
 /**
  * Claude Code sessions: ~/.claude/projects/<folder>/<session id>.jsonl, one
@@ -33,6 +39,7 @@ export function claudeSessions(root = path.join(homedir(), ".claude", "projects"
             continue;
           }
           const info = describe(full, name.slice(0, -6), mtime);
+          await breathe();
           if (!info) continue;
           cache.set(full, { mtime, info });
           out.push(info);
