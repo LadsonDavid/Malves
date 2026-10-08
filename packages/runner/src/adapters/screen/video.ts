@@ -15,7 +15,11 @@ export class ScreenVideo {
   private peer: InstanceType<typeof wrtc.RTCPeerConnection> | undefined;
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly grab: Grab) {}
+  constructor(
+    private readonly grab: Grab,
+    /** Each step, to serve.log: where a failed video stopped. */
+    private readonly log: (line: string) => void = () => {},
+  ) {}
 
   /** Answers the phone's offer and starts streaming; one viewer at a time. */
   async start(offerSdp: string): Promise<{ sdp: string; width: number; height: number }> {
@@ -26,6 +30,7 @@ export class ScreenVideo {
     this.peer = peer;
     peer.addTrack(source.createTrack());
     peer.onconnectionstatechange = () => {
+      this.log(`Video: ${peer.connectionState}.`);
       if (["failed", "closed", "disconnected"].includes(peer.connectionState)) this.stop(peer);
     };
     await peer.setRemoteDescription({ type: "offer", sdp: offerSdp });
@@ -62,6 +67,9 @@ export class ScreenVideo {
           busy = false;
         });
     }, 1000 / FPS);
+    this.log(
+      `Video: answered the phone (${width}x${height}, ${(peer.localDescription?.sdp.match(/a=candidate/g) ?? []).length} addresses).`,
+    );
     return { sdp: peer.localDescription?.sdp ?? "", width, height };
   }
 

@@ -19,13 +19,18 @@ export class RemoteScreen {
   /** The next picture, started while the last one travels to the phone. */
   private next: { at: number; picture: Promise<Frame> } | undefined;
   private readonly now: () => number;
-  private readonly video = new ScreenVideo(async () => (await this.desktop()).raw());
+  private readonly video = new ScreenVideo(
+    async () => (await this.desktop()).raw(),
+    (line) => this.o.log?.(line),
+  );
 
   constructor(
     private readonly o: {
       load: () => Promise<Desktop>;
       /** Shown on the computer itself. */
       notice: (text: string) => void;
+      /** Lines for serve.log only (not shown on the computer). */
+      log?: (line: string) => void;
       now?: () => number;
     },
   ) {
@@ -60,7 +65,14 @@ export class RemoteScreen {
   async startVideo(sdp: string): Promise<{ sdp: string; width: number; height: number }> {
     this.o.notice("Your phone is watching this screen.");
     this.lastFrame = this.now();
-    return this.video.start(sdp);
+    try {
+      return await this.video.start(sdp);
+    } catch (error) {
+      this.o.log?.(
+        `Video: couldn't start: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
   }
 
   stopVideo(): void {
