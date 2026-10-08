@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ScreenInput } from "@malves/protocol";
 import type { Desktop } from "../assistant/desktop.js";
+import { ScreenVideo } from "./video.js";
 
 type Frame = { jpeg: string; width: number; height: number };
 
@@ -18,6 +19,7 @@ export class RemoteScreen {
   /** The next picture, started while the last one travels to the phone. */
   private next: { at: number; picture: Promise<Frame> } | undefined;
   private readonly now: () => number;
+  private readonly video = new ScreenVideo(async () => (await this.desktop()).raw());
 
   constructor(
     private readonly o: {
@@ -54,12 +56,24 @@ export class RemoteScreen {
     return picture;
   }
 
+  /** Live video instead of pictures: answers the phone's WebRTC offer. */
+  async startVideo(sdp: string): Promise<{ sdp: string; width: number; height: number }> {
+    this.o.notice("Your phone is watching this screen.");
+    this.lastFrame = this.now();
+    return this.video.start(sdp);
+  }
+
+  stopVideo(): void {
+    this.video.stop();
+  }
+
   async input(i: Omit<ScreenInput, "type" | "command_id">): Promise<void> {
     if (this.now() - this.lastInput > 60_000)
       this.o.notice("Your phone is controlling this computer.");
     this.lastInput = this.now();
     const d = await this.desktop();
     switch (i.action) {
+      case "move":
       case "click":
       case "double":
       case "right":

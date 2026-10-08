@@ -146,6 +146,7 @@ describe("Malves, the assistant", () => {
       mouse: async () => ({ x: 0, y: 0 }),
       point: async () => {},
       scroll: async () => {},
+      raw: async () => ({ width: 2, height: 2, rgba: new Uint8Array(16) }),
     };
     const handover = new Handover({
       onChange: () => {},

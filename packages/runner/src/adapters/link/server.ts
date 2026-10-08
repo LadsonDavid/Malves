@@ -63,6 +63,8 @@ export type LinkServerOptions = {
     | {
         frame(): Promise<{ jpeg: string; width: number; height: number }>;
         input(input: Omit<ScreenInput, "type" | "command_id">): Promise<void>;
+        startVideo?(sdp: string): Promise<{ sdp: string; width: number; height: number }>;
+        stopVideo?(): void;
       }
     | undefined;
   /** Ends handover mode (the phone's Stop button). */
@@ -626,6 +628,13 @@ export class LinkServer {
           if (!this.o.screen)
             return ack(false, { error: "The live view isn't available on this computer." });
           return ack(true, { frame: await this.o.screen.frame() });
+        case "screen.video":
+          if (!this.o.screen?.startVideo)
+            return ack(false, { error: "Live video isn't available on this computer." });
+          return ack(true, { video: await this.o.screen.startVideo(command.sdp) });
+        case "screen.video.stop":
+          this.o.screen?.stopVideo?.();
+          return ack(true);
         case "screen.input": {
           if (!this.o.screen)
             return ack(false, {

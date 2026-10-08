@@ -85,3 +85,13 @@ are not copied into this repository.
   React Native 0.86), and the lock screen is no longer switched off when a call
   rings (the library disabled the keyguard, so answering opened the app without
   the phone's PIN). Original MIT notice kept.
+
+## WebRTC for the live screen
+
+- `react-native-webrtc` 124.0.8 (https://github.com/react-native-webrtc/react-native-webrtc), MIT,
+  with `@config-plugins/react-native-webrtc` 15.0.2 (Expo, MIT): the phone receives the screen as
+  video. Used in `packages/app/src/screens/ScreenScreen.tsx`. No code copied.
+- `@roamhq/wrtc` 0.10.0 (https://github.com/WonderInventions/node-webrtc), the node-webrtc
+  licence (BSD-style, kept in its package): the computer encodes and sends the screen. Used in
+  `packages/runner/src/adapters/screen/video.ts`. No code copied.
+- `expo-screen-orientation` (Expo, MIT): landscape full screen.

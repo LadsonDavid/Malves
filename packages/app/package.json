@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "15.0.2",
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/geist": "^0.4.2",
     "@expo-google-fonts/geist-mono": "^0.4.3",
@@ -16,6 +17,7 @@
     "expo-font": "~57.0.4",
     "expo-haptics": "~57.0.3",
     "expo-notifications": "~57.0.22",
+    "expo-screen-orientation": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-speech": "~57.0.3",
     "expo-speech-recognition": "57.1.0",
@@ -27,7 +29,8 @@
     "react-native-full-screen-notification-incoming-call": "1.1.0",
     "react-native-heroicons": "^4.0.0",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": "15.15.4",
+    "react-native-webrtc": "124.0.8"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

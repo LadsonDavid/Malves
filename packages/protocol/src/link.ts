@@ -318,7 +318,7 @@ export const ScreenFrame = z.object({ type: z.literal("screen.frame"), command_i
 export const ScreenInput = z.object({
   type: z.literal("screen.input"),
   command_id: Id,
-  action: z.enum(["click", "double", "right", "scroll", "type", "keys"]),
+  action: z.enum(["move", "click", "double", "right", "scroll", "type", "keys"]),
   x: z.number().min(0).max(1).optional(),
   y: z.number().min(0).max(1).optional(),
   lines: z.number().int().min(-20).max(20).optional(),
@@ -326,6 +326,16 @@ export const ScreenInput = z.object({
   keys: z.string().max(40).optional(),
 });
 export type ScreenInput = z.infer<typeof ScreenInput>;
+
+/** Live video of the screen (WebRTC): the phone's offer; the answer is in `ack.video`. */
+export const ScreenVideo = z.object({
+  type: z.literal("screen.video"),
+  command_id: Id,
+  sdp: z.string().min(1).max(20_000),
+});
+
+/** The phone stopped watching: stop the video. */
+export const ScreenVideoStop = z.object({ type: z.literal("screen.video.stop"), command_id: Id });
 
 /** This phone's Firebase token, so Malves can ring it (a call; the push carries no content). */
 export const CallRegister = z.object({
@@ -391,6 +401,8 @@ export const Command = z.discriminatedUnion("type", [
   HandoverStop,
   ScreenFrame,
   ScreenInput,
+  ScreenVideo,
+  ScreenVideoStop,
   CallRegister,
   CallAnswer,
   CallDecline,
@@ -563,6 +575,10 @@ export const Ack = z.object({
       /** Skills from his library the reply drew on. */
       skills: z.array(z.string().max(80)).max(4).optional(),
     })
+    .optional(),
+  /** The answer to `screen.video`: the computer's WebRTC answer and the screen's size. */
+  video: z
+    .object({ sdp: z.string().max(20_000), width: z.number().int(), height: z.number().int() })
     .optional(),
   /** The answer to `screen.frame`: a JPEG of the screen. */
   frame: z

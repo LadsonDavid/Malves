@@ -714,10 +714,13 @@ advice, reviews or judgments, as data it must never act on. The phone shows
 
 ### His screen from the phone
 
-Any time, not only in handover: about three pictures a second on a 1080p screen
-(the next one captured while the last travels), and in Control a tap clicks
-there (as a fraction of the screen, so display scaling doesn't matter), plus
-double/right click, scroll, typing and keys. No read-backs: he decides each
+Any time, not only in handover: real video over WebRTC (@roamhq/wrtc on the
+computer, react-native-webrtc on the phone), about 13 frames a second in full HD,
+with the offer and answer over the sealed link and the video straight between
+the two over Tailscale (no TURN server: the relay setup falls back to pictures,
+about three a second). A tap clicks where you tap (as a fraction of the screen,
+so display scaling doesn't matter), a hold right-clicks; Trackpad mode moves the
+pointer by dragging; plus scroll, typing, keys, zoom and landscape full screen. No read-backs: he decides each
 click. The computer shows a Windows notification when a phone starts watching or
 takes control. No fingerprint gate (his choice).
 

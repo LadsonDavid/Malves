@@ -18,6 +18,7 @@ describe("your screen on the phone", () => {
       activeTitle: async () => "",
       point: async (x, y, b) => void did.push(`${b} ${x},${y}`),
       scroll: async (n) => void did.push(`scroll ${n}`),
+      raw: async () => ({ width: 2, height: 2, rgba: new Uint8Array(16) }),
     };
     const screen = new RemoteScreen({
       load: async () => {

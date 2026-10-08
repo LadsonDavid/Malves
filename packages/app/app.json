@@ -51,7 +51,8 @@
         {
           "statusBarColor": "#0B1F3A"
         }
-      ]
+      ],
+      "@config-plugins/react-native-webrtc"
     ],
     "scheme": "malves"
   }

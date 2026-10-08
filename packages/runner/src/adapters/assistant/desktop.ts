@@ -17,8 +17,10 @@ export interface Desktop {
   /** e.g. "enter", "ctrl+s", "alt+tab". */
   keys(combo: string): Promise<void>;
   mouse(): Promise<{ x: number; y: number }>;
+  /** The whole screen, raw RGBA, for live video. */
+  raw(): Promise<{ width: number; height: number; rgba: Uint8Array }>;
   /** For you, from the phone: x and y are fractions of the screen (0 to 1). */
-  point(x: number, y: number, button: "left" | "double" | "right"): Promise<void>;
+  point(x: number, y: number, button: "move" | "left" | "double" | "right"): Promise<void>;
   /** Positive scrolls down. */
   scroll(lines: number): Promise<void>;
   activeTitle(): Promise<string>;
@@ -108,12 +110,21 @@ export async function nutDesktop(): Promise<Desktop> {
       await nut.keyboard.pressKey(...keys);
       await nut.keyboard.releaseKey(...keys.reverse());
     },
+    async raw() {
+      const image = await (await nut.screen.grab()).toRGB();
+      return {
+        width: image.width,
+        height: image.height,
+        rgba: new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.length),
+      };
+    },
     async point(fx, fy, button) {
       const width = await nut.screen.width();
       const height = await nut.screen.height();
       await nut.mouse.setPosition(
         new nut.Point(Math.round(fx * (width - 1)), Math.round(fy * (height - 1))),
       );
+      if (button === "move") return;
       if (button === "right") await nut.mouse.rightClick();
       else if (button === "double") await nut.mouse.doubleClick(nut.Button.LEFT);
       else await nut.mouse.leftClick();
