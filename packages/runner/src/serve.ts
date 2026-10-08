@@ -5,6 +5,7 @@ import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Handover } from "./adapters/assistant/handover.js";
+import { startProfileReview } from "./adapters/assistant/profile.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
@@ -274,6 +275,14 @@ export async function serve(
           quietHours: process.env.MALVES_QUIET_HOURS,
         })
       : () => {};
+  const stopProfileReview =
+    malves && pushOn && push
+      ? startProfileReview({
+          dataDir: dir,
+          review: () => malves.reviewProfile(),
+          notify: (title, message, click) => push.notify(title, message, click),
+        })
+      : () => {};
   const backupTarget = process.env.MALVES_BACKUP_SSH;
   const vault = process.env.MALVES_VAULT;
   const stopBackups =
@@ -494,6 +503,7 @@ export async function serve(
   stopActivity();
   stopDigest();
   stopWatcher();
+  stopProfileReview();
   stopBackups();
   await push?.close();
   await tools.close();

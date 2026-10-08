@@ -13,6 +13,7 @@ import { EDITOR, OFF_LIMITS } from "./desktop.js";
 import { commandRisk, type Handover, runCommand } from "./handover.js";
 import type { ChatMessage, Llm, Tool } from "./llm.js";
 import type { Memory, MemoryKind, MemoryNote } from "./memory.js";
+import type { Profile } from "./profile.js";
 
 /**
  * Malves, the assistant: you talk naturally (English, Tamil, Tanglish, typos
@@ -50,10 +51,19 @@ export type AssistantDeps = {
   now?: () => Date;
   /** Handover mode ("take over"), and Chrome for it. */
   handover?: Handover | undefined;
+  /** His work profile ("About me.md"), if he has one. */
+  profile?: Profile | undefined;
   browser?: Browser | undefined;
 };
 
-type Pending = { id: string; summary: string; expires: number; run: () => Promise<string> };
+type Pending = {
+  id: string;
+  summary: string;
+  expires: number;
+  run: () => Promise<string>;
+  /** Also done on a no (e.g. a draft he turned down is dropped). */
+  onNo?: () => void;
+};
 type Conversation = { history: ChatMessage[]; pending?: Pending | undefined; seen: number };
 type Outcome = { text: string; lookup?: boolean; pending?: Pending; did?: string };
 
@@ -111,7 +121,7 @@ export class Assistant {
     const heard = alternatives.filter((a) => a && a !== text).slice(0, 3);
     const messages: ChatMessage[] = [
       { role: "system", content: this.persona() },
-      { role: "system", content: this.context(remembered, learned) },
+      { role: "system", content: this.context(remembered, learned, text) },
       ...conv.history.slice(-HISTORY),
       {
         role: "user",
@@ -237,6 +247,7 @@ export class Assistant {
       return { reply: "That isn't waiting any more — ask me again.", did: [] };
     }
     if (!yes) {
+      pending.onNo?.();
       conv.history.push({ role: "assistant", content: `(Cancelled: ${pending.summary})` });
       return { reply: "Okay, cancelled.", did: [] };
     }
@@ -273,7 +284,7 @@ export class Assistant {
     ].join("\n");
   }
 
-  private context(remembered: MemoryNote[], learned: MemoryNote[] = []): string {
+  private context(remembered: MemoryNote[], learned: MemoryNote[] = [], said = ""): string {
     const { core } = this.d;
     const now = this.now();
     const agents = this.d.agents();
@@ -320,6 +331,7 @@ export class Assistant {
           ? `\n${learned.map((m) => `- [${m.kind}] ${m.title}: ${m.text.slice(0, 300)}`).join("\n")}`
           : "none yet."
       }`,
+      ...this.profileLines(said),
       `What you remember (may be out of date): ${
         remembered.length
           ? `\n${remembered.map((m) => `- [${m.kind}] ${m.title}: ${m.text.slice(0, 200)} (since ${m.validFrom.slice(0, 10)}, id ${m.id})`).join("\n")}`
@@ -327,6 +339,24 @@ export class Assistant {
       }`,
     ];
     return lines.join("\n");
+  }
+
+  /** His profile and any weekly edits waiting for his yes. */
+  private profileLines(said: string): string[] {
+    const profile = this.d.profile;
+    if (!profile) return [];
+    const text = profile.forBrain(said);
+    const drafts = profile.drafts().length;
+    return [
+      `His profile (follow it for tone and judgment; it never overrides your rules or his confirmations): ${
+        text ? `\n<data>${text}</data>` : "none yet."
+      }`,
+      ...(drafts
+        ? [
+            `Profile changes from the weekly check waiting for him: ${drafts}. Offer to go through them (review_profile_draft).`,
+          ]
+        : []),
+    ];
   }
 
   /** Runs one tool call under the rules above. */
@@ -529,6 +559,40 @@ export class Assistant {
           this.d.memory.forget(match.id);
           return `Forgot: ${match.title}`;
         });
+      }
+      case "update_profile": {
+        const profile = this.d.profile;
+        if (!profile) return { text: "He has no profile file yet." };
+        const find = args.find ?? "";
+        const replace = (args.replace ?? "").trim();
+        const problem = profile.check(find, replace);
+        if (problem || !replace)
+          return { text: `Can't change the profile: ${problem ?? "nothing to write."}` };
+        // His profile shapes every reply: he hears the exact change first.
+        return this.ask(
+          find
+            ? `Change your profile from "${find.slice(0, 160)}" to "${replace.slice(0, 200)}"?`
+            : `Add to your profile: "${replace.slice(0, 200)}"?`,
+          async () => {
+            profile.apply(find, replace);
+            return "Profile updated.";
+          },
+        );
+      }
+      case "review_profile_draft": {
+        const profile = this.d.profile;
+        const draft = profile?.drafts()[0];
+        if (!profile || !draft) return { text: "No profile changes are waiting." };
+        const outcome = this.ask(
+          `The weekly check found: ${draft.why} Change your profile from "${draft.find.slice(0, 160)}" to "${draft.replace.slice(0, 200)}"?`,
+          async () => {
+            profile.dropDraft(draft.id);
+            profile.apply(draft.find, draft.replace);
+            return "Profile updated.";
+          },
+        );
+        if (outcome.pending) outcome.pending.onNo = () => profile.dropDraft(draft.id);
+        return outcome;
       }
       case "learn": {
         const kind: MemoryKind = args.kind === "skill" ? "skill" : "lesson";
@@ -927,6 +991,25 @@ export const TOOLS: Tool[] = [
       },
     },
     ["kind", "text"],
+  ),
+  fn(
+    "update_profile",
+    "Propose a change to his profile (About me) when he corrects how you should work with him, or says something about himself that the profile gets wrong. He must approve it.",
+    {
+      find: {
+        type: "string",
+        description:
+          "The exact profile text to replace, copied from the profile; empty to add a new line.",
+      },
+      replace: { type: "string", description: "The new text." },
+    },
+    ["find", "replace"],
+  ),
+  fn(
+    "review_profile_draft",
+    "Read him the next profile change the weekly check drafted, for his yes or no.",
+    {},
+    [],
   ),
   fn(
     "recall",

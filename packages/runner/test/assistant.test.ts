@@ -17,6 +17,7 @@ import { Assistant, type AssistantDeps } from "../src/adapters/assistant/assista
 import { Handover } from "../src/adapters/assistant/handover.js";
 import type { ChatMessage, Llm, ToolCall } from "../src/adapters/assistant/llm.js";
 import { Memory } from "../src/adapters/assistant/memory.js";
+import { Profile } from "../src/adapters/assistant/profile.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { randomIds, systemClock } from "../src/system.js";
 
@@ -629,5 +630,91 @@ describe("Malves' memory (the Obsidian vault)", () => {
     (m as unknown as { lastFill: number }).lastFill = 0;
     await m.list();
     expect(vectorOf()).not.toBeNull();
+  });
+});
+
+describe("his profile", () => {
+  const PROFILE = `<about_me>
+<usage>Load at session start.</usage>
+<identity_context>
+- Ladson, CEO of Malveon.
+- Early riser (05:40).
+</identity_context>
+<writing_laws>
+<law>Never use em dashes.</law>
+</writing_laws>
+</about_me>
+`;
+  const withProfile = (script: Turn[]) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "malves-profile-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const vault = path.join(dir, "vault");
+    mkdirSync(vault);
+    writeFileSync(path.join(vault, "About me.md"), PROFILE);
+    const brain = fakeBrain(script);
+    const profile = new Profile({ vault, dataDir: dir, llm: brain.llm });
+    return { profile, file: path.join(vault, "About me.md") };
+  };
+
+  it("sends its core always, and all of it when he asks for writing", () => {
+    const { profile } = withProfile([]);
+    const core = profile.forBrain("is codex done?");
+    expect(core).toContain("CEO of Malveon");
+    expect(core).not.toContain("em dashes");
+    expect(core).not.toContain("Load at session start");
+    expect(profile.forBrain("draft a LinkedIn post about the demo")).toContain("em dashes");
+  });
+
+  it("changes only exact, single matches, and never its sections", () => {
+    const { profile, file } = withProfile([]);
+    expect(profile.check("Early riser", "Late riser")).toBeUndefined();
+    expect(profile.check("not in the profile", "x")).toMatch(/exactly once/);
+    expect(profile.check("</identity_context>", "")).toMatch(/sections/);
+    profile.apply("Early riser (05:40)", "Usually starts work after 08:00");
+    expect(readFileSync(file, "utf8")).toContain("Usually starts work after 08:00");
+  });
+
+  it("a correction becomes a read-back; the profile changes only on yes", async () => {
+    const { profile, file } = withProfile([]);
+    const t = setup(
+      [
+        {
+          calls: [
+            ["update_profile", { find: "Early riser (05:40)", replace: "Starts around 08:00" }],
+          ],
+        },
+      ],
+      undefined,
+      { profile },
+    );
+    const asked = await t.assistant.say("c1", "I don't wake that early any more, around 8");
+    expect(asked.reply).toBe(
+      'Change your profile from "Early riser (05:40)" to "Starts around 08:00"? Shall I go ahead?',
+    );
+    expect(readFileSync(file, "utf8")).toContain("Early riser (05:40)");
+    await t.assistant.confirm("c1", asked.pending?.id ?? "", true);
+    expect(readFileSync(file, "utf8")).toContain("Starts around 08:00");
+  });
+
+  it("the weekly check drafts only edits that match, and a no drops the draft", async () => {
+    const { profile, file } = withProfile([
+      {
+        content: JSON.stringify([
+          {
+            find: "Early riser (05:40)",
+            replace: "Starts around 08:00",
+            why: "Started after 8 most days.",
+          },
+          { find: "something he never wrote", replace: "x", why: "made up" },
+        ]),
+      },
+    ]);
+    expect(await profile.review(["claude: fix the footer"])).toBe(1);
+    const t = setup([{ calls: [["review_profile_draft", {}]] }], undefined, { profile });
+    const asked = await t.assistant.say("c1", "go through them");
+    expect(asked.reply).toMatch(/^The weekly check found: Started after 8 most days\./);
+    await t.assistant.confirm("c1", asked.pending?.id ?? "", false);
+    expect(profile.drafts()).toEqual([]);
+    expect(readFileSync(file, "utf8")).toContain("Early riser (05:40)");
   });
 });

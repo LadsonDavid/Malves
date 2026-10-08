@@ -352,6 +352,7 @@ describe("links into the app, and lead emails", () => {
   it("opens a task or Leads from a notification link, and ignores anything else", () => {
     expect(parseLink("malves://task/t_ab12")).toEqual({ taskId: "t_ab12" });
     expect(parseLink("malves://leads")).toEqual({ tab: "leads" });
+    expect(parseLink("malves://malves")).toEqual({ malves: true });
     expect(parseLink("https://evil.example/task/1")).toBeUndefined();
     expect(parseLink("malves://settings")).toBeUndefined();
     expect(parseLink(null)).toBeUndefined();

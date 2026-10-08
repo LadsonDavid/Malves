@@ -150,7 +150,8 @@ function Main() {
     if ("tab" in target) {
       setStack([]);
       setTab(target.tab);
-    } else setStack([{ kind: "task", id: target.taskId }]);
+    } else if ("malves" in target) setStack([{ kind: "malves" }]);
+    else setStack([{ kind: "task", id: target.taskId }]);
   }, []);
   useEffect(() => {
     void Linking.getInitialURL().then((url) => go(parseLink(url)));

@@ -333,12 +333,13 @@ export function countdown(expiresAt: number, now = Date.now()): string {
 }
 
 /** Where a `malves://` link (from a notification) should open. */
-export type Target = { tab: "leads" } | { taskId: string } | undefined;
+export type Target = { tab: "leads" } | { taskId: string } | { malves: true } | undefined;
 
 export function parseLink(url: string | null | undefined): Target {
   const match = url?.match(/^malves:\/\/([a-z]+)(?:\/([^/?#]+))?/i);
   if (!match) return undefined;
   if (match[1] === "leads") return { tab: "leads" };
+  if (match[1] === "malves") return { malves: true };
   if (match[1] === "task" && match[2]) return { taskId: decodeURIComponent(match[2]) };
   return undefined;
 }

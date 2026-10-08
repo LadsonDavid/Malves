@@ -7,6 +7,7 @@ import { Assistant } from "./assistant.js";
 import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
+import { Profile } from "./profile.js";
 
 /**
  * Malves, the assistant, if its brain and memory are set up:
@@ -23,7 +24,7 @@ export function assistantFromEnv(o: {
   leads?: (() => Promise<Lead[]>) | undefined;
   handover?: Handover | undefined;
   browser?: Browser | undefined;
-}): { port: AssistantPort; close: () => void } | undefined {
+}): { port: AssistantPort; close: () => void; reviewProfile: () => Promise<number> } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
   const vault = process.env.MALVES_VAULT;
@@ -42,6 +43,7 @@ export function assistantFromEnv(o: {
     indexFile: path.join(o.dataDir, "memory-index.db"),
     embed: (texts) => llm.embed(texts),
   });
+  const profile = new Profile({ vault, dataDir: o.dataDir, llm });
   const ides: (() => IdeInfo[]) | undefined = o.ide ? () => o.ide?.list() ?? [] : undefined;
   const assistant = new Assistant({
     core: o.core,
@@ -54,6 +56,7 @@ export function assistantFromEnv(o: {
     userName: "Ladson",
     ...(o.handover ? { handover: o.handover } : {}),
     ...(o.browser ? { browser: o.browser } : {}),
+    profile,
   });
   return {
     port: {
@@ -72,5 +75,7 @@ export function assistantFromEnv(o: {
       forget: (id) => memory.forget(id) !== undefined,
     },
     close: () => memory.close(),
+    reviewProfile: () =>
+      profile.review(o.core.tasks.list().map((t) => `${t.agent}: ${t.prompt.slice(0, 160)}`)),
   };
 }
