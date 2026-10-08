@@ -24,7 +24,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   Voice (APK): en-IN/en-US/Tamil, rule-based commands, hands-free mode, precise
   dictation via Whisper/freellmapi (ARCHITECTURE "Voice"). IDE companion extension
   (`packages/ide`, ARCHITECTURE "Desktop IDEs"): start the IDE's agent, open changes,
-  reopen conversations, answer questions in the IDE — awaiting a real IDE test.
+  reopen conversations, answer questions in the IDE — connects in VS Code and
+  Antigravity; the phone side awaits a real test.
   Malves the assistant (ARCHITECTURE "Malves, the assistant"): brain on freellmapi
   on an Oracle Cloud VM over Tailscale, memory in an Obsidian vault, phone voice
   routed to it with rule fallback, Confirm/Cancel, voice picker, memory screen —
@@ -93,7 +94,7 @@ Set these locally in every new environment. Never commit here as
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |
 | Handover mode: shell in project folders + Chrome + screen; looking and tests/builds auto, the rest asks; ends **only** on Stop, "I'm back", or 4 h (not on mouse movement or unlock) | Owner's choice (Oct 2026): he may sit at the desk watching it work |
-| The phone shows the PC screen live **any time** (~3 fps, ~60 KB/frame) and can control it (tap to click, scroll, type, keys); no fingerprint gate; the PC shows a Windows notification when a phone starts watching or takes control | Owner's choice (Oct 8, 2026), replacing "view only, during handover only" |
+| The phone shows the PC screen live **any time** as WebRTC video (~13 fps full HD over Tailscale; pictures as fallback) and can control it (tap to click, scroll, type, keys); no fingerprint gate; the PC shows a Windows notification when a phone starts watching or takes control | Owner's choice (Oct 8, 2026), replacing "view only, during handover only" |
 | Never work around Windows Defender/antivirus | The desktop-control PowerShell helper was flagged as malicious; evasion is what malware does |
 | Desktop IDEs via one companion extension (`packages/ide`), public APIs only | Owner's choice (Oct 2026): IDE agent panels have no public API |
 | In handover mode Malves uses editors on screen as a co-developer | Owner's choice (Oct 2026, reversing the earlier ban); every click/keystroke is read back, editor ones say they may accept/reject the AI's change |

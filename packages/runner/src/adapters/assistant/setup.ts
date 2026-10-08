@@ -64,7 +64,10 @@ export function assistantFromEnv(o: {
     ...(ides ? { ides } : {}),
     ...(o.ide ? { ide: o.ide } : {}),
     ...(o.leads ? { leads: o.leads } : {}),
-    userName: "Ladson",
+    // The owner's name, as Malves says it; unset means "the owner".
+    ...(process.env.MALVES_USER_NAME?.trim()
+      ? { userName: process.env.MALVES_USER_NAME.trim() }
+      : {}),
     ...(o.handover ? { handover: o.handover } : {}),
     ...(o.browser ? { browser: o.browser } : {}),
     profile,
@@ -73,8 +76,8 @@ export function assistantFromEnv(o: {
   });
   return {
     port: {
-      say: (conversation, text, alternatives, onText) =>
-        assistant.say(conversation, text, alternatives, onText),
+      say: (conversation, text, alternatives, onText, where) =>
+        assistant.say(conversation, text, alternatives, onText, where),
       confirm: (conversation, pending, yes) => assistant.confirm(conversation, pending, yes),
       look: (conversation, photo, question) => assistant.look(conversation, photo, question),
       memories: async () =>

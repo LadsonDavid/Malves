@@ -173,19 +173,6 @@ export function NewTaskScreen({
         </View>
       ) : null}
 
-      <Text style={styles.muted}>
-        {folder && agent
-          ? `In ${folderName ?? folder} with ${model.agents.find((a) => a.name === agent)?.label ?? agent}. Change below.`
-          : "Pick a folder and an agent below."}
-      </Text>
-      {problem ? <Banner tone="bad">{problem}</Banner> : null}
-      <Button
-        title={sending ? "Sending…" : "Start"}
-        busy={sending}
-        disabled={!client || !folder || !agent || prompt.trim() === ""}
-        onPress={() => void start()}
-      />
-
       <Section title="Folder">
         {folders === undefined ? (
           <Text style={styles.muted}>Loading your folders…</Text>
@@ -235,6 +222,19 @@ export function NewTaskScreen({
           />
         ) : null}
       </Section>
+
+      <Text style={styles.muted}>
+        {folder && agent
+          ? `In ${folderName ?? folder} with ${model.agents.find((a) => a.name === agent)?.label ?? agent}. Change above.`
+          : "Pick a folder and an agent above."}
+      </Text>
+      {problem ? <Banner tone="bad">{problem}</Banner> : null}
+      <Button
+        title={sending ? "Sending…" : "Start"}
+        busy={sending}
+        disabled={!client || !folder || !agent || prompt.trim() === ""}
+        onPress={() => void start()}
+      />
     </ScrollView>
   );
 }

@@ -1,10 +1,11 @@
 import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
-import { Alert, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, BackHandler, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Speaker } from "../icons";
 import { ago, type Model, running } from "../model";
 import { PushCard } from "../PushCard";
 import {
+  BackBar,
   Banner,
   Button,
   buzz,
@@ -38,8 +39,21 @@ const AGENT_STATE: Record<AgentInfo["state"], [string, Tone | "plain"]> = {
 };
 
 /** Everything about the connection and the computer, plus the rare, serious actions. */
+type Page = "voice" | "calls" | "memory" | "computer" | "notifications";
+
 export function SettingsScreen({ model, status, lastOnline, client, onUnpair, say }: Props) {
   const [checking, setChecking] = useState(false);
+  // Settings is a short list; each row opens its own page.
+  const [page, setPage] = useState<Page>();
+  // Android's back button closes a sub-page first.
+  useEffect(() => {
+    if (!page) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setPage(undefined);
+      return true;
+    });
+    return () => sub.remove();
+  }, [page]);
   const [stopping, setStopping] = useState(false);
   const active = running(model);
   const voice = useVoice();
@@ -93,6 +107,76 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
       ],
     );
 
+  if (page) {
+    const titles: Record<Page, string> = {
+      voice: "Voice",
+      calls: "Calls",
+      memory: "Memory",
+      computer: "This computer",
+      notifications: "Notifications",
+    };
+    return (
+      <ScrollView contentContainerStyle={styles.page}>
+        <BackBar onBack={() => setPage(undefined)} />
+        <Title>{titles[page]}</Title>
+        {page === "voice" ? <VoiceCard voice={voice} phoneVoices={phoneVoices} /> : null}
+        {page === "calls" ? <CallsCard voice={voice} /> : null}
+        {page === "memory" ? (
+          <MemoryCard model={model} client={client} online={status === "online"} say={say} />
+        ) : null}
+        {page === "computer" ? (
+          <>
+            <Card>
+              <Text style={[styles.body, styles.strong]}>{model.computer ?? "Your computer"}</Text>
+              <Text style={styles.muted}>
+                {status === "online"
+                  ? "Connected, end-to-end encrypted."
+                  : status === "offline"
+                    ? `Offline${lastOnline ? `, last seen ${ago(new Date(lastOnline).toISOString())}` : ""}. Retrying.`
+                    : status === "connecting"
+                      ? "Connecting…"
+                      : "This computer no longer accepts this phone."}
+              </Text>
+              <Text style={styles.muted}>
+                Chrome:{" "}
+                {model.chrome === null
+                  ? "unknown"
+                  : model.chrome
+                    ? "connected"
+                    : "not connected (type extension in malves serve)"}
+              </Text>
+              <Text style={styles.muted}>
+                Projects:{" "}
+                {model.workspaces.map((w) => w.name).join(", ") || "none yet (type add <folder>)"}
+              </Text>
+            </Card>
+            <List>
+              {model.agents.map((a) => (
+                <Row key={a.name}>
+                  <View
+                    style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}
+                  >
+                    <Text style={styles.body}>{a.label}</Text>
+                    <Chip label={AGENT_STATE[a.state][0]} tone={AGENT_STATE[a.state][1]} />
+                  </View>
+                  {a.hint ? <Text style={styles.muted}>{a.hint}</Text> : null}
+                </Row>
+              ))}
+            </List>
+            <Button
+              title="Check again"
+              kind="plain"
+              busy={checking}
+              disabled={!client || status !== "online"}
+              onPress={() => void checkAgain()}
+            />
+          </>
+        ) : null}
+        {page === "notifications" ? <PushCard link={model.push} /> : null}
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       contentContainerStyle={styles.page}
@@ -100,66 +184,30 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
     >
       <Title>Settings</Title>
 
-      {model.assistant ? (
-        <Section title="Malves">
-          <VoiceCard voice={voice} phoneVoices={phoneVoices} />
-          <CallsCard voice={voice} />
-          <MemoryCard model={model} client={client} online={status === "online"} say={say} />
-        </Section>
-      ) : (
-        <Section title="Malves">
-          <MemoryCard model={model} client={client} online={status === "online"} say={say} />
-        </Section>
-      )}
-
-      <Section title="This computer">
-        <Card>
-          <Text style={[styles.body, styles.strong]}>{model.computer ?? "Your computer"}</Text>
-          <Text style={styles.muted}>
-            {status === "online"
-              ? "Connected, end-to-end encrypted."
-              : status === "offline"
-                ? `Offline${lastOnline ? `, last seen ${ago(new Date(lastOnline).toISOString())}` : ""}. Retrying.`
-                : status === "connecting"
-                  ? "Connecting…"
-                  : "This computer no longer accepts this phone."}
-          </Text>
-          <Text style={styles.muted}>
-            Chrome:{" "}
-            {model.chrome === null
-              ? "unknown"
-              : model.chrome
-                ? "connected"
-                : "not connected (type extension in malves serve)"}
-          </Text>
-          <Text style={styles.muted}>
-            Projects:{" "}
-            {model.workspaces.map((w) => w.name).join(", ") || "none yet (type add <folder>)"}
-          </Text>
-        </Card>
-        <List>
-          {model.agents.map((a) => (
-            <Row key={a.name}>
-              <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
-                <Text style={styles.body}>{a.label}</Text>
-                <Chip label={AGENT_STATE[a.state][0]} tone={AGENT_STATE[a.state][1]} />
-              </View>
-              {a.hint ? <Text style={styles.muted}>{a.hint}</Text> : null}
-            </Row>
-          ))}
-        </List>
-        <Button
-          title="Check again"
-          kind="plain"
-          busy={checking}
-          disabled={!client || status !== "online"}
-          onPress={() => void checkAgain()}
-        />
-      </Section>
-
-      <Section title="Notifications">
-        <PushCard link={model.push} />
-      </Section>
+      <List>
+        {[
+          ...(model.assistant
+            ? ([
+                [
+                  "voice",
+                  "Voice",
+                  voice.settings.naturalVoices.en.includes("female") ? "Female" : "Male",
+                ],
+                ["calls", "Calls", voice.callsProblem ? "Not set up" : "On"],
+              ] as const)
+            : []),
+          ["memory", "Memory", ""],
+          ["computer", "This computer", status === "online" ? "Connected" : "Offline"],
+          ["notifications", "Notifications", model.push ? "" : "Off"],
+        ].map(([key, label, value]) => (
+          <Row key={key} onPress={() => setPage(key as Page)} label={label}>
+            <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
+              <Text style={styles.body}>{label}</Text>
+              {value ? <Text style={styles.meta}>{value}</Text> : null}
+            </View>
+          </Row>
+        ))}
+      </List>
 
       <Section title="Careful">
         <Button
@@ -359,8 +407,8 @@ function VoiceCard({
         onPress={() =>
           voice.readAloud(
             s.lang === "ta-IN"
-              ? "வணக்கம் Ladson. நான் Malves. என்ன செய்யலாம்?"
-              : "Hi Ladson, Malves here. What are we building today?",
+              ? "வணக்கம். நான் Malves. என்ன செய்யலாம்?"
+              : "Hi, Malves here. What are we building today?",
           )
         }
       />

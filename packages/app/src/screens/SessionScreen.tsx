@@ -28,6 +28,9 @@ export function SessionScreen({
   const [problem, setProblem] = useState<string>();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // The last few messages are what you need to carry on; the rest on request.
+  const [everything, setEverything] = useState(false);
+  const hidden = messages && !everything ? Math.max(0, messages.length - 4) : 0;
 
   useEffect(() => {
     if (!client || status !== "online") return;
@@ -91,7 +94,14 @@ export function SessionScreen({
       {messages?.length === 0 ? (
         <Text style={styles.muted}>No messages could be read from this session.</Text>
       ) : null}
-      {messages?.map((m, i) =>
+      {hidden > 0 ? (
+        <Button
+          title={`Show ${hidden} earlier message${hidden === 1 ? "" : "s"}`}
+          kind="ghost"
+          onPress={() => setEverything(true)}
+        />
+      ) : null}
+      {messages?.slice(hidden).map((m, i) =>
         m.who === "you" ? (
           <View
             // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list, read once

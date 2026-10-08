@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url";
 
 /**
  * `malves autostart on|off|status`: starts `malves serve` when you log in to
- * Windows, through Task Scheduler. It runs in a minimized console window, so
- * the pairing QR and typed commands (`add`, `pair`) are one click away on the
- * taskbar. It's restarted if it crashes, and never stopped for running long.
+ * Windows, through Task Scheduler. It runs hidden in the background (`serve
+ * --background`, no window; output in ~/.malves/serve.log); type its commands
+ * (`add`, `pair`) with `malves console`. It's restarted if it crashes, and
+ * never stopped for running long.
  */
 const TASK = "malves serve";
 

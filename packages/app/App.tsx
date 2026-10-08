@@ -32,6 +32,7 @@ import { TasksScreen } from "./src/screens/TasksScreen";
 import { forgetPairing, loadPairing, type Pairing, savePairing } from "./src/storage";
 import { applyScheme, Button, color, font, isDark, styles } from "./src/ui";
 import { type Connection, useLink } from "./src/useLink";
+import { FloatingMic } from "./src/voice/FloatingMic";
 import { VoiceProvider } from "./src/voice/VoiceProvider";
 
 type Screen = "loading" | "pair" | "pairing" | "app";
@@ -184,6 +185,27 @@ function Main() {
 
   const top = stack.at(-1);
   const { model, status, client } = link;
+  // One line for Malves: which screen this is, so "stop this one" makes sense.
+  const where = (() => {
+    if (top?.kind === "task") {
+      const t = model.tasks[top.id];
+      return t
+        ? `Task ${t.id}: "${t.prompt.slice(0, 200)}" (${t.agent}, ${t.state})`
+        : `Task ${top.id}`;
+    }
+    if (top?.kind === "session")
+      return `Session "${top.session.title}" (${top.session.tool}, id ${top.session.id}${top.session.folder ? `, folder ${top.session.folder}` : ""})`;
+    if (top?.kind === "screen") return "The live view of the computer's screen";
+    if (top?.kind === "ide") return `The IDE window ${top.id}`;
+    if (top?.kind === "new") return "The New task form";
+    if (top?.kind === "malves") return "The conversation with Malves";
+    return {
+      home: "Home",
+      tasks: "Work: sessions and tasks",
+      leads: "Leads",
+      settings: "Settings",
+    }[tab];
+  })();
 
   const content =
     screen === "loading" || !fontsReady ? null : screen === "pair" ? (
@@ -288,6 +310,7 @@ function Main() {
       status={status}
       lastAgent={lastAgent}
       onCall={openMalves}
+      where={where}
     >
       <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
         <StatusBar style={isDark ? "light" : "dark"} />
@@ -311,6 +334,12 @@ function Main() {
               {notice}
             </Text>
           </View>
+        ) : null}
+        {screen === "app" && top?.kind !== "malves" && (top || tab !== "home") ? (
+          <FloatingMic
+            bottom={(top ? 16 : 72) + insets.bottom}
+            onOpen={() => open({ kind: "malves" })}
+          />
         ) : null}
         {screen === "app" && !top ? (
           <TabBar

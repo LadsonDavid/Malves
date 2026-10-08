@@ -71,3 +71,17 @@ index 3395f0042bc043fc3370940047afcd9c905ef0fb..43c00914eebbba062a96cdf44cc02c96
  //    Access views
      tvName = findViewById(R.id.tvName);
      tvInfo = findViewById(R.id.tvInfo);
+diff --git a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallService.java b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallService.java
+index 502fe36b2bb4e08f0fd589b4bc942ec8d7ccfe03..cdc16e270ce7e72f846b23c93381c4734c88dfcd 100644
+--- a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallService.java
++++ b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallService.java
+@@ -248,7 +248,8 @@ public class IncomingCallService extends Service {
+       notificationChannel.setSound(soundUri,
+         new AudioAttributes.Builder()
+           .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+-          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
++          // malves: a call rings at ringtone volume, like a real call (was USAGE_NOTIFICATION).
++          .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+           .build());
+       notificationChannel.enableLights(true);
+       notificationChannel.enableVibration(true);

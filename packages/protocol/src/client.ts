@@ -225,6 +225,7 @@ export class LinkClient {
     alternatives: string[] = [],
     speak: Speak = false,
     commandId?: string,
+    where?: string,
   ): Promise<Ack> {
     return this.send(
       {
@@ -233,6 +234,7 @@ export class LinkClient {
         text,
         ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
         ...(speak ? { speak } : {}),
+        ...(where ? { where: where.slice(0, 500) } : {}),
       },
       commandId,
     );
@@ -355,6 +357,15 @@ export class LinkClient {
   /** Malves rings this phone now, to check calls work. */
   testCall(): Promise<Ack> {
     return this.send({ type: "call.test" });
+  }
+
+  /** Starts live video of the screen; the computer's answer is in `ack.video`. */
+  screenVideo(sdp: string): Promise<Ack> {
+    return this.send({ type: "screen.video", sdp });
+  }
+
+  screenVideoStop(): Promise<Ack> {
+    return this.send({ type: "screen.video.stop" });
   }
 
   /** A click, scroll, typing or keys on the computer, from you. */

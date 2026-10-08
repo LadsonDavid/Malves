@@ -135,6 +135,7 @@ export function VoiceProvider({
   status,
   lastAgent,
   onCall,
+  where,
   children,
 }: {
   model: Model;
@@ -143,6 +144,8 @@ export function VoiceProvider({
   lastAgent: string | undefined;
   /** A call from Malves was answered: show the Malves screen. */
   onCall: () => void;
+  /** What's on the screen now, so Malves knows what "this one" is. */
+  where?: string | undefined;
   children: ReactNode;
 }) {
   const [settings, setSettingsState] = useState<VoiceSettings>(DEFAULT_VOICE);
@@ -176,6 +179,7 @@ export function VoiceProvider({
     /** Malves' read-back action, decided on the computer. */
     brainPending: undefined as { id: string; summary: string } | undefined,
     lastSaid: "",
+    where: undefined as string | undefined,
     /** Malves was talked over: listen next, whatever the mode. */
     interrupted: false,
     /** Skills the reply being said drew on. */
@@ -188,7 +192,7 @@ export function VoiceProvider({
     modeSince: Date.now(),
     announced: new Set<string>(),
   });
-  Object.assign(live.current, { model, client, status, lastAgent, settings });
+  Object.assign(live.current, { model, client, status, lastAgent, settings, where });
 
   useEffect(() => {
     void loadVoiceSettings().then(setSettingsState);
@@ -349,6 +353,7 @@ export function VoiceProvider({
         alternatives,
         speakAs(),
         voice.commandId,
+        live.current.where,
       );
       reply = ack.ok ? ack.assistant : undefined;
     } catch {
