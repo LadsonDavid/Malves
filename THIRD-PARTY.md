@@ -80,3 +80,8 @@ are not copied into this repository.
 - Licence: MIT
 - Used in: `packages/app/src/voice/calls.ts`, as a dependency, for Android's
   incoming-call screen when Malves calls. No code copied.
+- Patched (`patches/react-native-full-screen-notification-incoming-call@1.1.0.patch`,
+  applied by pnpm): the custom React call screen is removed (it doesn't compile on
+  React Native 0.86), and the lock screen is no longer switched off when a call
+  rings (the library disabled the keyguard, so answering opened the app without
+  the phone's PIN). Original MIT notice kept.

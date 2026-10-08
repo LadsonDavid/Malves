@@ -1,6 +1,7 @@
 import type { LinkClient } from "@malves/protocol";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
+import { AppState } from "react-native";
 
 /**
  * Malves calling: the computer sends a content-free push through Google
@@ -75,6 +76,22 @@ export function onAnsweredCall(listener: (callId: string) => void): () => void {
   listeners.add(listener);
   if (answered) listener(answered);
   return () => listeners.delete(listener);
+}
+
+/**
+ * Resolves once the phone is unlocked and malves is in front. Answering a call
+ * on a locked phone opens malves behind the lock screen: until it's unlocked,
+ * Malves says nothing and doesn't listen, so a stranger can't talk to it.
+ */
+export function whenUnlocked(): Promise<void> {
+  if (AppState.currentState === "active") return Promise.resolve();
+  return new Promise((resolve) => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      sub.remove();
+      resolve();
+    });
+  });
 }
 
 /** The answered call was handled: don't hand it out again. */

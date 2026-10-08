@@ -3,3 +3,5 @@ packages:
 
 onlyBuiltDependencies:
   - better-sqlite3
+patchedDependencies:
+  react-native-full-screen-notification-incoming-call@1.1.0: patches/react-native-full-screen-notification-incoming-call@1.1.0.patch

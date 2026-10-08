@@ -19,7 +19,7 @@ import {
 } from "../model";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
-import { callHandled, onAnsweredCall, registerForCalls } from "./calls";
+import { callHandled, onAnsweredCall, registerForCalls, whenUnlocked } from "./calls";
 import {
   canListen,
   canRecord,
@@ -730,7 +730,7 @@ export function VoiceProvider({
     if (!client || status !== "online") return;
     return onAnsweredCall((callId) => {
       onCall();
-      void answerCall(callId);
+      void whenUnlocked().then(() => answerCall(callId));
     });
   }, [client, status, onCall]);
   const testCall = async () => {
