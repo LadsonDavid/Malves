@@ -104,6 +104,7 @@ function setup(script: Turn[], agents?: AgentInfo[], extra: Partial<AssistantDep
   });
   cleanup.push(() => {
     memory.close();
+    core.questions.shutdown();
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });

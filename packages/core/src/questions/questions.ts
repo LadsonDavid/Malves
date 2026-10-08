@@ -126,6 +126,16 @@ export class Questions {
     return "applied";
   }
 
+  /**
+   * Shutting down: stops every question's timer without writing anything (the
+   * log is about to close). The questions stay open in the log; `recover()`
+   * closes them as cancelled on the next start.
+   */
+  shutdown(): void {
+    for (const waiter of this.waiters.values()) waiter.cancelTimer();
+    this.waiters.clear();
+  }
+
   /** Closes every open question for a task, e.g. when the task is stopped. */
   cancelTask(taskId: string): void {
     for (const question of [...this.open.values()]) {

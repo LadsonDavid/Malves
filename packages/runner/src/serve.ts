@@ -512,6 +512,8 @@ export async function serve(
   say("\nStopping…");
   control?.close();
   await runner.tasks.stopAll();
+  // Open questions (e.g. a commit approval) must not time out into a closed log.
+  runner.questions.shutdown();
   relay?.close();
   await server.close();
   stopRenewing();

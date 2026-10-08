@@ -98,6 +98,7 @@ async function runner(
   cleanup.push(async () => {
     await core.tasks.stopAll();
     host.killAll();
+    core.questions.shutdown();
     store.close();
   });
   cleanup.push(() => server.close());
