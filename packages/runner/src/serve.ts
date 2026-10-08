@@ -163,6 +163,7 @@ export async function serve(
       ? new RemoteScreen({
           load: () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop()),
           notice: (text) => windowsNotice(text, say),
+          log: (line) => say(line),
         })
       : undefined;
   // Malves ringing the phone: Google's push (Firebase) carries only a call id.

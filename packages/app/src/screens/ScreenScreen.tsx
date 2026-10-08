@@ -103,11 +103,33 @@ export function ScreenScreen({
         await new Promise((r) => setTimeout(r, 200));
       }
     };
+    // Live video that hasn't connected within 10 s (or fails) falls back to
+    // pictures, and says so: never "Connecting…" forever.
+    let connected = false;
+    let fellBack = false;
+    const fallBack = (why: string) => {
+      if (stopped || connected || fellBack) return;
+      fellBack = true;
+      peer?.close();
+      peer = undefined;
+      void client.screenVideoStop().catch(() => {});
+      setStreamUrl(undefined);
+      setProblem(`Live video didn't connect (${why}). Showing pictures instead.`);
+      void pictures();
+    };
+    const giveUp = setTimeout(() => fallBack("timed out"), 10_000);
     void (async () => {
       if (!webrtc) return pictures();
       try {
         peer = new webrtc.RTCPeerConnection({ iceServers: [] });
         peer.addTransceiver("video", { direction: "recvonly" });
+        peer.onconnectionstatechange = () => {
+          const state = peer?.connectionState;
+          if (state === "connected") {
+            connected = true;
+            clearTimeout(giveUp);
+          } else if (state === "failed") fallBack("connection failed");
+        };
         peer.ontrack = (event: unknown) => {
           const { streams } = event as unknown as { streams?: Array<{ toURL: () => string }> };
           const stream = streams?.[0];
@@ -131,14 +153,13 @@ export function ScreenScreen({
         await peer.setRemoteDescription(
           new webrtc.RTCSessionDescription({ type: "answer", sdp: ack.video.sdp }),
         );
-      } catch {
-        peer?.close();
-        peer = undefined;
-        if (!stopped) void pictures();
+      } catch (error) {
+        fallBack(error instanceof Error ? error.message : "setup failed");
       }
     })();
     return () => {
       stopped = true;
+      clearTimeout(giveUp);
       if (peer) {
         peer.close();
         void client.screenVideoStop().catch(() => {});
