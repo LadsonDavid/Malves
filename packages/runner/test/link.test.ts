@@ -227,6 +227,25 @@ describe("phone link, end to end", () => {
     );
   });
 
+  it("says the phone's own text (questions, results) in the natural voice, as written", async () => {
+    const heard: string[] = [];
+    const r = await runner(undefined, undefined, undefined, {
+      voice: async (text, lang) => {
+        heard.push(`${lang}:${text}`);
+        return { mime: "audio/mpeg", audio: Buffer.from(text) };
+      },
+    });
+    const p = await pairedPhone(r);
+    const ack = await p.client.speakText(
+      "Codex asks: Write src/footer.tsx? Say allow or skip.",
+      true,
+      "cmd-say-1",
+    );
+    expect(ack.ok).toBe(true);
+    await waitFor(() => p.audio.some((x) => x.done), "the end of the spoken text");
+    expect(heard).toEqual(["en:Codex asks: Write src/footer.tsx?", "en:Say allow or skip."]);
+  });
+
   it("pairs with the QR code, then reconnects without it", async () => {
     const r = await runner();
     const first = await pairedPhone(r);

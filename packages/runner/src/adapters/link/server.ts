@@ -646,6 +646,11 @@ export class LinkServer {
         case "call.decline":
           this.o.caller?.decline(command.call_id);
           return ack(true);
+        case "voice.speak":
+          if (!this.o.voice) return ack(false, { error: "No natural voice on this computer." });
+          // Text the phone wrote (questions, results): said as written.
+          this.speaker(command.command_id, command.speak).finish(command.text, true);
+          return ack(true);
         case "call.test":
           if (!this.o.caller) return ack(false, { error: CALLS_OFF });
           return ack(true, {

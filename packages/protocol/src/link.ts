@@ -348,6 +348,17 @@ export const CallDecline = z.object({
   call_id: Id,
 });
 
+/**
+ * Say this in Malves' natural voice (questions, results, short replies the phone
+ * writes itself); the audio comes back as `assistant.audio`, exactly as written.
+ */
+export const VoiceSpeak = z.object({
+  type: z.literal("voice.speak"),
+  command_id: Id,
+  text: z.string().min(1).max(2000),
+  speak: Speak,
+});
+
 /** A test call from Settings (rings even in quiet hours). */
 export const CallTest = z.object({ type: z.literal("call.test"), command_id: Id });
 
@@ -382,6 +393,7 @@ export const Command = z.discriminatedUnion("type", [
   CallAnswer,
   CallDecline,
   CallTest,
+  VoiceSpeak,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,
