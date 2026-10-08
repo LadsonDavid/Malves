@@ -19,6 +19,7 @@ import {
 } from "../model";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
+import { callHandled, onAnsweredCall, registerForCalls } from "./calls";
 import {
   canListen,
   canRecord,
@@ -106,6 +107,9 @@ type Voice = {
   stopDictation: () => void;
   /** Stops talking and listening at once. */
   hush: () => void;
+  /** Why calls can't reach this phone, if they can't (undefined: they can). */
+  callsProblem: string | undefined;
+  testCall: () => Promise<string>;
 };
 
 const VoiceContext = createContext<Voice | undefined>(undefined);
@@ -130,12 +134,15 @@ export function VoiceProvider({
   client,
   status,
   lastAgent,
+  onCall,
   children,
 }: {
   model: Model;
   client: LinkClient | undefined;
   status: LinkStatus;
   lastAgent: string | undefined;
+  /** A call from Malves was answered: show the Malves screen. */
+  onCall: () => void;
   children: ReactNode;
 }) {
   const [settings, setSettingsState] = useState<VoiceSettings>(DEFAULT_VOICE);
@@ -684,6 +691,59 @@ export function VoiceProvider({
     return live.current.turn;
   };
 
+  /**
+   * You answered Malves' call: it says why it called (in its natural voice),
+   * then the conversation goes on hands-free, as if you'd turned voice mode on.
+   */
+  const answerCall = async (callId: string) => {
+    const c = live.current.client;
+    if (!c) return;
+    callHandled(callId);
+    const id = fresh();
+    live.current.mode = true;
+    live.current.quietSince = Date.now();
+    live.current.modeSince = Date.now();
+    setMode(true);
+    setPhase("working");
+    const voice = startReply(id);
+    try {
+      const ack = await c.answerCall(callId, speakAs(), voice.commandId);
+      if (!ack.ok) {
+        voice.cancel();
+        await sayIt(ack.error ?? "That call is over.");
+      } else await sayReply(ack.result ?? "", voice.playing, id);
+    } catch {
+      voice.cancel();
+      await sayIt(P().problem("Couldn't reach the computer."));
+    }
+    if (id === live.current.turn) await afterThink(id);
+  };
+
+  // Calls: let the computer ring this phone, and pick up answered calls.
+  const [callsProblem, setCallsProblem] = useState<string>();
+  useEffect(() => {
+    if (!client || status !== "online" || !model.assistant) return;
+    void registerForCalls(client).then(setCallsProblem);
+  }, [client, status, model.assistant]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: answerCall reads the latest state from live.current
+  useEffect(() => {
+    if (!client || status !== "online") return;
+    return onAnsweredCall((callId) => {
+      onCall();
+      void answerCall(callId);
+    });
+  }, [client, status, onCall]);
+  const testCall = async () => {
+    const c = live.current.client;
+    if (!c) return "Not connected to the computer.";
+    try {
+      const ack = await c.testCall();
+      return ack.ok ? (ack.result ?? "Calling.") : (ack.error ?? "The computer couldn't call.");
+    } catch {
+      return "Couldn't reach the computer.";
+    }
+  };
+
   const toggleMode = () => {
     if (live.current.mode) {
       fresh();
@@ -883,6 +943,8 @@ export function VoiceProvider({
   };
 
   const value: Voice = {
+    callsProblem,
+    testCall,
     log,
     canListen: canListen(),
     canBePrecise: canRecord() && model.transcribe,

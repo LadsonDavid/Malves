@@ -5,6 +5,7 @@ import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
 import type { Browser } from "../browser/bridge.js";
 import type { AssistantPort, IdeControl } from "../link/server.js";
 import { Assistant } from "./assistant.js";
+import type { Caller } from "./caller.js";
 import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
@@ -26,6 +27,7 @@ export function assistantFromEnv(o: {
   leads?: (() => Promise<Lead[]>) | undefined;
   handover?: Handover | undefined;
   browser?: Browser | undefined;
+  caller?: Caller | undefined;
 }): { port: AssistantPort; close: () => void; reviewProfile: () => Promise<number> } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
@@ -67,6 +69,7 @@ export function assistantFromEnv(o: {
     ...(o.browser ? { browser: o.browser } : {}),
     profile,
     library,
+    ...(o.caller ? { caller: o.caller } : {}),
   });
   return {
     port: {

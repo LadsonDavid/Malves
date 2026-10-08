@@ -325,6 +325,32 @@ export const ScreenInput = z.object({
 });
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
+/** This phone's Firebase token, so Malves can ring it (a call; the push carries no content). */
+export const CallRegister = z.object({
+  type: z.literal("call.register"),
+  command_id: Id,
+  token: z.string().min(1).max(4096),
+});
+
+/** You answered Malves' call: why it called is in `ack.result`. */
+export const CallAnswer = z.object({
+  type: z.literal("call.answer"),
+  command_id: Id,
+  call_id: Id,
+  /** Also say it in Malves' natural voice, as `assistant.audio`. */
+  speak: Speak.optional(),
+});
+
+/** You declined Malves' call. */
+export const CallDecline = z.object({
+  type: z.literal("call.decline"),
+  command_id: Id,
+  call_id: Id,
+});
+
+/** A test call from Settings (rings even in quiet hours). */
+export const CallTest = z.object({ type: z.literal("call.test"), command_id: Id });
+
 /** Take the computer back from Malves (handover mode). */
 export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
 
@@ -352,6 +378,10 @@ export const Command = z.discriminatedUnion("type", [
   HandoverStop,
   ScreenFrame,
   ScreenInput,
+  CallRegister,
+  CallAnswer,
+  CallDecline,
+  CallTest,
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,

@@ -12,3 +12,6 @@ coverage/
 .env.*
 !.env.example
 LLM keys.txt
+# Firebase (Malves' calls): your project's files, never committed
+google-services.json
+*firebase-adminsdk*.json

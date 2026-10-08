@@ -9,6 +9,7 @@ import {
 } from "@malves/protocol";
 import type { Browser } from "../browser/bridge.js";
 import type { IdeControl } from "../link/server.js";
+import type { Caller } from "./caller.js";
 import { EDITOR, OFF_LIMITS } from "./desktop.js";
 import { commandRisk, type Handover, runCommand } from "./handover.js";
 import type { ChatMessage, Llm, Tool } from "./llm.js";
@@ -58,6 +59,8 @@ export type AssistantDeps = {
   profile?: Profile | undefined;
   /** His skill library (~/.claude/skills), read for advice. */
   library?: SkillLibrary | undefined;
+  /** Ringing his phone, if calls are set up. */
+  caller?: Caller | undefined;
   browser?: Browser | undefined;
 };
 
@@ -642,6 +645,24 @@ export class Assistant {
             : `Noted. I'll do that from now on.`;
         });
       }
+      case "call_me": {
+        const caller = this.d.caller;
+        if (!caller) return { text: "Calls aren't set up on this computer yet." };
+        const task = args.task_id ? core.tasks.get(args.task_id) : undefined;
+        if (!task) return { text: "Which task? I can call when a running task finishes." };
+        if (TERMINAL_STATES.includes(task.state))
+          return { text: `That task is already ${task.state}.` };
+        caller.watch(task.id);
+        return {
+          text: `I'll call you when ${label(task.agent)} finishes "${task.prompt.slice(0, 60)}".`,
+          did: `Will call when ${task.id} ends`,
+        };
+      }
+      case "no_calls_today": {
+        if (!this.d.caller) return { text: "Calls aren't set up on this computer yet." };
+        this.d.caller.pauseToday();
+        return { text: "Okay, no calls for the rest of today.", did: "No calls today" };
+      }
       case "start_handover": {
         const handover = this.d.handover;
         if (!handover) return { text: "Handover isn't set up on this computer." };
@@ -1027,6 +1048,13 @@ export const TOOLS: Tool[] = [
     },
     ["kind", "text"],
   ),
+  fn(
+    "call_me",
+    'Ring his phone when a running task finishes or fails, because he asked ("call me when Codex is done").',
+    { task_id: { type: "string", description: "The running task's id." } },
+    ["task_id"],
+  ),
+  fn("no_calls_today", "He doesn't want any calls for the rest of today.", {}, []),
   fn(
     "read_skill",
     "Read a skill from his library (one of those listed as possibly helpful) to answer from it.",

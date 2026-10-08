@@ -126,6 +126,7 @@ function Main() {
 
   const open = useCallback((overlay: Overlay) => setStack((s) => [...s, overlay]), []);
   const openTask = useCallback((id: string) => open({ kind: "task", id }), [open]);
+  const openMalves = useCallback(() => setStack([{ kind: "malves" }]), []);
   const back = useCallback(() => setStack((s) => s.slice(0, -1)), []);
 
   // Android's back button: close the top screen, then go to Home, then leave the app.
@@ -281,7 +282,13 @@ function Main() {
     );
 
   return (
-    <VoiceProvider model={model} client={client} status={status} lastAgent={lastAgent}>
+    <VoiceProvider
+      model={model}
+      client={client}
+      status={status}
+      lastAgent={lastAgent}
+      onCall={openMalves}
+    >
       <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
         <StatusBar style={isDark ? "light" : "dark"} />
         <View key={scheme ?? "light"} style={{ flex: 1 }}>

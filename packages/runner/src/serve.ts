@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentInfo } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
+import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
 import { startProfileReview } from "./adapters/assistant/profile.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
@@ -17,6 +18,7 @@ import { startDigest } from "./adapters/leads/digest.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
+import { fcmSender } from "./adapters/push/fcm.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
 import { Sessions } from "./adapters/sessions/index.js";
@@ -163,6 +165,16 @@ export async function serve(
           notice: (text) => windowsNotice(text, say),
         })
       : undefined;
+  // Malves ringing the phone: Google's push (Firebase) carries only a call id.
+  const fcmKey = process.env.MALVES_FCM_KEY;
+  const caller = fcmKey
+    ? new Caller({
+        send: fcmSender(fcmKey),
+        dataDir: dir,
+        paired: () => runner.devices.list().map((d) => d.id),
+        quietHours: process.env.MALVES_QUIET_HOURS,
+      })
+    : undefined;
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
@@ -170,6 +182,7 @@ export async function serve(
     ide: ideCtl,
     leads: leads ? () => leads.fetch() : undefined,
     handover,
+    caller,
     // The bridge is replaced when the extension gets a new token: always use the current one.
     browser: {
       get connected() {
@@ -222,6 +235,7 @@ export async function serve(
     },
     // Your screen on the phone, any time (Windows: nut.js); the computer says when it's watched.
     screen: remoteScreen,
+    caller,
     voice: malves
       ? naturalVoice({
           cartesiaKey: process.env.CARTESIA_API_KEY,
@@ -271,6 +285,13 @@ export async function serve(
           quietHours: process.env.MALVES_QUIET_HOURS,
         })
       : () => {};
+  const stopCalls = caller
+    ? caller.follow({
+        subscribe: (listener) => runner.log.subscribe(listener),
+        task: (id) => runner.tasks.get(id),
+        label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+      })
+    : () => {};
   const stopProfileReview =
     malves && pushOn && push
       ? startProfileReview({
@@ -500,6 +521,7 @@ export async function serve(
   stopDigest();
   stopWatcher();
   stopProfileReview();
+  stopCalls();
   stopBackups();
   await push?.close();
   await tools.close();

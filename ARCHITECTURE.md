@@ -681,6 +681,60 @@ Each step ends in something demoable:
    word ("stop", "wait", "nillu", "போதும்"…) or three words that are mostly not
    Malves' stop it, and it listens. Settings can turn this off.
 
+16. His profile, his skill library, his screen from the phone, and Malves
+    calling him (Oct 8). **Built;** awaiting real-world tests.
+
+### His profile ("About me")
+
+- `About me.md` in the vault holds the **work** profile only. The private one
+  stays on the computer and is never sent: the brain runs on free providers,
+  some of which keep or train on prompts.
+- Its core sections (priority, identity, voice, decision rules, do-not-infer;
+  about 1,200 tokens) go with every message; all of it for writing requests.
+- Malves never edits it on its own. `update_profile` (when he corrects it) and
+  the weekly check (the profile against the week's conversations and tasks)
+  only draft edits. Code checks each matches exactly once and keeps the
+  sections, reads it back in code-written words, and writes on yes; a no drops
+  a draft.
+
+### His skill library
+
+`~/.claude/skills` is read, never changed. Each skill's description is embedded
+once (again only when it changes, cached in `skill-index.json`). Similarity alone
+can't tell a command from a question (bge-m3 scores both 0.45-0.57), so the five
+closest are only *offered* to the brain by name; it reads one (`read_skill`) for
+advice, reviews or judgments, as data it must never act on. The phone shows
+"From your library: …". Routers and Claude Code workflows are left out.
+
+### His screen from the phone
+
+Any time, not only in handover: about three pictures a second on a 1080p screen
+(the next one captured while the last travels), and in Control a tap clicks
+there (as a fraction of the screen, so display scaling doesn't matter), plus
+double/right click, scroll, typing and keys. No read-backs: he decides each
+click. The computer shows a Windows notification when a phone starts watching or
+takes control. No fingerprint gate (his choice).
+
+### Malves calling him
+
+1. He asks ("call me when Codex finishes"): `call_me` watches the task; when it
+   ends, the call's opening line is written by code from the task's outcome.
+2. The runner sends a Firebase (FCM HTTP v1) data push with **no content**, only a
+   call id, signed with his project's service-account key (`MALVES_FCM_KEY`).
+3. The phone wakes (an expo-notifications background task, even if the app was
+   closed) and shows Android's incoming-call screen
+   (react-native-full-screen-notification-incoming-call).
+4. On Answer, malves opens and asks over the sealed link why it called
+   (`call.answer`); Malves says it in its natural voice and the conversation goes
+   on hands-free.
+5. Rules: none in quiet hours, at most three an hour, none after "don't call me
+   today", a call answered after ten minutes is over, revoked phones are never
+   rung. Settings has a test call.
+
+Calls use Google's push because a ringing call screen needs the app itself to
+be woken; everything else stays on ntfy. Android 14+ may need "Full screen
+notifications" allowed for malves (Settings links there).
+
 ---
 
 ## 14. To verify before relying on it

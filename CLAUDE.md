@@ -41,7 +41,8 @@ these are non-negotiable; solve them differently if needed, but never drop one.
   ElevenLabs → Piper (Oracle) → phone voice; voice picker; talk-over interruption.
   Oct 8: work profile ("About me.md" in the vault, edits only on his yes, weekly
   check), skill library from ~/.claude/skills (shortlist + read_skill), screen any
-  time with control from the phone.
+  time with control from the phone, Malves calling the phone (Firebase, awaiting his
+  Firebase project and a real test).
   All awaiting real-world tests; see README "Where it stands".
 - **Never commit `.env`** — it holds the Gemini API key; `.gitignore` covers it.
 - **No Claude attribution:** never add a Claude `Co-Authored-By` line to commits or
@@ -87,6 +88,7 @@ Set these locally in every new environment. Never commit here as
 | Unanswered question → **stop**, never proceed | R3 |
 | Push is a hint; the event log is the truth | Lost pushes never break anything |
 | Push via the ntfy app, with the runner as its server over Tailscale | `expo-unified-push` has no answer buttons (R1) and needs a custom build |
+| Malves' calls use Firebase (FCM) data pushes with no content (only a call id) and Android's call screen (react-native-full-screen-notification-incoming-call); the reason travels over the sealed link | Owner's choice (Oct 8, 2026): a ringing call screen needs the app itself woken; everything else stays on ntfy |
 | Malves: the brain proposes tool calls, code decides; risky actions read back in code-written words | Prompt injection and mishearing can't act on their own |
 | Malves' memory is an Obsidian vault (Markdown) + SQLite index | Owner can read and edit it; vault is the truth |
 | Malves' brain hosted (freellmapi on Oracle free VM), not on the laptop | Owner's laptop is busy with heavy work |

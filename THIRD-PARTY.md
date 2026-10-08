@@ -72,3 +72,11 @@ are not copied into this repository.
   Apache-2.0. English voices (en_US kusal, amy): https://huggingface.co/rhasspy/piper-voices.
 - Cartesia and ElevenLabs are paid services reached over their public APIs
   with the user's own keys (free tiers); no code from them.
+
+## react-native-full-screen-notification-incoming-call
+
+- Source: https://github.com/linhvovan29546/react-native-full-screen-notification-incoming-call
+  (1.1.0 on npm)
+- Licence: MIT
+- Used in: `packages/app/src/voice/calls.ts`, as a dependency, for Android's
+  incoming-call screen when Malves calls. No code copied.

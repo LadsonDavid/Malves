@@ -330,6 +330,28 @@ export class LinkClient {
     return this.send({ type: "screen.frame" });
   }
 
+  /** Lets Malves ring this phone (its Firebase token). */
+  registerCalls(token: string): Promise<Ack> {
+    return this.send({ type: "call.register", token });
+  }
+
+  /** You answered Malves' call; what it says first is in `ack.result`. */
+  answerCall(callId: string, speak: Speak = false, commandId?: string): Promise<Ack> {
+    return this.send(
+      { type: "call.answer", call_id: callId, ...(speak ? { speak } : {}) },
+      commandId,
+    );
+  }
+
+  declineCall(callId: string): Promise<Ack> {
+    return this.send({ type: "call.decline", call_id: callId });
+  }
+
+  /** Malves rings this phone now, to check calls work. */
+  testCall(): Promise<Ack> {
+    return this.send({ type: "call.test" });
+  }
+
   /** A click, scroll, typing or keys on the computer, from you. */
   screenInput(input: Omit<ScreenInput, "type" | "command_id">): Promise<Ack> {
     return this.send({ type: "screen.input", ...input });
