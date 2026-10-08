@@ -225,6 +225,7 @@ export class LinkClient {
     alternatives: string[] = [],
     speak: Speak = false,
     commandId?: string,
+    where?: string,
   ): Promise<Ack> {
     return this.send(
       {
@@ -233,6 +234,7 @@ export class LinkClient {
         text,
         ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
         ...(speak ? { speak } : {}),
+        ...(where ? { where: where.slice(0, 500) } : {}),
       },
       commandId,
     );

@@ -216,6 +216,8 @@ export const AssistantSay = z.object({
   conversation_id: Id,
   text: z.string().min(1).max(2000),
   alternatives: z.array(z.string().max(500)).max(5).optional(),
+  /** What's on the phone's screen, e.g. "Task: add tests (Claude, running)": for "stop this one". */
+  where: z.string().max(500).optional(),
   /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
   speak: Speak.optional(),
 });

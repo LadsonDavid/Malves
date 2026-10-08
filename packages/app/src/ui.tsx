@@ -380,7 +380,14 @@ export function Choices<T extends string>({
 
 function makeStyles() {
   return {
-    page: { flexGrow: 1, backgroundColor: color.page, padding: space.xl, gap: space.xl },
+    // Bottom room so the floating Malves mic never covers the last thing on a page.
+    page: {
+      flexGrow: 1,
+      backgroundColor: color.page,
+      padding: space.xl,
+      paddingBottom: space.xl + 72,
+      gap: space.xl,
+    },
     title: {
       fontFamily: font.displayLight,
       fontSize: 32,

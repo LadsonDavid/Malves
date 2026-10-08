@@ -107,6 +107,7 @@ export interface AssistantPort {
     text: string,
     alternatives: string[],
     onText?: (delta: string) => void,
+    where?: string,
   ): Promise<NonNullable<Ack["assistant"]>>;
   confirm(
     conversationId: string,
@@ -580,6 +581,7 @@ export class LinkServer {
                   command.text,
                   command.alternatives ?? [],
                   speaker?.text,
+                  command.where,
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
           speaker?.finish(answer.reply, answer.pending !== undefined);

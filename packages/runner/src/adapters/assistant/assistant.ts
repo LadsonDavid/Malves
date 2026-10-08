@@ -120,6 +120,8 @@ export class Assistant {
     alternatives: string[] = [],
     /** The reply's words as the brain writes them, for speaking early. */
     onText?: (delta: string) => void,
+    /** What's on his phone's screen right now ("Task: …"), so "this one" makes sense. */
+    where?: string,
   ): Promise<AssistantReply> {
     const conv = this.conversation(conversationId);
     // A waiting action is answered by a plain yes or no — decided here, not by the model.
@@ -139,6 +141,14 @@ export class Assistant {
     const messages: ChatMessage[] = [
       { role: "system", content: this.persona() },
       { role: "system", content: this.context(remembered, learned, text, offered) },
+      ...(where
+        ? [
+            {
+              role: "system" as const,
+              content: `On his phone he's looking at ("this one" means it): <data>${where.slice(0, 500)}</data>`,
+            },
+          ]
+        : []),
       ...conv.history.slice(-HISTORY),
       {
         role: "user",

@@ -76,8 +76,8 @@ export function assistantFromEnv(o: {
   });
   return {
     port: {
-      say: (conversation, text, alternatives, onText) =>
-        assistant.say(conversation, text, alternatives, onText),
+      say: (conversation, text, alternatives, onText, where) =>
+        assistant.say(conversation, text, alternatives, onText, where),
       confirm: (conversation, pending, yes) => assistant.confirm(conversation, pending, yes),
       look: (conversation, photo, question) => assistant.look(conversation, photo, question),
       memories: async () =>
