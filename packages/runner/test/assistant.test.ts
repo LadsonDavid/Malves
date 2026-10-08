@@ -756,3 +756,31 @@ describe("his skill library, in a conversation", () => {
     );
   });
 });
+
+describe("Chrome outside handover", () => {
+  it("opens a page at once, but a click waits for his yes", async () => {
+    const calls: string[] = [];
+    const browser = {
+      connected: true,
+      call: async (op: string, args?: Record<string, unknown>) => {
+        calls.push(`${op} ${JSON.stringify(args ?? {})}`);
+        return { elements: [] };
+      },
+    };
+    const t = setup(
+      [
+        { calls: [["browser_open", { url: "https://example.com/docs" }]] },
+        { calls: [["browser_click", { ref: "e3", what: "the Sign up link" }]] },
+      ],
+      undefined,
+      { browser } as never,
+    );
+    await t.assistant.say("c1", "open the example docs");
+    expect(calls).toEqual(['navigate {"url":"https://example.com/docs"}']);
+    const asked = await t.assistant.say("c1", "click sign up");
+    expect(asked.reply).toBe("Click the Sign up link in Chrome? Shall I go ahead?");
+    expect(calls).toHaveLength(1);
+    await t.assistant.confirm("c1", asked.pending?.id ?? "", true);
+    expect(calls.at(-1)).toBe('click {"ref":"e3"}');
+  });
+});
