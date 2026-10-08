@@ -146,8 +146,8 @@ export const TaskStop = z.object({
  */
 export const NATURAL_VOICES = [
   {
-    id: "karthik",
-    name: "Karthik",
+    id: "ta-male",
+    name: "Male",
     lang: "ta",
     gender: "male",
     cartesia: "19f28c21-ae34-499f-b64a-f7b09cd9b516",
@@ -155,8 +155,8 @@ export const NATURAL_VOICES = [
     piper: "ta_IN-ValluvarNeural-medium",
   },
   {
-    id: "janani",
-    name: "Janani",
+    id: "ta-female",
+    name: "Female",
     lang: "ta",
     gender: "female",
     cartesia: "fb7d8d97-9730-4165-bd79-36b5ce61b5f2",
@@ -164,8 +164,8 @@ export const NATURAL_VOICES = [
     piper: "ta_IN-HemaLatha-medium",
   },
   {
-    id: "aarav",
-    name: "Aarav",
+    id: "en-male-1",
+    name: "Male 1",
     lang: "en",
     gender: "male",
     cartesia: "39d518b7-fd0b-4676-9b8b-29d64ff31e12",
@@ -173,8 +173,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-kusal-medium",
   },
   {
-    id: "krishna",
-    name: "Krishna",
+    id: "en-male-2",
+    name: "Male 2",
     lang: "en",
     gender: "male",
     cartesia: "c63361f8-d142-4c62-8da7-8f8149d973d6",
@@ -182,8 +182,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-kusal-medium",
   },
   {
-    id: "janvi",
-    name: "Janvi",
+    id: "en-female-1",
+    name: "Female 1",
     lang: "en",
     gender: "female",
     cartesia: "7ea5e9c2-b719-4dc3-b870-5ba5f14d31d8",
@@ -191,8 +191,8 @@ export const NATURAL_VOICES = [
     piper: "en_US-amy-medium",
   },
   {
-    id: "priya",
-    name: "Priya",
+    id: "en-female-2",
+    name: "Female 2",
     lang: "en",
     gender: "female",
     cartesia: "f6141af3-5f94-418c-80ed-a45d450e7e2e",

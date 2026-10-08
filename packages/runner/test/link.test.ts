@@ -208,7 +208,7 @@ describe("phone link, end to end", () => {
       "conv-1",
       "stop the build",
       [],
-      { en: "janvi" },
+      { en: "en-female-1" },
       "cmd-voice-1",
     );
     expect(ack).toMatchObject({ ok: true, command_id: "cmd-voice-1" });

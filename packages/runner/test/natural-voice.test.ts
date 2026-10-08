@@ -69,9 +69,9 @@ describe("Malves' natural voice", () => {
   it("reads Tamil script in the Tamil voice and Tanglish in the English one", () => {
     expect(langOf("நான் பார்க்கிறேன்")).toBe("ta");
     expect(langOf("Codex la test add pannren")).toBe("en");
-    expect(voiceFor("en", { en: "janvi" }).name).toBe("Janvi");
-    expect(voiceFor("ta", true).name).toBe("Karthik");
-    expect(voiceFor("ta", { ta: "nobody" }).name).toBe("Karthik");
+    expect(voiceFor("en", { en: "en-female-1" }).name).toBe("Female 1");
+    expect(voiceFor("ta", true).name).toBe("Male");
+    expect(voiceFor("ta", { ta: "nobody" }).name).toBe("Male");
   });
 
   it("falls back Cartesia → ElevenLabs → Piper, and skips a used-up one for the month", async () => {
@@ -79,7 +79,7 @@ describe("Malves' natural voice", () => {
     const say = voice();
     if (!say) throw new Error("no voice");
 
-    const first = await say("Hello there.", "en", { en: "priya" });
+    const first = await say("Hello there.", "en", { en: "en-female-2" });
     expect(first.audio.toString()).toBe("elevenlabs-audio");
     expect(first.mime).toBe("audio/mpeg");
     expect(first.note).toBe("Cartesia's free voice is used up this month; using ElevenLabs.");

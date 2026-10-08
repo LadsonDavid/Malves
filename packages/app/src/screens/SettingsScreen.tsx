@@ -163,7 +163,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
                       <Choices<string>
                         options={NATURAL_VOICES.filter((v) => v.lang === lang).map((v) => ({
                           value: v.id,
-                          label: `${v.name} (${v.gender === "male" ? "m" : "f"})`,
+                          label: v.name,
                         }))}
                         value={voice.settings.naturalVoices[lang]}
                         onChange={(id) =>
