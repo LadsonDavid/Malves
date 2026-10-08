@@ -1,8 +1,9 @@
 name: Android APK
 
-# Builds an installable APK of the phone app, so nobody needs Expo Go or an
-# Android SDK. Run it by hand (Actions → Android APK → Run workflow) to get the
-# APK as a download, or push a tag like v0.1.0 to attach it to a release.
+# Builds what people install: the phone app (malves.apk), the Chrome extension
+# (malves-chrome.zip, loaded unpacked) and the IDE extension (malves.vsix).
+# Run it by hand (Actions → Android APK → Run workflow) to get them as
+# downloads, or push a tag like v0.1.0 to publish them as a GitHub release.
 on:
   workflow_dispatch:
   push:
@@ -41,11 +42,18 @@ jobs:
       - run: ./gradlew assembleRelease --no-daemon
         working-directory: packages/app/android
       - run: mv packages/app/android/app/build/outputs/apk/release/app-release.apk malves.apk
+      # The Chrome extension (loaded unpacked: it isn't in the Web Store) and the IDE extension.
+      - run: pnpm --filter @malves/extension build
+      - run: cd packages/extension && zip -r ../../malves-chrome.zip manifest.json popup.html dist
+      - run: pnpm --filter malves-ide package && mv packages/ide/malves.vsix malves.vsix
       - uses: actions/upload-artifact@v4
         with:
-          name: malves-apk
-          path: malves.apk
+          name: malves
+          path: |
+            malves.apk
+            malves-chrome.zip
+            malves.vsix
       - if: startsWith(github.ref, 'refs/tags/')
-        run: gh release create "$GITHUB_REF_NAME" malves.apk --title "$GITHUB_REF_NAME" --notes "Android app. Install malves.apk on your phone (allow installs from your browser or files app)."
+        run: gh release create "$GITHUB_REF_NAME" malves.apk malves-chrome.zip malves.vsix --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}

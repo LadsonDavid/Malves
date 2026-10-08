@@ -5,6 +5,24 @@
 > to end in parts; the phone app builds as an installable APK. The newest pieces
 > are awaiting a real-phone test. See [Where it stands](#where-it-stands).
 
+## In plain words
+
+You leave your desk, and your computer keeps working for you.
+
+malves turns your phone into a remote control for the computer you already own.
+Ask it, by voice or text, to fix a bug, check your leads, or open a web page.
+The AI coding tools on your computer (Claude Code, Codex, Cursor, Antigravity)
+do the work. When they need a decision, your phone asks you. You tap yes or no,
+from anywhere, even on mobile data.
+
+- **Your own computer does the work.** No cloud machine to rent.
+- **Nothing happens without you.** Anything that changes something is read back to you first.
+- **Free, forever.** MIT licence, no paid tier, no account to create.
+- **Private.** The phone and your computer talk over an encrypted link you control.
+
+If you've ever thought "my laptop at home could do this, if only I could reach
+it", malves is for you. [Get started](#getting-started).
+
 ## The problem
 
 An early-stage team of two or three people needs roughly the same tooling as a
@@ -110,61 +128,212 @@ Over mobile data the phone reaches your computer through
 requirements, architecture, security model and tech stack — is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Trying it
+## Getting started
 
-### What you need
+Setup takes about 20 minutes: about 10 on the computer, 5 on the phone, and a
+few for the extras you want. You need a **Windows, Mac or Linux computer** and an
+**Android phone**. iPhone isn't supported yet.
 
-- **Node.js 22.12+** and pnpm. The repo pins pnpm through `packageManager`, so
-  `corepack enable` is enough.
-- **Tailscale** on the computer and the phone, or your own
-  [relay](packages/relay/README.md).
-- **At least one coding agent**, signed in on the computer. The runner's data
-  folder is `~/.malves` (set `MALVES_HOME` to move it):
-  - **Claude Code:** run `claude` in a terminal and type `/login`.
-  - **Codex:** run `codex login`.
-  - **Cursor:** install its CLI, then run `agent login` (or set `CURSOR_API_KEY`).
-  - **Antigravity:** Google's ACP server is not bundled. Put `agy_acp_server.exe`
-    (Windows) or `agy_acp_server.par` in `~/.malves/agents/antigravity/`, and set
-    `GEMINI_API_KEY`. Only ever an API key, never a personal Google login.
+### Step 1: Get the files
 
-### On the computer
+From the [latest release](https://github.com/LadsonDavid/Malves/releases/latest):
 
-Needs Node.js and pnpm (above):
+| File | What it is |
+|---|---|
+| `malves.apk` | The phone app |
+| `malves-chrome.zip` | The Chrome extension (optional: lets malves use Chrome) |
+| `malves.vsix` | The IDE extension (optional: VS Code, Cursor, Antigravity or Windsurf) |
+
+The computer side runs from the source code (step 3).
+
+### Step 2: Prepare the computer
+
+1. Install **[Node.js 22.12 or newer](https://nodejs.org)**.
+2. Install **[Tailscale](https://tailscale.com/download)** and sign in. This is
+   what lets your phone reach your computer from anywhere, even on mobile data.
+3. Install and sign in to **at least one AI coding tool**:
+
+   | Tool | How to sign in |
+   |---|---|
+   | Claude Code | Run `claude` in a terminal, then type `/login` |
+   | Codex | Run `codex login` |
+   | Cursor | Install the [Cursor CLI](https://cursor.com/cli), then run `agent login` |
+   | Antigravity | Put Google's `agy_acp_server.exe` in `~/.malves/agents/antigravity/` and add `GEMINI_API_KEY` to `.env`. API key only, never your Google login |
+
+### Step 3: Install malves on the computer
+
+Open a terminal and run:
 
 ```sh
-pnpm install && pnpm build
-cp .env.example .env              # optional settings; every line is explained
-pnpm malves workspace add ~/code/my-site
-pnpm malves serve                 # shows a QR code to pair the phone
+git clone https://github.com/LadsonDavid/Malves.git
+cd Malves
+corepack enable
+pnpm install
+pnpm build
+cp .env.example .env
 ```
 
-`pnpm malves` reads `.env` from the folder you run it in.
-
-On Windows, `pnpm malves autostart on` starts `serve` in the background every time you log in: no window, output in `~/.malves/serve.log`, restarted if it crashes (`autostart status` checks it, `autostart off` undoes it). Type its commands from any terminal with `pnpm malves console` (e.g. `pnpm malves console pair` for a QR code).
-
-**Malves (optional).** It needs an OpenAI-compatible brain and a folder for its
-memory. We run [freellmapi](https://github.com/tashfeenahmed/freellmapi) on a
-free Oracle Cloud VM, reached over Tailscale, with free-tier provider keys
-(Groq and Cerebras make it quick). In `.env`:
+Open `.env` and set your name, so Malves knows what to call you:
 
 ```sh
-MALVES_MODELS_URL=http://<your-server>:3001   # freellmapi
-MALVES_MODELS_KEY=...                         # its unified API key
-MALVES_VAULT=D:\Notes\Malves                  # an Obsidian vault folder (its memory)
+MALVES_USER_NAME=YourName
 ```
 
-`serve` then prints "Malves (assistant): on". `pnpm malves backup now` backs up
-the vault by hand; `pnpm malves backup restore <file> --to <new folder>` opens a
-backup (keep a copy of `~/.malves/backup.key`: without it backups can't be opened).
+Tell malves which project folder it may work in (you can add more later):
 
-**On the phone:** install the malves APK (from the repo's Releases, or build
-it yourself: Actions → Android APK → Run workflow) and scan the QR code. To use
-it away from home, install [Tailscale](https://tailscale.com) on both, or run
-your own [relay](packages/relay/README.md). For lock-screen notifications,
-install the free [ntfy](https://ntfy.sh) app and tap **Set up notifications**.
-Developers can use Expo Go instead: `pnpm --filter @malves/app start`. Expo Go
-can read replies aloud, but it can't listen (that needs the APK) and can't ring
-for calls.
+```sh
+pnpm malves workspace add ~/code/my-project
+```
+
+Start it:
+
+```sh
+pnpm malves serve
+```
+
+A **QR code** appears. Leave this window open; you'll scan the code in step 5.
+
+> **On Windows, start it automatically:** run `pnpm malves autostart on` once.
+> From then on malves starts by itself every time you log in, with no window.
+> To talk to it later (for example to get a new QR code), run
+> `pnpm malves console pair`.
+
+### Step 4: Install the app on your phone
+
+1. Install **Tailscale** on your phone and sign in with the **same account** as
+   on the computer.
+2. Open `malves.apk` on your phone and allow installing from your browser or
+   files app.
+
+### Step 5: Pair the phone
+
+Open malves on the phone, tap **Use the camera to scan**, and scan the QR code
+from step 3.
+
+The code lasts 2 minutes. If it expires, type `pair` in the `serve` window, or
+run `pnpm malves console pair`.
+
+Done. Home shows your computer as **Online**.
+
+### Step 6: Turn on notifications (recommended)
+
+So your phone can ask you questions while it's in your pocket:
+
+1. Install the free **[ntfy](https://ntfy.sh)** app.
+2. In malves, tap **Set up notifications**.
+3. In ntfy, allow notifications and let it run in the background.
+
+---
+
+## Optional extras
+
+Add only what you want. Each one is independent.
+
+**Chrome (browser tasks).** Lets the agents and Malves read pages, open links,
+and click or type for you after you say yes.
+1. Unzip `malves-chrome.zip`.
+2. In Chrome, open `chrome://extensions` and turn on **Developer mode**.
+3. Click **Load unpacked** and choose the unzipped folder.
+4. Type `extension` in the `serve` window (or run `pnpm malves console extension`),
+   then paste the code it shows into the malves icon in Chrome.
+
+**Your IDE (VS Code, Cursor, Antigravity, Windsurf).** Start the IDE's own agent
+and open changes from your phone. In the IDE: **Extensions → ⋯ → Install from
+VSIX…** and choose `malves.vsix`. Look for "malves" in the status bar.
+
+**Malves, the assistant.** A voice you can talk to: "is Codex done?",
+"start Claude on the footer bug", "read me the result". It needs:
+- **A brain:** any OpenAI-compatible server. We use
+  [freellmapi](https://github.com/tashfeenahmed/freellmapi) on a free Oracle
+  Cloud VM.
+- **A memory folder:** an Obsidian vault.
+
+In `.env`:
+
+```sh
+MALVES_MODELS_URL=http://<your-server>:3001
+MALVES_MODELS_KEY=...
+MALVES_VAULT=C:\Notes\Malves
+```
+
+**Natural voice.** Malves sounds like a person instead of a robot. Add one or
+more of these (each has a free tier):
+
+```sh
+CARTESIA_API_KEY=...
+ELEVENLABS_API_KEY=...
+MALVES_PIPER_URL=http://<your-server>:5005   # Piper on your own server
+```
+
+**Calls.** Malves rings your phone with a real call screen, for example when
+you say "call me when Codex finishes". The release APK can't ring for you: calls
+are tied to a Firebase project, so you build your own APK.
+1. Create a free [Firebase](https://console.firebase.google.com) project, and add
+   an Android app with the package name `io.github.ladsondavid.malves`.
+2. Fork this repo. Add the contents of the Firebase `google-services.json` as a
+   repository secret named `GOOGLE_SERVICES_JSON`, then run **Actions → Android
+   APK → Run workflow** and install that APK.
+3. In Firebase, go to **Project settings → Service accounts → Generate new
+   private key**. Save the file outside the repo and set
+   `MALVES_FCM_KEY=<path to it>` in `.env`.
+4. Restart `serve`, then on the phone tap **Settings → Calls → Test call**.
+
+**Leads.** Who to contact this week, from
+[signalstack](https://github.com/LadsonDavid/signalstack). Set
+`MALVES_LEADS_URL` in `.env`.
+
+After changing `.env`, restart `serve`.
+
+---
+
+## How to use it
+
+**Start a task.** Tap **New task**, write what you want ("fix the footer year"),
+pick a folder and an agent, and tap **Start**. You can close the app; malves
+keeps working.
+
+**Answer questions.** When an agent wants to do something, like change a file
+or run a command, your phone asks you. Tap **Allow** or **Skip**, from the app
+or the notification. If nobody answers in time, the task stops. Silence never
+means yes.
+
+**Carry on an earlier session.** **Work → Sessions** lists your Claude Code,
+Codex, Cursor and Antigravity sessions from the computer. Open one and type
+what's next.
+
+**Talk to Malves.** Tap the mic on Home, or the floating mic on any other
+screen, and just say it: "what's running?", "stop this one", "why did it
+fail?". Anything that changes something is read back first, and waits for your
+yes.
+
+**See and control your computer.** Tap **Your screen** to see live video of
+your computer:
+- Tap to click; hold to right-click.
+- Switch to **Trackpad** to move the pointer by dragging.
+- **Keyboard** lets you type and press keys.
+
+The computer shows a notification whenever a phone is watching.
+
+**Hand over your computer.** Leaving for a while? Say "I'm leaving, take over
+my computer". Malves can then run tests and builds and use Chrome. Anything
+else waits for your yes. It ends when you tap **Stop**, say "I'm back", or after
+4 hours.
+
+---
+
+## If something doesn't work
+
+| What you see | Try this |
+|---|---|
+| The phone says **Offline** | Check Tailscale is on, on **both** devices, and the computer is awake |
+| The console says "serve is still starting" | Right after the computer starts, wait a minute and try again |
+| An agent shows **Needs sign-in** | Sign in on the computer (step 2), then tap **Check again** in Settings |
+| An agent shows **Slow to start** | That's fine: it works, it just takes a little longer to begin |
+| The QR code expired | Type `pair` in `serve`, or run `pnpm malves console pair` |
+| The call shows only as a notification | Tap **Settings → Calls → Not ringing?** and allow full-screen notifications for malves |
+| Malves sounds robotic | Add a natural-voice key (above), and check **Settings → Voice → More voice options → Use the phone's voice** is off |
+
+## Reference
 
 ### Commands
 
@@ -289,10 +458,41 @@ A few rules that come from the code:
 
 ## Contributing
 
-Not open for code contributions yet; issues and ideas are welcome. The security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
-before anything else — a phone that makes your desktop run code is remote code
-execution as a feature, and that deserves a threat model before it deserves a
-demo.
+malves is better with more people in it. You don't need to be an expert, and
+you don't need to write code to help.
+
+**Ways to help, from small to big:**
+
+1. **Try it and tell us what broke.** Open an [issue](https://github.com/LadsonDavid/Malves/issues)
+   with what you did, what you expected, and what happened. Screenshots help.
+2. **Fix a word.** Typos, confusing sentences in this README or in the app: small
+   pull requests are welcome.
+3. **Pick up an issue.** Look for issues labelled `good first issue`. Comment on
+   one before you start, so two people don't do the same work.
+4. **Test on your device.** Most features still need real-world tests on different
+   Android phones and Windows PCs. Telling us "it works on my phone" counts.
+5. **Suggest an idea.** Open an issue that starts with "Idea:" and say what
+   problem it solves for you.
+
+**Before your first pull request:**
+
+- Set up: `pnpm install`, then `pnpm typecheck`, `pnpm lint` and `pnpm test`
+  must pass. See [Development](#development).
+- Keep each pull request about one thing. Small is easier to review.
+- Read the security model in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security)
+  if your change touches what the phone can make the computer do. A phone that
+  runs things on your desktop needs care first, a demo second.
+- If you copy code from another project, add it to [THIRD-PARTY.md](THIRD-PARTY.md)
+  with its licence.
+- Say in your pull request that your contribution is your own work and can be
+  released under the MIT licence.
+
+**Why that last point matters:** malves started as a university final-year
+project, so every outside contribution is credited by name, both here and in
+the project's record of who wrote what. Thank you for helping.
+
+Not sure where to start? Open an issue that says "I'd like to help with ___"
+and we'll find something that fits.
 
 ## License
 
