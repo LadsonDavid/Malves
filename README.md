@@ -5,6 +5,24 @@
 > to end in parts; the phone app builds as an installable APK. The newest pieces
 > are awaiting a real-phone test. See [Where it stands](#where-it-stands).
 
+## In plain words
+
+You leave your desk, and your computer keeps working for you.
+
+malves turns your phone into a remote control for the computer you already own.
+Ask it, by voice or text, to fix a bug, check your leads, or open a web page.
+The AI coding tools on your computer (Claude Code, Codex, Cursor, Antigravity)
+do the work. When they need a decision, your phone asks you. You tap yes or no,
+from anywhere, even on mobile data.
+
+- **Your own computer does the work.** No cloud machine to rent.
+- **Nothing happens without you.** Anything that changes something is read back to you first.
+- **Free, forever.** MIT licence, no paid tier, no account to create.
+- **Private.** The phone and your computer talk over an encrypted link you control.
+
+If you've ever thought "my laptop at home could do this, if only I could reach
+it", malves is for you.
+
 ## The problem
 
 An early-stage team of two or three people needs roughly the same tooling as a
@@ -289,10 +307,41 @@ A few rules that come from the code:
 
 ## Contributing
 
-Not open for code contributions yet; issues and ideas are welcome. The security model is in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security). Read it
-before anything else — a phone that makes your desktop run code is remote code
-execution as a feature, and that deserves a threat model before it deserves a
-demo.
+malves is better with more people in it. You don't need to be an expert, and
+you don't need to write code to help.
+
+**Ways to help, from small to big:**
+
+1. **Try it and tell us what broke.** Open an [issue](https://github.com/LadsonDavid/Malves/issues)
+   with what you did, what you expected, and what happened. Screenshots help.
+2. **Fix a word.** Typos, confusing sentences in this README or in the app: small
+   pull requests are welcome.
+3. **Pick up an issue.** Look for issues labelled `good first issue`. Comment on
+   one before you start, so two people don't do the same work.
+4. **Test on your device.** Most features still need real-world tests on different
+   Android phones and Windows PCs. Telling us "it works on my phone" counts.
+5. **Suggest an idea.** Open an issue that starts with "Idea:" and say what
+   problem it solves for you.
+
+**Before your first pull request:**
+
+- Set up: `pnpm install`, then `pnpm typecheck`, `pnpm lint` and `pnpm test`
+  must pass. See [Development](#development).
+- Keep each pull request about one thing. Small is easier to review.
+- Read the security model in [ARCHITECTURE.md §8](ARCHITECTURE.md#8-security)
+  if your change touches what the phone can make the computer do. A phone that
+  runs things on your desktop needs care first, a demo second.
+- If you copy code from another project, add it to [THIRD-PARTY.md](THIRD-PARTY.md)
+  with its licence.
+- Say in your pull request that your contribution is your own work and can be
+  released under the MIT licence.
+
+**Why that last point matters:** malves started as a university final-year
+project, so every outside contribution is credited by name, both here and in
+the project's record of who wrote what. Thank you for helping.
+
+Not sure where to start? Open an issue that says "I'd like to help with ___"
+and we'll find something that fits.
 
 ## License
 
