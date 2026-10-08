@@ -1,4 +1,4 @@
-import { type AgentInfo, type LinkClient, type LinkStatus, NATURAL_VOICES } from "@malves/protocol";
+import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
 import { Alert, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Speaker } from "../icons";
@@ -11,8 +11,9 @@ import {
   Card,
   Chip,
   Choices,
+  List,
+  Row,
   Section,
-  space,
   styles,
   Title,
   type Tone,
@@ -99,7 +100,19 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
     >
       <Title>Settings</Title>
 
-      <Section title="Computer">
+      {model.assistant ? (
+        <Section title="Malves">
+          <VoiceCard voice={voice} phoneVoices={phoneVoices} />
+          <CallsCard voice={voice} />
+          <MemoryCard model={model} client={client} online={status === "online"} say={say} />
+        </Section>
+      ) : (
+        <Section title="Malves">
+          <MemoryCard model={model} client={client} online={status === "online"} say={say} />
+        </Section>
+      )}
+
+      <Section title="This computer">
         <Card>
           <Text style={[styles.body, styles.strong]}>{model.computer ?? "Your computer"}</Text>
           <Text style={styles.muted}>
@@ -111,184 +124,32 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
                   ? "Connecting…"
                   : "This computer no longer accepts this phone."}
           </Text>
+          <Text style={styles.muted}>
+            Chrome:{" "}
+            {model.chrome === null
+              ? "unknown"
+              : model.chrome
+                ? "connected"
+                : "not connected (type extension in malves serve)"}
+          </Text>
+          <Text style={styles.muted}>
+            Projects:{" "}
+            {model.workspaces.map((w) => w.name).join(", ") || "none yet (type add <folder>)"}
+          </Text>
         </Card>
-      </Section>
-
-      <Section title="Notifications">
-        <PushCard link={model.push} />
-      </Section>
-
-      {model.assistant ? (
-        <Section title="Calls">
-          <CallsCard voice={voice} />
-        </Section>
-      ) : null}
-
-      <Section title="Voice">
-        <Card>
-          <Text style={styles.muted}>Language you speak</Text>
-          <Choices<Lang>
-            options={[
-              { value: "en-IN", label: "English (India)" },
-              { value: "en-US", label: "English (US)" },
-              { value: "ta-IN", label: "தமிழ்" },
-            ]}
-            value={voice.settings.lang}
-            onChange={(lang) => voice.setSettings({ ...voice.settings, lang })}
-          />
-          {model.assistant ? (
-            <>
-              <Text style={styles.muted}>How Malves sounds</Text>
-              <Choices<"phone" | "natural">
-                options={[
-                  { value: "phone", label: "Phone voice (instant)" },
-                  { value: "natural", label: "Natural" },
-                ]}
-                value={voice.settings.natural ? "natural" : "phone"}
-                onChange={(v) => voice.setSettings({ ...voice.settings, natural: v === "natural" })}
-              />
-              {voice.settings.natural ? (
-                <>
-                  <Text style={styles.muted}>
-                    Malves starts speaking as soon as its first sentence is written. Each sentence
-                    is tried with Cartesia, then ElevenLabs, then Piper on your server; if all three
-                    fail, the phone reads it. Tamil script is read by the Tamil voice, English and
-                    Tanglish by the English one. Questions and results are read by the phone.
-                  </Text>
-                  {(["ta", "en"] as const).map((lang) => (
-                    <View key={lang} style={{ gap: space.xs }}>
-                      <Text style={styles.muted}>
-                        {lang === "ta" ? "Tamil voice" : "English voice"}
-                      </Text>
-                      <Choices<string>
-                        options={NATURAL_VOICES.filter((v) => v.lang === lang).map((v) => ({
-                          value: v.id,
-                          label: v.name,
-                        }))}
-                        value={voice.settings.naturalVoices[lang]}
-                        onChange={(id) =>
-                          voice.setSettings({
-                            ...voice.settings,
-                            naturalVoices: { ...voice.settings.naturalVoices, [lang]: id },
-                          })
-                        }
-                      />
-                    </View>
-                  ))}
-                </>
-              ) : null}
-              <Text style={styles.muted}>Talking over Malves</Text>
-              <Choices<"on" | "off">
-                options={[
-                  { value: "on", label: "Stops it" },
-                  { value: "off", label: "Off" },
-                ]}
-                value={voice.settings.bargeIn ? "on" : "off"}
-                onChange={(v) => voice.setSettings({ ...voice.settings, bargeIn: v === "on" })}
-              />
-              {voice.settings.bargeIn ? (
-                <Text style={styles.muted}>
-                  While Malves speaks, the mic listens: say "stop", "wait" or "nillu", or just start
-                  talking, and it stops to hear you. Turn this off if it stops by itself.
-                </Text>
-              ) : null}
-            </>
-          ) : null}
-          {phoneVoices.length > 1 ? (
-            <>
-              <Text style={styles.muted}>Malves' voice (from your phone)</Text>
-              <Choices<string>
-                options={[
-                  { value: "", label: "Phone default" },
-                  ...phoneVoices.slice(0, 8).map((v, i) => ({
-                    value: v.id,
-                    label: `Voice ${i + 1}${/network/i.test(v.id) ? " (online)" : ""}`,
-                  })),
-                ]}
-                value={voice.settings.voices[voice.settings.lang] ?? ""}
-                onChange={(id) =>
-                  voice.setSettings({
-                    ...voice.settings,
-                    voices: { ...voice.settings.voices, [voice.settings.lang]: id || undefined },
-                  })
-                }
-              />
-            </>
-          ) : null}
-          <Text style={styles.muted}>Dictation accuracy</Text>
-          <Choices<"fast" | "precise">
-            options={[
-              { value: "fast", label: "Fast (live)" },
-              { value: "precise", label: "Precise (Whisper)" },
-            ]}
-            value={voice.settings.precise ? "precise" : "fast"}
-            onChange={(v) => voice.setSettings({ ...voice.settings, precise: v === "precise" })}
-          />
-          {voice.settings.precise && !voice.canBePrecise ? (
-            <Text style={styles.muted}>
-              Precise mode needs Android 13+ and freellmapi on the computer (MALVES_MODELS_URL and
-              MALVES_MODELS_KEY). Until then, dictation uses the fast mode.
-            </Text>
-          ) : (
-            <Text style={styles.muted}>
-              Precise mode sends your recording to Whisper through your freellmapi, after you finish
-              talking. Commands and answers always use the fast mode.
-            </Text>
-          )}
-          {!voice.canListen ? (
-            <Text style={styles.muted}>
-              Listening needs the malves app (APK); Expo Go can only read aloud.
-            </Text>
-          ) : null}
-          <Button
-            title="Test the voice"
-            icon={Speaker}
-            kind="plain"
-            onPress={() =>
-              voice.readAloud(
-                voice.settings.lang === "ta-IN"
-                  ? "வணக்கம் Ladson. நான் Malves. என்ன செய்யலாம்?"
-                  : "Hi Ladson, Malves here. What are we building today?",
-              )
-            }
-          />
-        </Card>
-      </Section>
-
-      <Section title="Malves' memory">
-        <MemoryCard model={model} client={client} online={status === "online"} say={say} />
-      </Section>
-
-      <Section title="Chrome">
-        <Card>
-          {model.chrome === null ? (
-            <Text style={styles.muted}>Unknown until the computer is connected.</Text>
-          ) : model.chrome ? (
-            <Text style={styles.body}>Connected. Agents can use the tab you have open.</Text>
-          ) : (
-            <>
-              <Text style={styles.body}>Not connected. Browser tasks won't work.</Text>
-              <Text style={styles.muted}>
-                On the computer, in malves serve, type extension and follow the steps.
-              </Text>
-            </>
-          )}
-        </Card>
-      </Section>
-
-      <Section title="Agents">
-        {model.agents.map((a) => (
-          <Card key={a.name}>
-            <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
-              <Text style={[styles.body, styles.strong]}>{a.label}</Text>
-              <Chip label={AGENT_STATE[a.state][0]} tone={AGENT_STATE[a.state][1]} />
-            </View>
-            {a.metered ? <Text style={styles.muted}>Free models, metered by malves.</Text> : null}
-            {a.hint ? <Text style={styles.muted}>{a.hint}</Text> : null}
-          </Card>
-        ))}
+        <List>
+          {model.agents.map((a) => (
+            <Row key={a.name}>
+              <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
+                <Text style={styles.body}>{a.label}</Text>
+                <Chip label={AGENT_STATE[a.state][0]} tone={AGENT_STATE[a.state][1]} />
+              </View>
+              {a.hint ? <Text style={styles.muted}>{a.hint}</Text> : null}
+            </Row>
+          ))}
+        </List>
         <Button
-          title="I've signed in, check again"
+          title="Check again"
           kind="plain"
           busy={checking}
           disabled={!client || status !== "online"}
@@ -296,21 +157,8 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         />
       </Section>
 
-      <Section title="Projects">
-        {model.workspaces.length === 0 ? (
-          <Banner tone="info">
-            No project folders yet. On the computer, in malves serve, type add &lt;folder&gt;.
-          </Banner>
-        ) : (
-          <Card>
-            {model.workspaces.map((w) => (
-              <Text key={w.id} style={styles.body}>
-                {w.name}
-              </Text>
-            ))}
-            <Text style={styles.muted}>To add one: on the computer, type add &lt;folder&gt;.</Text>
-          </Card>
-        )}
+      <Section title="Notifications">
+        <PushCard link={model.push} />
       </Section>
 
       <Section title="Careful">
@@ -394,9 +242,8 @@ function MemoryCard({
 
   return (
     <Card>
-      <Text style={styles.muted}>
-        Notes in your Obsidian vault on the computer. Edit them there, or delete them here.
-      </Text>
+      <Text style={[styles.body, styles.strong]}>Memory</Text>
+      <Text style={styles.muted}>What Malves remembers about you. Delete anything here.</Text>
       {memories?.length === 0 ? <Text style={styles.body}>Nothing remembered yet.</Text> : null}
       {memories?.map((m) => (
         <View
@@ -429,40 +276,142 @@ function CallsCard({ voice }: { voice: ReturnType<typeof useVoice> }) {
   const [busy, setBusy] = useState(false);
   return (
     <Card>
+      <Text style={[styles.body, styles.strong]}>Calls</Text>
       {voice.callsProblem ? (
         <Banner tone="warn">{voice.callsProblem}</Banner>
       ) : (
-        <Text style={styles.body}>
-          Malves can call this phone, for example when you say "call me when Codex finishes".
-        </Text>
+        <Text style={styles.muted}>Say "call me when Codex finishes" and your phone rings.</Text>
       )}
-      <Text style={styles.muted}>
-        The call goes through Google's push with no content; what Malves says comes over your own
-        link once you answer. No calls in quiet hours, at most three an hour, and "don't call me
-        today" stops them.
-      </Text>
-      <Button
-        title={busy ? "Calling…" : "Test call"}
-        busy={busy}
-        disabled={!!voice.callsProblem}
-        onPress={() => {
-          setBusy(true);
-          void voice
-            .testCall()
-            .then(setResult)
-            .finally(() => setBusy(false));
-        }}
-      />
+      <View style={styles.row}>
+        <Button
+          title={busy ? "Calling…" : "Test call"}
+          kind="plain"
+          busy={busy}
+          disabled={!!voice.callsProblem}
+          onPress={() => {
+            setBusy(true);
+            void voice
+              .testCall()
+              .then(setResult)
+              .finally(() => setBusy(false));
+          }}
+        />
+        <Button
+          title="Not ringing?"
+          kind="ghost"
+          onPress={() => void Linking.openSettings()}
+          hint="Allow full-screen notifications for malves in Android settings"
+        />
+      </View>
       {result ? <Text style={styles.meta}>{result}</Text> : null}
-      <Text style={styles.muted}>
-        If the call shows only as a notification instead of the full call screen, allow "Full screen
-        notifications" for malves in Android settings.
-      </Text>
-      <Button
-        title="Open Android settings"
-        kind="secondary"
-        onPress={() => void Linking.openSettings()}
+    </Card>
+  );
+}
+
+/**
+ * How Malves sounds: the language you speak and a male or female voice; the
+ * rest waits behind "More voice options".
+ */
+function VoiceCard({
+  voice,
+  phoneVoices,
+}: {
+  voice: ReturnType<typeof useVoice>;
+  phoneVoices: Array<{ id: string; name: string }>;
+}) {
+  const [more, setMore] = useState(false);
+  const s = voice.settings;
+  const set = (next: Partial<typeof s>) => voice.setSettings({ ...s, ...next });
+  const gender = s.naturalVoices.en.includes("female") ? "female" : "male";
+  return (
+    <Card>
+      <Text style={[styles.body, styles.strong]}>Voice</Text>
+      <Text style={styles.muted}>You speak</Text>
+      <Choices<Lang>
+        options={[
+          { value: "en-IN", label: "English (India)" },
+          { value: "en-US", label: "English (US)" },
+          { value: "ta-IN", label: "தமிழ்" },
+        ]}
+        value={s.lang}
+        onChange={(lang) => set({ lang })}
       />
+      <Text style={styles.muted}>Malves' voice</Text>
+      <Choices<"male" | "female">
+        options={[
+          { value: "male", label: "Male" },
+          { value: "female", label: "Female" },
+        ]}
+        value={gender}
+        onChange={(g) =>
+          set({
+            naturalVoices:
+              g === "female"
+                ? { ta: "ta-female", en: "en-female-1" }
+                : { ta: "ta-male", en: "en-male-1" },
+          })
+        }
+      />
+      <Button
+        title="Hear it"
+        icon={Speaker}
+        kind="plain"
+        onPress={() =>
+          voice.readAloud(
+            s.lang === "ta-IN"
+              ? "வணக்கம் Ladson. நான் Malves. என்ன செய்யலாம்?"
+              : "Hi Ladson, Malves here. What are we building today?",
+          )
+        }
+      />
+      <Button
+        title={more ? "Fewer options" : "More voice options"}
+        kind="ghost"
+        onPress={() => setMore((m) => !m)}
+      />
+      {more ? (
+        <>
+          <Text style={styles.muted}>Use the phone's voice</Text>
+          <Choices<"off" | "on">
+            options={[
+              { value: "off", label: "Off" },
+              { value: "on", label: "On" },
+            ]}
+            value={s.natural ? "off" : "on"}
+            onChange={(v) => set({ natural: v === "off" })}
+          />
+          {!s.natural && phoneVoices.length > 1 ? (
+            <Choices<string>
+              options={[
+                { value: "", label: "Phone default" },
+                ...phoneVoices
+                  .slice(0, 6)
+                  .map((v, i) => ({ value: v.id, label: `Voice ${i + 1}` })),
+              ]}
+              value={s.voices[s.lang] ?? ""}
+              onChange={(id) => set({ voices: { ...s.voices, [s.lang]: id || undefined } })}
+            />
+          ) : null}
+          <Text style={styles.muted}>Talking over Malves stops it</Text>
+          <Choices<"on" | "off">
+            options={[
+              { value: "on", label: "On" },
+              { value: "off", label: "Off" },
+            ]}
+            value={s.bargeIn ? "on" : "off"}
+            onChange={(v) => set({ bargeIn: v === "on" })}
+          />
+          <Text style={styles.muted}>Dictation</Text>
+          <Choices<"fast" | "precise">
+            options={[
+              { value: "fast", label: "Fast" },
+              { value: "precise", label: "Precise (Whisper)" },
+            ]}
+            value={s.precise ? "precise" : "fast"}
+            onChange={(v) => set({ precise: v === "precise" })}
+          />
+        </>
+      ) : null}
     </Card>
   );
 }

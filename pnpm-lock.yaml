@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  react-native-full-screen-notification-incoming-call@1.1.0:
+    hash: 58b02ad126741f9df412440c309a02f3a8cb360687a6b500a53d556c5e778498
+    path: patches/react-native-full-screen-notification-incoming-call@1.1.0.patch
+
 importers:
 
   .:
@@ -91,7 +96,7 @@ importers:
         version: 0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3)
       react-native-full-screen-notification-incoming-call:
         specifier: 1.1.0
-        version: 1.1.0(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+        version: 1.1.0(patch_hash=58b02ad126741f9df412440c309a02f3a8cb360687a6b500a53d556c5e778498)(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       react-native-heroicons:
         specifier: ^4.0.0
         version: 4.0.0(react-native-svg@15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react@19.2.3)
@@ -8293,7 +8298,7 @@ snapshots:
 
   react-is@18.3.1: {}
 
-  react-native-full-screen-notification-incoming-call@1.1.0(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3):
+  react-native-full-screen-notification-incoming-call@1.1.0(patch_hash=58b02ad126741f9df412440c309a02f3a8cb360687a6b500a53d556c5e778498)(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3):
     dependencies:
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3)

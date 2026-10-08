@@ -191,11 +191,10 @@ export async function serve(
       call: (op, args) => bridge.call(op, args),
     },
   });
-  // Every session on this computer (Claude Code, Codex, Cursor, Antigravity); the first
-  // full read takes a few seconds, so it starts now, in the background.
+  // Every session on this computer (Claude Code, Codex, Cursor, Antigravity). The first
+  // full read can take minutes after Windows starts: it runs once serve is up (below).
   const sessions = new Sessions(runner);
   if (malves) warmPiper(process.env.MALVES_PIPER_URL);
-  void sessions.list().catch(() => {});
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
   const server = new LinkServer(runner, {
@@ -504,6 +503,8 @@ export async function serve(
       return () => hearing.delete(listener);
     },
   }).catch(() => undefined);
+  // The phone and the console are up: now read every session, in the background.
+  void sessions.list().catch(() => {});
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);

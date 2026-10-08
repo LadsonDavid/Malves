@@ -347,6 +347,11 @@ export class LinkClient {
     return this.send({ type: "call.decline", call_id: callId });
   }
 
+  /** Says `text` in Malves' natural voice; the audio arrives as `assistant.audio`. */
+  speakText(text: string, speak: Speak, commandId?: string): Promise<Ack> {
+    return this.send({ type: "voice.speak", text: text.slice(0, 2000), speak }, commandId);
+  }
+
   /** Malves rings this phone now, to check calls work. */
   testCall(): Promise<Ack> {
     return this.send({ type: "call.test" });

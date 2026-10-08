@@ -1,6 +1,7 @@
 import type { Ack, LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { Alert, ScrollView, Share, Text, TextInput, View } from "react-native";
+import { Markdown } from "../components/Markdown";
 import { QuestionCard } from "../components/QuestionCard";
 import { StateChip } from "../components/TaskRow";
 import { Speaker, Stop } from "../icons";
@@ -153,9 +154,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
           }}
         >
           <Card>
-            <Text style={styles.body} selectable>
-              {task.result}
-            </Text>
+            <Markdown text={task.result} />
             <Button
               title={voice.phase === "speaking" ? "Stop reading" : "Read aloud"}
               icon={voice.phase === "speaking" ? Stop : Speaker}

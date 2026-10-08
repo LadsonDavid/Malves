@@ -44,7 +44,12 @@ export type Launch = {
 };
 
 /** Whether an agent can take a task right now. */
-export type Probe = { state: "ready" | "needs_sign_in" | "unavailable"; detail?: string };
+export type Probe = {
+  state: "ready" | "needs_sign_in" | "unavailable";
+  detail?: string;
+  /** It started but didn't answer in time: slow, not broken. */
+  slow?: true;
+};
 
 /** ACP's `auth_required` error code. */
 const AUTH_REQUIRED = -32000;
@@ -164,7 +169,7 @@ export class AcpHost implements AgentHost {
     });
     const timedOut = new Promise<Probe>((resolve) => {
       timer = setTimeout(
-        () => resolve({ state: "unavailable", detail: "It didn't respond in time." }),
+        () => resolve({ state: "unavailable", detail: "It didn't respond in time.", slow: true }),
         timeoutMs,
       );
     });

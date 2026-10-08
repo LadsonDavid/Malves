@@ -19,7 +19,7 @@ import {
 } from "../model";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
-import { callHandled, onAnsweredCall, registerForCalls } from "./calls";
+import { callHandled, onAnsweredCall, registerForCalls, whenUnlocked } from "./calls";
 import {
   canListen,
   canRecord,
@@ -202,12 +202,31 @@ export function VoiceProvider({
   /** Agent text (questions, results) is English: read it in the matching English voice. */
   const englishVoice = (): Lang => (live.current.settings.lang === "en-US" ? "en-US" : "en-IN");
 
+  /**
+   * Everything Malves says (questions, results, short replies) is said in its
+   * natural voice. The phone's own voice only when that's chosen in Settings,
+   * or when the computer can't be reached.
+   */
   const sayIt = async (text: string, lang: Lang = P().voice) => {
+    const L = live.current;
     setPhase("speaking");
     setSaid(text);
     note("malves", text);
-    live.current.lastSaid = text;
-    await speak(text, lang, live.current.settings.voices[lang]);
+    L.lastSaid = text;
+    const c = L.client;
+    if (L.settings.natural && c && L.status === "online") {
+      const id = L.turn;
+      const voice = startReply(id);
+      const sent = await c.speakText(text, speakAs(), voice.commandId).then(
+        (ack) => ack.ok,
+        () => false,
+      );
+      if (!sent) voice.cancel();
+      const how = (await voice.playing) ?? "none";
+      if (how === "interrupted") L.interrupted = true;
+      if (how !== "none" || id !== L.turn) return;
+    }
+    await speak(text, lang, L.settings.voices[lang]);
   };
 
   /** How Malves is asked to sound: its natural voices, or not at all (the phone speaks). */
@@ -730,7 +749,7 @@ export function VoiceProvider({
     if (!client || status !== "online") return;
     return onAnsweredCall((callId) => {
       onCall();
-      void answerCall(callId);
+      void whenUnlocked().then(() => answerCall(callId));
     });
   }, [client, status, onCall]);
   const testCall = async () => {

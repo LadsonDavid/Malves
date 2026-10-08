@@ -1,0 +1,73 @@
+diff --git a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/FullScreenNotificationIncomingCallModule.java b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/FullScreenNotificationIncomingCallModule.java
+index 7f6e7afd531a8def6b3682bc845d9b1a6bc50aed..3d362434aac6bd430ea932edbf1e5f7f9f96a6af 100644
+--- a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/FullScreenNotificationIncomingCallModule.java
++++ b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/FullScreenNotificationIncomingCallModule.java
+@@ -111,10 +111,10 @@ public class FullScreenNotificationIncomingCallModule extends ReactContextBaseJa
+     Activity activity = getCurrentReactActivity();
+     boolean isOpened = activity != null;
+     if (!isOpened) {
+-      focusIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK +
+-          WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED +
+-          WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD +
+-          WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
++      // malves: only an intent flag here. The library added window flags (show
++      // when locked, dismiss keyguard) as intent flags, which is wrong and asked
++      // to skip the lock screen. The app opens behind the lock screen as usual.
++      focusIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+       getReactApplicationContext().startActivity(focusIntent);
+     } else {
+       focusIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+diff --git a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallActivity.java b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallActivity.java
+index 3395f0042bc043fc3370940047afcd9c905ef0fb..43c00914eebbba062a96cdf44cc02c967e31f7b8 100644
+--- a/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallActivity.java
++++ b/android/src/main/java/com/reactnativefullscreennotificationincomingcall/IncomingCallActivity.java
+@@ -70,19 +70,15 @@ public class IncomingCallActivity extends AppCompatActivity implements DefaultHa
+   @Override
+   protected void onCreate(Bundle savedInstanceState) {
+     super.onCreate(savedInstanceState);
++    // malves: the ringing screen shows over the lock screen, but never switches
++    // the lock screen off (the library disabled the keyguard here, which let
++    // anyone holding a locked phone into the app after answering).
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+       setShowWhenLocked(true);
+       setTurnScreenOn(true);
+-      //Some devices need the code below to work when the device is locked
+-      KeyguardManager keyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+-      if (keyguardManager.isDeviceLocked()) {
+-        KeyguardManager.KeyguardLock keyguardLock = keyguardManager.newKeyguardLock(TAG_KEYGUARD);
+-        keyguardLock.disableKeyguard();
+-      }
+     }
+     getWindow().addFlags(
+       WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+-        | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+         | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+         | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+         | WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON);
+@@ -90,22 +86,10 @@ public class IncomingCallActivity extends AppCompatActivity implements DefaultHa
+     if (bundle.containsKey("uuid")) {
+       uuid = bundle.getString("uuid");
+     }
+-    if (bundle.containsKey("mainComponent") && bundle.getString("mainComponent") != null) {
+-      String mainComponent = bundle.getString("mainComponent");
+-      setContentView(R.layout.custom_ingcoming_call_rn);
+-      Fragment reactNativeFragment = new ReactFragment.Builder()
+-        .setComponentName(mainComponent)
+-        .setLaunchOptions(bundle)
+-        .build();
+-
+-      getSupportFragmentManager()
+-        .beginTransaction()
+-        .add(R.id.reactNativeFragment, reactNativeFragment)
+-        .commit();
+-      return;
+-    } else {
+-      setContentView(R.layout.activity_call_incoming);
+-    }
++    // malves: the custom React call screen (mainComponent) is removed: its
++    // ReactFragment.Builder calls don't compile on React Native 0.86, and
++    // malves uses the standard screen.
++    setContentView(R.layout.activity_call_incoming);
+ //    Access views
+     tvName = findViewById(R.id.tvName);
+     tvInfo = findViewById(R.id.tvInfo);

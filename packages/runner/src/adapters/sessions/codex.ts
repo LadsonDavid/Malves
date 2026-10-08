@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { type SessionInfo, type SessionMessage, type SessionSource, titleFrom } from "./types.js";
+import {
+  breathe,
+  type SessionInfo,
+  type SessionMessage,
+  type SessionSource,
+  titleFrom,
+} from "./types.js";
 
 /**
  * Codex sessions: ~/.codex/sessions/YYYY/MM/DD/rollout-…jsonl. The first line
@@ -23,6 +29,7 @@ export function codexSessions(root = path.join(homedir(), ".codex", "sessions"))
           continue;
         }
         const info = describe(f, mtime);
+        await breathe();
         if (!info) continue;
         cache.set(f, { mtime, info });
         out.push(info);

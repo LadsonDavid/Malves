@@ -61,7 +61,12 @@ export async function startControl(o: {
 }
 
 /** `malves console [command]`: one command, or a prompt for many. */
-export async function console_(token: string, oneShot: string[]): Promise<number> {
+export async function console_(
+  token: string,
+  oneShot: string[],
+  /** Whether a serve holds the lock (it may still be starting). */
+  starting: () => boolean = () => false,
+): Promise<number> {
   const send = async (line: string): Promise<string> => {
     try {
       const response = await fetch(`http://127.0.0.1:${CONTROL_PORT}/run`, {
@@ -72,7 +77,10 @@ export async function console_(token: string, oneShot: string[]): Promise<number
       });
       return response.ok ? await response.text() : "malves serve refused that.";
     } catch {
-      return "malves serve isn't running. Start it with: pnpm malves serve (or autostart start).";
+      // The lock is taken first thing; the console opens only once serve is up.
+      return starting()
+        ? "malves serve is still starting (after Windows starts it can take a few minutes, or longer while it waits for Tailscale). Try again in a moment."
+        : "malves serve isn't running. Start it with: pnpm malves serve (or autostart start).";
     }
   };
   if (oneShot.length > 0) {
