@@ -50,7 +50,8 @@ if (callScreen) {
       const callId = callIdOf(data);
       if (callId) {
         screen.displayNotification(callId, null, RING_MS, {
-          channelId: "malves-calls",
+          // A new id: Android fixes a channel's sound when it is first created.
+          channelId: "malves-calls-ring",
           channelName: "Malves calling",
           notificationIcon: "ic_launcher",
           notificationTitle: "Malves",
