@@ -66,7 +66,8 @@ type Pending =
   | { kind: "stop"; taskId: string };
 
 /** One line of the conversation with Malves. */
-export type Line = { who: "you" | "malves"; text: string; at: number };
+/** `from`: skills from his library that Malves' reply drew on. */
+export type Line = { who: "you" | "malves"; text: string; at: number; from?: string[] | undefined };
 /** Lines kept on the phone for this session. */
 const MAX_LINES = 100;
 
@@ -145,8 +146,12 @@ export function VoiceProvider({
   const [problem, setProblem] = useState<string>();
   const [pending, setPendingState] = useState<{ id: string; summary: string }>();
   const [log, setLog] = useState<Line[]>([]);
-  const note = (who: Line["who"], text: string) =>
-    setLog((lines) => [...lines, { who, text, at: Date.now() }].slice(-MAX_LINES));
+  const note = (who: Line["who"], text: string) => {
+    // The next reply line carries the skills it drew on (set just before it's said).
+    const from = who === "malves" ? live.current.from : undefined;
+    if (who === "malves") live.current.from = undefined;
+    setLog((lines) => [...lines, { who, text, at: Date.now(), from }].slice(-MAX_LINES));
+  };
   // One conversation per app session: Malves keeps its short-term context per id.
   const conversationId = useRef(`app-${Date.now().toString(36)}`).current;
 
@@ -166,6 +171,8 @@ export function VoiceProvider({
     lastSaid: "",
     /** Malves was talked over: listen next, whatever the mode. */
     interrupted: false,
+    /** Skills the reply being said drew on. */
+    from: undefined as string[] | undefined,
     reading: { text: "", offset: 0 },
     /** Questions already read out or answered, so they aren't read twice. */
     handled: new Set<string>(),
@@ -328,6 +335,7 @@ export function VoiceProvider({
     if (!reply || reply.offline) return false;
     setBrainPending(reply.pending);
     if (reply.did.length > 0) buzz();
+    live.current.from = reply.skills;
     await sayReply(reply.reply, voice.playing, id);
     return true;
   };
@@ -775,6 +783,7 @@ export function VoiceProvider({
         if (reply) {
           setBrainPending(reply.pending);
           if (reply.did.length > 0) buzz();
+          live.current.from = reply.skills;
           await sayReply(reply.reply, voice.playing, id);
         } else await sayIt(P().problem(ack.error ?? "not applied"));
       } catch (error) {

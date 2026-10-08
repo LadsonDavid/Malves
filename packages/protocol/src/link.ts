@@ -499,6 +499,8 @@ export const Ack = z.object({
       pending: z.object({ id: Id, summary: z.string() }).optional(),
       did: z.array(z.string()),
       offline: z.boolean().optional(),
+      /** Skills from his library the reply drew on. */
+      skills: z.array(z.string().max(80)).max(4).optional(),
     })
     .optional(),
   /** The answer to `screen.frame`: a JPEG of the screen. */

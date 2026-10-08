@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import path from "node:path";
 import type { Core } from "@malves/core";
 import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
@@ -8,6 +9,7 @@ import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
 import { Profile } from "./profile.js";
+import { SkillLibrary } from "./skills.js";
 
 /**
  * Malves, the assistant, if its brain and memory are set up:
@@ -44,6 +46,13 @@ export function assistantFromEnv(o: {
     embed: (texts) => llm.embed(texts),
   });
   const profile = new Profile({ vault, dataDir: o.dataDir, llm });
+  const library = new SkillLibrary({
+    root: process.env.MALVES_SKILLS ?? path.join(homedir(), ".claude", "skills"),
+    dataDir: o.dataDir,
+    embed: (texts) => llm.embed(texts),
+  });
+  // The first indexing takes a few seconds: start it now, in the background.
+  void library.fill().catch(() => {});
   const ides: (() => IdeInfo[]) | undefined = o.ide ? () => o.ide?.list() ?? [] : undefined;
   const assistant = new Assistant({
     core: o.core,
@@ -57,6 +66,7 @@ export function assistantFromEnv(o: {
     ...(o.handover ? { handover: o.handover } : {}),
     ...(o.browser ? { browser: o.browser } : {}),
     profile,
+    library,
   });
   return {
     port: {

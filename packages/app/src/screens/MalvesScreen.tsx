@@ -65,6 +65,9 @@ export function MalvesScreen({ onBack }: { onBack: () => void }) {
               <Text style={styles.body} selectable>
                 {line.text}
               </Text>
+              {line.from?.length ? (
+                <Text style={styles.meta}>From your library: {line.from.join(", ")}</Text>
+              ) : null}
             </View>
           ),
         )}
