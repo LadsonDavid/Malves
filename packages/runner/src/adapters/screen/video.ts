@@ -13,10 +13,20 @@ const FPS = 15;
 
 /** The addresses in an SDP, for serve.log (no ports, so nothing sensitive beyond local IPs). */
 function addresses(sdp: string): string {
-  const found = [...sdp.matchAll(/a=candidate:S+ d+ (w+) d+ (S+) d+ typ (w+)/g)].map(
+  const found = [...sdp.matchAll(/a=candidate:\S+ \d+ (\w+) \d+ (\S+) \d+ typ (\w+)/g)].map(
     (m) => `${m[2]} ${m[1]} ${m[3]}`,
   );
   return found.length ? [...new Set(found)].join(", ") : "no addresses";
+}
+
+/** The shape of an SDP (media lines and codecs), for serve.log: no keys or passwords. */
+function shape(sdp: string): string {
+  const lines = sdp.split(/\r?\n/);
+  const media = lines.filter((l) => l.startsWith("m=")).join(" | ");
+  const codecs = [
+    ...new Set(lines.map((l) => l.match(/^a=rtpmap:\d+ ([\w-]+)/)?.[1]).filter(Boolean)),
+  ];
+  return `${media || "no media line"}; codecs: ${codecs.join(", ") || "none"}`;
 }
 
 export class ScreenVideo {
@@ -38,7 +48,7 @@ export class ScreenVideo {
     this.peer = peer;
     peer.addTrack(source.createTrack());
     // Diagnosis: which addresses the phone offered (a 100.x one means it can use Tailscale).
-    this.log(`Video: the phone offered ${addresses(offerSdp)}.`);
+    this.log(`Video: the phone offered ${addresses(offerSdp)}. Offer: ${shape(offerSdp)}.`);
     peer.oniceconnectionstatechange = () =>
       this.log(`Video: connection test ${peer.iceConnectionState}.`);
     peer.onconnectionstatechange = () => {
@@ -80,7 +90,7 @@ export class ScreenVideo {
         });
     }, 1000 / FPS);
     this.log(
-      `Video: answered the phone (${width}x${height}, ${(peer.localDescription?.sdp.match(/a=candidate/g) ?? []).length} addresses).`,
+      `Video: answered the phone (${width}x${height}, ${addresses(peer.localDescription?.sdp ?? "")}). Answer: ${shape(peer.localDescription?.sdp ?? "")}.`,
     );
     return { sdp: peer.localDescription?.sdp ?? "", width, height };
   }
