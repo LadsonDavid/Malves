@@ -11,6 +11,14 @@ export type Grab = () => Promise<{ width: number; height: number; rgba: Uint8Arr
 
 const FPS = 15;
 
+/** The addresses in an SDP, for serve.log (no ports, so nothing sensitive beyond local IPs). */
+function addresses(sdp: string): string {
+  const found = [...sdp.matchAll(/a=candidate:S+ d+ (w+) d+ (S+) d+ typ (w+)/g)].map(
+    (m) => `${m[2]} ${m[1]} ${m[3]}`,
+  );
+  return found.length ? [...new Set(found)].join(", ") : "no addresses";
+}
+
 export class ScreenVideo {
   private peer: InstanceType<typeof wrtc.RTCPeerConnection> | undefined;
   private timer: NodeJS.Timeout | undefined;
@@ -29,6 +37,10 @@ export class ScreenVideo {
     const peer = new wrtc.RTCPeerConnection({ iceServers: [] });
     this.peer = peer;
     peer.addTrack(source.createTrack());
+    // Diagnosis: which addresses the phone offered (a 100.x one means it can use Tailscale).
+    this.log(`Video: the phone offered ${addresses(offerSdp)}.`);
+    peer.oniceconnectionstatechange = () =>
+      this.log(`Video: connection test ${peer.iceConnectionState}.`);
     peer.onconnectionstatechange = () => {
       this.log(`Video: ${peer.connectionState}.`);
       if (["failed", "closed", "disconnected"].includes(peer.connectionState)) this.stop(peer);
