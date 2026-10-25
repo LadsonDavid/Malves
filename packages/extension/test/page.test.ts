@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { clickRef, selectRef, snapshotPage, typeRef } from "../src/page.js";
+import { clickRef, fillSecret, selectRef, snapshotPage, typeRef } from "../src/page.js";
 
 /** Replaces the page with this (fixed, test-written) HTML, then reads it. */
 const page = (html: string) => {
@@ -142,5 +142,20 @@ describe("acting on a page", () => {
     expect(selectRef(refOf(snap, "Size"), "Large")).toEqual({});
     expect(select.value).toBe("l");
     expect(selectRef(refOf(snap, "Size"), "Huge").error).toMatch(/no "Huge"/);
+  });
+
+  it("fills secret into field only when page origin matches", () => {
+    const snap = page(`<input type="password" aria-label="Password">`);
+    const input = document.querySelector("input") as HTMLInputElement;
+
+    // Origin mismatch
+    const mismatch = fillSecret(refOf(snap, "Password"), "hunter2", "https://other.example");
+    expect(mismatch.error).toMatch(/Refused: page origin/);
+    expect(input.value).toBe("");
+
+    // Origin matches (happy-dom default is http://localhost:3000 or location.origin)
+    const match = fillSecret(refOf(snap, "Password"), "hunter2", location.origin);
+    expect(match.filled).toBe(true);
+    expect(input.value).toBe("hunter2");
   });
 });

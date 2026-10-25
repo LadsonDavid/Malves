@@ -27,10 +27,23 @@ const NAMED: RegExp[] = [
   /(\bbearer\s+)([A-Za-z0-9._~+/=-]{8,})/gi,
 ];
 
+const DYNAMIC_SECRETS = new Set<string>();
+
+/** Registers a secret string (e.g. from the vault) to be redacted from all future logs/memories. */
+export function registerRedaction(secret: string): void {
+  const trimmed = secret.trim();
+  if (trimmed.length >= 4) {
+    DYNAMIC_SECRETS.add(trimmed);
+  }
+}
+
 export function redact(text: string): string {
   let out = text;
   for (const shape of SHAPES) out = out.replace(shape, HIDDEN);
   for (const named of NAMED) out = out.replace(named, (_all, name: string) => `${name}${HIDDEN}`);
+  for (const dyn of DYNAMIC_SECRETS) {
+    out = out.replaceAll(dyn, HIDDEN);
+  }
   return out;
 }
 

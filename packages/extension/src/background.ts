@@ -1,4 +1,4 @@
-import { clickRef, pressKey, scrollPage, selectRef, snapshotPage, typeRef } from "./page.js";
+import { clickRef, fillSecret, pressKey, scrollPage, selectRef, snapshotPage, typeRef } from "./page.js";
 
 /**
  * malves' Chrome extension (§5). Connects to malves on this computer only, and
@@ -156,6 +156,26 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       return inPage(pressKey, String(args.key));
     case "scroll":
       return inPage(scrollPage, args.direction === "up" ? "up" : "down");
+    case "fill_secret":
+      return inPage(
+        fillSecret,
+        String(args.ref),
+        String(args.secret ?? ""),
+        String(args.origin ?? ""),
+      );
+    case "dialog_action": {
+      const tab = await activeTab();
+      const accept = args.accept !== false;
+      try {
+        await chrome.debugger.sendCommand({ tabId: tab.id }, "Page.handleJavaScriptDialog", {
+          accept,
+          ...(typeof args.promptText === "string" ? { promptText: args.promptText } : {}),
+        });
+      } catch {
+        // Debugger may not be attached in this context
+      }
+      return {};
+    }
     default:
       throw new Error(`Unknown operation: ${op}`);
   }

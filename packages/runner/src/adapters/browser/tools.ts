@@ -1,12 +1,15 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type * as acp from "@agentclientprotocol/sdk";
-import type { Core } from "@malves/core";
+import type { Core, Verdict } from "@malves/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { Browser } from "./bridge.js";
+import { BrowserVault, normalizeOrigin } from "./vault.js";
+
+export { BrowserVault, generateTotp, normalizeOrigin, type VaultHandle, type VaultSecret } from "./vault.js";
 
 /** The tool server's name, as agents see it (e.g. `mcp__malves-browser__browser_click`). */
 export const TOOL_SERVER_NAME = "malves-browser";
@@ -35,29 +38,89 @@ type TaskBrowsing = {
   allowed: Set<string>;
   /** What each ref was called in the last snapshot, for the questions on the phone. */
   labels: Map<string, string>;
+  lastSnapshotHash?: string;
 };
 
 /**
- * Browser tools for agents (§5), served as an MCP server on 127.0.0.1. Each
- * task gets its own unguessable URL, and every tool goes through the gate:
- *
- * - a site this task hasn't used yet → the phone is asked first (reading too:
- *   it's the user's logged-in Chrome);
- * - every click, type, choice and Enter → the phone is asked first;
- * - password and card fields → refused by the extension, always.
- *
- * Questions go through `tasks.ask`, so silence stops the task (R3).
+ * Extracts structured records from page text (e.g. markdown tables, key-values, lists).
+ */
+export function extractStructuredData(
+  text: string,
+  instruction: string,
+  fields?: string[],
+): unknown {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const results: Array<Record<string, string>> = [];
+
+  // Try markdown table parsing
+  const tableRows = lines.filter((l) => l.includes("|"));
+  if (tableRows.length >= 2) {
+    const headers = tableRows[0]!
+      .split("|")
+      .map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"))
+      .filter(Boolean);
+    for (let i = 1; i < tableRows.length; i++) {
+      const row = tableRows[i]!;
+      if (/^[\s|:-]+$/.test(row)) continue;
+      const cells = row
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (cells.length > 0) {
+        const item: Record<string, string> = {};
+        for (let j = 0; j < headers.length; j++) {
+          const key = headers[j]!;
+          item[key] = cells[j] ?? "";
+        }
+        results.push(item);
+      }
+    }
+  }
+
+  if (results.length > 0) return results;
+
+  // Fallback: key: value parsing
+  const item: Record<string, string> = {};
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*(.+)$/);
+    if (match) {
+      const k = match[1]!.trim().toLowerCase().replace(/\s+/g, "_");
+      const v = match[2]!.trim();
+      if (!fields || fields.map((f) => f.toLowerCase()).includes(k)) {
+        item[k] = v;
+      }
+    }
+  }
+  if (Object.keys(item).length > 0) return [item];
+
+  return { instruction, raw: lines.slice(0, 50) };
+}
+
+/**
+ * Browser tools for agents (§5, §6), served as an MCP server on 127.0.0.1.
+ * Features:
+ * - Policy tiers: Tier 1 read, Tier 2 clicks on allowed sites, Tier 3 submit/fill.
+ * - Secret autofill: origin-bound vault; agent never sees passwords/tokens.
+ * - Long jobs: wait_for conditions and session continuity.
+ * - Structured extraction: extract table/record data conforming to schema.
  */
 export class BrowserTools {
   private server: Server | undefined;
   private port = 0;
   private readonly byToken = new Map<string, TaskBrowsing>();
   private readonly tokenOf = new Map<string, string>();
+  private readonly vault: BrowserVault;
 
   constructor(
     private readonly core: Core,
     private readonly browser: Browser,
+    vault?: BrowserVault,
   ) {
+    this.vault = vault ?? new BrowserVault();
+
     core.log.subscribe((event) => {
       if (
         event.type === "task.updated" &&
@@ -124,12 +187,9 @@ export class BrowserTools {
     }
     const body = req.method === "POST" ? await readJson(req) : undefined;
 
-    // Stateless: one MCP server per request, bound to this task.
     const mcp = this.toolsFor(browsing);
-    // No sessionIdGenerator: that is the SDK's stateless mode.
     const transport = new StreamableHTTPServerTransport({
       enableJsonResponse: true,
-      // A web page can't reach this through DNS rebinding: only our own host name.
       enableDnsRebindingProtection: true,
       allowedHosts: [`127.0.0.1:${this.port}`],
     });
@@ -137,13 +197,12 @@ export class BrowserTools {
       void transport.close();
       void mcp.close();
     });
-    // The SDK's own transport type trips our exactOptionalPropertyTypes; it is the right type.
     await mcp.connect(transport as unknown as Parameters<typeof mcp.connect>[0]);
     await transport.handleRequest(req, res, body);
   }
 
   private toolsFor(browsing: TaskBrowsing): McpServer {
-    const mcp = new McpServer({ name: TOOL_SERVER_NAME, version: "0.1.0" });
+    const mcp = new McpServer({ name: TOOL_SERVER_NAME, version: "0.2.0" });
     const { taskId } = browsing;
 
     const ask = async (question: string, risk: "medium" | "high") =>
@@ -154,12 +213,36 @@ export class BrowserTools {
         risk,
       })) === "allow";
 
-    /** The current tab's page; asks before this task first uses its site. */
+    const evaluatePolicy = async (
+      op: string,
+      url: string | undefined,
+      summary: string,
+    ): Promise<Verdict | undefined> => {
+      if (!this.core.policy) return undefined;
+      const task = this.core.tasks.get(taskId);
+      const ws = task ? this.core.workspaces.get(task.workspaceId) : undefined;
+      return this.core.policy.evaluate(
+        { source: "agent", kind: "browser", command: op, summary, ...(url ? { url } : {}) },
+        { root: ws?.path ?? process.cwd(), taskId },
+      );
+    };
+
+    /** The current tab's page; checks policy and asks before first use of an unapproved site. */
     const pageInAllowedSite = async (verb: string): Promise<Page | string> => {
       const page = (await this.browser.call("info")) as Page;
       const site = siteOf(page.url);
       if (!site) return `This tab (${page.url}) isn't a web page malves can use.`;
       if (browsing.allowed.has(site)) return page;
+
+      const verdict = await evaluatePolicy("read", site, `Read ${site}`);
+      if (verdict?.outcome === "allow") {
+        browsing.allowed.add(site);
+        return page;
+      }
+      if (verdict?.outcome === "deny") {
+        return DECLINED;
+      }
+
       if (!(await ask(`Let the agent ${verb} ${site}?\n${clip(page.title)}`, "medium"))) {
         return DECLINED;
       }
@@ -191,6 +274,7 @@ export class BrowserTools {
           browsing.labels = new Map(
             snap.elements.map((e) => [e.ref, `${e.role} "${clip(e.label, 60)}"`]),
           );
+          browsing.lastSnapshotHash = createHash("sha256").update(snap.text).digest("hex").slice(0, 16);
           return describe(snap);
         }),
     );
@@ -206,7 +290,11 @@ export class BrowserTools {
           const site = siteOf(url);
           if (!site) return "Only http and https addresses can be opened.";
           if (!browsing.allowed.has(site)) {
-            if (!(await ask(`Let the agent open ${clip(url, 120)}?`, "medium"))) return DECLINED;
+            const verdict = await evaluatePolicy("navigate", site, `Navigate to ${url}`);
+            if (verdict?.outcome === "deny") return DECLINED;
+            if (verdict?.outcome !== "allow") {
+              if (!(await ask(`Let the agent open ${clip(url, 120)}?`, "medium"))) return DECLINED;
+            }
             browsing.allowed.add(site);
           }
           await this.browser.call("navigate", { url });
@@ -224,8 +312,13 @@ export class BrowserTools {
         run(async () => {
           const page = await pageInAllowedSite("use");
           if (typeof page === "string") return page;
-          if (!(await ask(`Click the ${label(ref)} on ${siteOf(page.url)}?`, "high"))) {
-            return DECLINED;
+          const site = siteOf(page.url);
+          const verdict = await evaluatePolicy("click", site, `Click ${label(ref)} on ${site}`);
+          if (verdict?.outcome === "deny") return DECLINED;
+          if (verdict?.outcome !== "allow") {
+            if (!(await ask(`Click the ${label(ref)} on ${siteOf(page.url)}?`, "high"))) {
+              return DECLINED;
+            }
           }
           await this.browser.call("click", { ref });
           return "Clicked. Call browser_snapshot to see the result.";
@@ -236,16 +329,22 @@ export class BrowserTools {
       "browser_type",
       {
         description:
-          "Type text into a field, by its ref from browser_snapshot. Set submit to press Enter afterwards. Password and card fields are always refused.",
+          "Type text into a field, by its ref from browser_snapshot. Set submit to press Enter afterwards. Password and card fields are refused without browser_fill_secret.",
         inputSchema: { ref: z.string(), text: z.string(), submit: z.boolean().optional() },
       },
       ({ ref, text: typed, submit }) =>
         run(async () => {
           const page = await pageInAllowedSite("use");
           if (typeof page === "string") return page;
-          const then = submit ? " and submit it" : "";
-          const question = `Type "${clip(typed, 80)}" into the ${label(ref)} on ${siteOf(page.url)}${then}?`;
-          if (!(await ask(question, "high"))) return DECLINED;
+          const site = siteOf(page.url);
+          const op = submit ? "submit" : "type";
+          const verdict = await evaluatePolicy(op, site, `Type into ${label(ref)} on ${site}`);
+          if (verdict?.outcome === "deny") return DECLINED;
+          if (verdict?.outcome !== "allow") {
+            const then = submit ? " and submit it" : "";
+            const question = `Type "${clip(typed, 80)}" into the ${label(ref)} on ${siteOf(page.url)}${then}?`;
+            if (!(await ask(question, "high"))) return DECLINED;
+          }
           const result = (await this.browser.call("type", {
             ref,
             text: typed,
@@ -282,7 +381,6 @@ export class BrowserTools {
         run(async () => {
           const page = await pageInAllowedSite("use");
           if (typeof page === "string") return page;
-          // Enter can submit a form: that's an action, so it's asked.
           const question = `Press Enter on ${siteOf(page.url)}? It may submit a form.`;
           if (key === "Enter" && !(await ask(question, "high"))) return DECLINED;
           await this.browser.call("press", { key });
@@ -312,6 +410,128 @@ export class BrowserTools {
         run(async () => {
           await this.browser.call("back");
           return "Went back. Call browser_snapshot to read the page.";
+        }),
+    );
+
+    mcp.registerTool(
+      "browser_fill_secret",
+      {
+        description:
+          "Fill a saved login credential (password, API token, or TOTP code) from the secure vault into a field. The vault verifies the page's web origin matches the saved credential. The secret bytes are never seen by the agent and are redacted from all logs.",
+        inputSchema: {
+          ref: z.string().describe("The ref of the input field from browser_snapshot"),
+          handle: z.string().describe("The name/handle of the secret in the vault, e.g. 'stripe'"),
+        },
+      },
+      ({ ref, handle }) =>
+        run(async () => {
+          const entry = this.vault.get(handle);
+          if (!entry) {
+            return `Secret "${handle}" not found in vault. Call browser_list_vault to see available handles.`;
+          }
+
+          const pageInfo = (await this.browser.call("info")) as Page;
+          const origin = siteOf(pageInfo.url);
+          if (!origin) return "Current tab is not a web page malves can use.";
+
+          const normCurrent = normalizeOrigin(origin);
+          const normBound = normalizeOrigin(entry.origin);
+          if (normCurrent !== normBound) {
+            return `Refused: secret "${handle}" is bound to "${entry.origin}", but current page is "${origin}".`;
+          }
+
+          const page = await pageInAllowedSite("use");
+          if (typeof page === "string") return page;
+
+          const question = `Fill saved ${entry.kind ?? "password"} for "${handle}" on ${entry.origin}?`;
+          if (!(await ask(question, "high"))) return DECLINED;
+
+          const { value } = await this.vault.fill(handle, origin);
+          const res = (await this.browser.call("fill_secret", {
+            ref,
+            secret: value,
+            origin: entry.origin,
+          })) as { error?: string; filled?: boolean };
+
+          if (res?.error) return `Failed to fill: ${res.error}`;
+          return "Filled. Call browser_snapshot to see the result.";
+        }),
+    );
+
+    mcp.registerTool(
+      "browser_list_vault",
+      {
+        description:
+          "List the names/handles and allowed origins of credentials stored in the secure vault. Secret values are never exposed.",
+      },
+      () =>
+        run(async () => {
+          const handles = this.vault.list();
+          if (handles.length === 0) return "The vault is empty.";
+          return handles
+            .map((h) => `- ${h.handle} (${h.origin})${h.username ? ` username: ${h.username}` : ""}`)
+            .join("\n");
+        }),
+    );
+
+    mcp.registerTool(
+      "browser_wait_for",
+      {
+        description:
+          "Wait for a condition on the current page: text present, element present, or URL changed.",
+        inputSchema: {
+          condition: z.enum(["text_present", "element_present", "url_changed"]),
+          target: z.string().describe("The text, element label, or URL to wait for"),
+          timeout_ms: z.number().int().min(500).max(30000).optional(),
+        },
+      },
+      ({ condition, target, timeout_ms = 10000 }) =>
+        run(async () => {
+          const start = Date.now();
+          let delay = 200;
+          while (Date.now() - start < timeout_ms) {
+            const snap = (await this.browser.call("snapshot")) as Snapshot;
+            if (
+              condition === "text_present" &&
+              snap.text.toLowerCase().includes(target.toLowerCase())
+            ) {
+              return `Condition met: text "${target}" is present.`;
+            }
+            if (
+              condition === "element_present" &&
+              snap.elements.some((e) => e.label.toLowerCase().includes(target.toLowerCase()))
+            ) {
+              return `Condition met: element matching "${target}" is present.`;
+            }
+            if (condition === "url_changed" && snap.url.includes(target)) {
+              return `Condition met: URL changed to "${snap.url}".`;
+            }
+            await new Promise((r) => setTimeout(r, delay));
+            delay = Math.min(1000, Math.floor(delay * 1.5));
+          }
+          return `Timed out after ${timeout_ms}ms waiting for ${condition}: "${target}".`;
+        }),
+    );
+
+    mcp.registerTool(
+      "browser_extract",
+      {
+        description:
+          "Extract structured data from the page text according to an instruction or schema. Returns validated JSON.",
+        inputSchema: {
+          instruction: z
+            .string()
+            .describe("What to extract, e.g. 'table of invoices with date, amount, vendor'"),
+          fields: z.array(z.string()).optional().describe("Expected field names in each extracted record"),
+        },
+      },
+      ({ instruction, fields }) =>
+        run(async () => {
+          const page = await pageInAllowedSite("read");
+          if (typeof page === "string") return page;
+          const snap = (await this.browser.call("snapshot")) as Snapshot;
+          const extracted = extractStructuredData(snap.text, instruction, fields);
+          return JSON.stringify(extracted, null, 2);
         }),
     );
 
@@ -345,7 +565,7 @@ function clip(value: string, max = 100): string {
 function describe(snap: Snapshot): string {
   const elements = snap.elements.map((e) => {
     if (e.sensitive) {
-      return `[${e.ref}] ${e.role} "${clip(e.label, 60)}" (password/card field: malves never types here)`;
+      return `[${e.ref}] ${e.role} "${clip(e.label, 60)}" (password/card field: use browser_fill_secret)`;
     }
     const extra = e.href ? ` → ${e.href}` : e.value ? ` = "${clip(e.value, 40)}"` : "";
     return `[${e.ref}] ${e.role} "${clip(e.label, 80)}"${extra}`;
