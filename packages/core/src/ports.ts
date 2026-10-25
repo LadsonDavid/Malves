@@ -128,3 +128,36 @@ export type Alert = { ruleId: string; name: string; text: string; importance: Im
 export interface Delivery {
   deliver(alert: Alert): Promise<void>;
 }
+
+// ── Jobs (plan Pillar A) ────────────────────────────────────────────────────
+
+export interface WorkspaceProvisioner {
+  /** Creates an isolated worktree and branch for one step in a job. */
+  create(workspacePath: string, jobId: string, stepId: string): Promise<{ root: string; branch: string }>;
+  /** Removes one step's worktree. */
+  remove(workspacePath: string, jobId: string, stepId: string): Promise<void>;
+  /** Merges sourceBranch into targetBranch in the workspace or integration worktree. */
+  merge(
+    workspacePath: string,
+    sourceBranch: string,
+    targetBranch: string,
+  ): Promise<{ success: boolean; conflictFiles?: string[] }>;
+  /** Removes all worktrees and temporary branches created for this job. */
+  cleanup(workspacePath: string, jobId: string): Promise<void>;
+}
+
+export interface JobVerifier {
+  /** Runs tests and lints in the target directory; returns passed boolean and output. */
+  verify(root: string): Promise<{ passed: boolean; output: string }>;
+}
+
+export interface PullRequestOpener {
+  /** Opens a pull request for the integration branch. */
+  createPr(
+    workspacePath: string,
+    branch: string,
+    title: string,
+    body: string,
+  ): Promise<{ url: string }>;
+}
+

@@ -3,6 +3,7 @@ import { Suggestions } from "./automations/suggestions.js";
 import type { Command } from "./command.js";
 import { Devices } from "./devices/devices.js";
 import { EventLog } from "./events/log.js";
+import { type Job, Jobs } from "./jobs/jobs.js";
 import type { Advisor } from "./policy/advisor.js";
 import { Policy } from "./policy/policy.js";
 import type {
@@ -10,10 +11,13 @@ import type {
   Clock,
   Delivery,
   Ids,
+  JobVerifier,
   MonitorRunner,
   MonitorState,
   Notifier,
+  PullRequestOpener,
   Store,
+  WorkspaceProvisioner,
 } from "./ports.js";
 import { Questions } from "./questions/questions.js";
 import { Tasks } from "./tasks/tasks.js";
@@ -26,6 +30,14 @@ export { fingerprint, lineDiff } from "./automations/text.js";
 export { type Command, command } from "./command.js";
 export { type Device, Devices } from "./devices/devices.js";
 export { EventLog, type Listener } from "./events/log.js";
+export { type Job, Jobs, type JobsOptions } from "./jobs/jobs.js";
+export {
+  checkAcyclic,
+  MAX_PLAN_STEPS,
+  parsePlan,
+  plannerPrompt,
+  validatePlan,
+} from "./jobs/planner.js";
 export {
   ADVISOR_SYSTEM,
   type Advisor,
@@ -87,6 +99,13 @@ export type CoreOptions = {
     delivery: Delivery;
     minGapMs?: number;
   };
+  /** Turns multi-agent jobs on (plan Pillar A). */
+  jobs?: {
+    provisioner: WorkspaceProvisioner;
+    verifier: JobVerifier;
+    prOpener: PullRequestOpener;
+    maxConcurrentSteps?: number | undefined;
+  };
 };
 
 export type Core = {
@@ -100,6 +119,8 @@ export type Core = {
   /** Present when `CoreOptions.automations` was given. */
   automations?: Automations;
   suggestions?: Suggestions;
+  /** Present when `CoreOptions.jobs` was given. */
+  jobs?: Jobs;
 };
 
 /** Builds the core, replays the log, and cleans up anything a restart left behind. */
@@ -142,9 +163,27 @@ export function createCore(o: CoreOptions): Core {
       })
     : undefined;
   const suggestions = automations ? new Suggestions(log, o.ids, automations) : undefined;
+  const jobs = o.jobs
+    ? new Jobs({
+        log,
+        clock: o.clock,
+        ids: o.ids,
+        tasks,
+        workspaces,
+        questions,
+        provisioner: o.jobs.provisioner,
+        verifier: o.jobs.verifier,
+        prOpener: o.jobs.prOpener,
+        availableAgents: [...o.agents.keys()],
+        ...(o.jobs.maxConcurrentSteps === undefined
+          ? {}
+          : { maxConcurrentSteps: o.jobs.maxConcurrentSteps }),
+      })
+    : undefined;
   log.load();
   questions.recover();
   tasks.recover();
+  jobs?.recover();
   return {
     log,
     devices,
@@ -154,5 +193,6 @@ export function createCore(o: CoreOptions): Core {
     ...(policy ? { policy } : {}),
     ...(automations ? { automations } : {}),
     ...(suggestions ? { suggestions } : {}),
+    ...(jobs ? { jobs } : {}),
   };
 }

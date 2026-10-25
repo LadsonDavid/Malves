@@ -108,6 +108,7 @@ export class Tasks {
     agent: string;
     prompt: string;
     resume?: string | undefined;
+    root?: string | undefined;
   }): string {
     const workspace = this.o.workspaces.get(input.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${input.workspaceId}`);
@@ -135,7 +136,8 @@ export class Tasks {
         ...(input.resume ? { resume_session: input.resume } : {}),
       },
     });
-    void this.run(id, agentCommand, workspace.path);
+    const root = input.root ?? workspace.path;
+    void this.run(id, agentCommand, root);
     return id;
   }
 

@@ -8,8 +8,11 @@ import { openAiCompatible } from "./adapters/assistant/llm.js";
 import { RunnerDelivery } from "./adapters/automations/delivery.js";
 import { SystemMonitors } from "./adapters/automations/monitors.js";
 import { type BrowserTools, TOOL_SERVER_NAME } from "./adapters/browser/tools.js";
-import type { BudgetGuard } from "./adapters/budget/guard.js";
+import { BudgetGuard } from "./adapters/budget/guard.js";
 import { GitChanges } from "./adapters/git/changes.js";
+import { GitHubPrOpener } from "./adapters/git/pr.js";
+import { ProjectVerifier } from "./adapters/git/verifier.js";
+import { GitWorktrees } from "./adapters/git/worktrees.js";
 import type { NtfyPush } from "./adapters/push/ntfy.js";
 import { SqliteStore } from "./adapters/sqlite/store.js";
 import { noPush } from "./adapters/terminal/terminal.js";
@@ -108,6 +111,10 @@ export function openRunner(o: RunnerOptions): Runner {
           }
         : undefined;
 
+    const provisioner = new GitWorktrees();
+    const verifier = new ProjectVerifier();
+    const prOpener = new GitHubPrOpener();
+
     const core = createCore({
       store,
       clock: systemClock,
@@ -136,6 +143,11 @@ export function openRunner(o: RunnerOptions): Runner {
         monitors,
         state: store.monitorState,
         delivery,
+      },
+      jobs: {
+        provisioner,
+        verifier,
+        prOpener,
       },
     });
     const changes = new GitChanges(core, { questionTimeoutMs: o.questionTimeoutMs });

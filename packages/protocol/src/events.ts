@@ -332,6 +332,101 @@ const ErrorReport = z.object({
   }),
 });
 
+// ── Pillar A: Several agents on one job ──────────────────────────────────────
+
+export const JobId = z.string().min(1);
+export type JobId = z.infer<typeof JobId>;
+
+export const StepRole = z.enum(["implementer", "tester", "reviewer", "verifier", "integrator"]);
+export type StepRole = z.infer<typeof StepRole>;
+
+export const StepState = z.enum(["pending", "running", "done", "failed"]);
+export type StepState = z.infer<typeof StepState>;
+
+export const JobStep = z.object({
+  id: z.string().min(1),
+  role: StepRole,
+  agent: z.string().min(1),
+  prompt: z.string().min(1),
+  depends_on: z.array(z.string()).default([]),
+  branch: z.string().optional(),
+  worktree: z.string().optional(),
+  task_id: z.string().optional(),
+  state: StepState.default("pending"),
+  summary: z.string().optional(),
+});
+export type JobStep = z.infer<typeof JobStep>;
+export type JobStepInput = z.input<typeof JobStep>;
+
+export const JobState = z.enum([
+  "planning",
+  "awaiting_plan",
+  "running",
+  "verifying",
+  "awaiting_pr",
+  "done",
+  "failed",
+  "stopped",
+]);
+export type JobState = z.infer<typeof JobState>;
+
+const JobCreated = z.object({
+  type: z.literal("job.created"),
+  data: z.object({
+    job_id: JobId,
+    goal: z.string().min(1),
+    workspace_id: z.string(),
+  }),
+});
+
+const JobPlanned = z.object({
+  type: z.literal("job.planned"),
+  data: z.object({
+    job_id: JobId,
+    plan: z.array(JobStep).min(1).max(6),
+  }),
+});
+
+const JobApproved = z.object({
+  type: z.literal("job.approved"),
+  data: z.object({
+    job_id: JobId,
+  }),
+});
+
+const JobStepUpdated = z.object({
+  type: z.literal("job.step.updated"),
+  data: z.object({
+    job_id: JobId,
+    step_id: z.string(),
+    state: StepState,
+    task_id: z.string().optional(),
+    branch: z.string().optional(),
+    worktree: z.string().optional(),
+    summary: z.string().optional(),
+  }),
+});
+
+const JobVerified = z.object({
+  type: z.literal("job.verified"),
+  data: z.object({
+    job_id: JobId,
+    passed: z.boolean(),
+    output: z.string().max(4000),
+    return_count: z.number().int().min(0),
+  }),
+});
+
+const JobFinished = z.object({
+  type: z.literal("job.finished"),
+  data: z.object({
+    job_id: JobId,
+    state: z.enum(["done", "failed", "stopped"]),
+    pr_url: z.string().optional(),
+    reason: z.string().optional(),
+  }),
+});
+
 /** An event before the store has given it a sequence number. */
 export const EventBody = z.discriminatedUnion("type", [
   WorkspaceRegistered,
@@ -359,6 +454,12 @@ export const EventBody = z.discriminatedUnion("type", [
   SuggestionOffered,
   SuggestionAccepted,
   SuggestionDismissed,
+  JobCreated,
+  JobPlanned,
+  JobApproved,
+  JobStepUpdated,
+  JobVerified,
+  JobFinished,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;
