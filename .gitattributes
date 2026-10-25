@@ -2,3 +2,6 @@
 # Without this, Windows git (core.autocrlf=true) checks files out as CRLF
 # and Biome fails every file.
 * text=auto eol=lf
+
+# cmd.exe can lose its place in a batch file that has bare LF line endings.
+*.cmd text eol=crlf

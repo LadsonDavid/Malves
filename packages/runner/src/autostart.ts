@@ -37,7 +37,8 @@ function on(dataDir: string): number {
       "$Host.UI.RawUI.WindowTitle = 'malves serve'",
       `Set-Location -LiteralPath ${quote(process.cwd())}`,
       // In the background: no window, output in serve.log, restarted if it crashes.
-      `& ${quote(process.execPath)} --env-file-if-exists=.env ${quote(main)} serve --background`,
+      // Settings from the malves folder first, then a `.env` in this folder (which wins).
+      `& ${quote(process.execPath)} ${quote(`--env-file-if-exists=${path.join(dataDir, ".env")}`)} --env-file-if-exists=.env ${quote(main)} serve --background`,
       "exit $LASTEXITCODE",
       "",
     ].join("\r\n"),

@@ -1,7 +1,8 @@
 name: Android APK
 
 # Builds what people install: the phone app (malves.apk), the Chrome extension
-# (malves-chrome.zip, loaded unpacked) and the IDE extension (malves.vsix).
+# (malves-chrome.zip, loaded unpacked), the IDE extension (malves.vsix) and the
+# computer side for Windows (malves-windows.zip, with its own Node.js).
 # Run it by hand (Actions → Android APK → Run workflow) to get them as
 # downloads. Every push to main (a merged PR) publishes them as a new GitHub
 # release (v0.1.<run number>); pushing a tag like v1.0.0 publishes that tag.
@@ -55,10 +56,61 @@ jobs:
             malves.apk
             malves-chrome.zip
             malves.vsix
-      - if: github.event_name == 'push'
+
+  # The computer side for Windows: the runner and everything it needs, with its own
+  # Node.js, so a user installs nothing first. Built on Windows because the native
+  # parts (SQLite, screen control, video) are per platform.
+  runner:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc -b
+      - run: node scripts/build-runner-bundle.mjs
+      # The zip must work where it is unpacked, with nothing installed: unpack it
+      # into a fresh folder and run the doctor with the Node.js inside it.
+      - name: Smoke test the zip
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "smoke"
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf .bundle/malves-windows.zip -C $dir
+          $env:MALVES_HOME = Join-Path $env:RUNNER_TEMP "smoke-home"
+          $report = & "$dir\malves.cmd" doctor 2>&1 | Out-String
+          Write-Host $report
+          foreach ($line in @("SQLite works", "Screen control", "Live screen video")) {
+            if ($report -notmatch $line) { throw "The doctor's report has no '$line'." }
+          }
+          if ($report -match "(?m)^. (Memory database|Screen control|Live screen video)\s+.*(can't|didn't)") {
+            throw "A native part did not load from the zip."
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: malves-runner
+          path: |
+            .bundle/malves-windows.zip
+            .bundle/malves-windows.zip.sha256
+          compression-level: 0
+
+  release:
+    needs: [apk, runner]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Publish the release
         run: |
           tag="$GITHUB_REF_NAME"
           if [ "$GITHUB_REF_TYPE" = branch ]; then tag="v0.1.$GITHUB_RUN_NUMBER"; fi
-          gh release create "$tag" malves.apk malves-chrome.zip malves.vsix --target "$GITHUB_SHA" --title "$tag" --notes-file .github/release-notes.md --latest
+          gh release create "$tag" files/malves.apk files/malves-chrome.zip files/malves.vsix files/malves-windows.zip files/malves-windows.zip.sha256 install.ps1 --target "$GITHUB_SHA" --title "$tag" --notes-file .github/release-notes.md --latest
         env:
           GH_TOKEN: ${{ github.token }}

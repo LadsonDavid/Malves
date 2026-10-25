@@ -37,6 +37,13 @@ the dissertation's declaration first.
 | 15 | Assistant evals | scripted-brain scenarios (injection, read-back, refusal); optional live mode | The scenarios are tests |
 | 16 | CI hygiene | actions pinned by commit, gitleaks, dependency review, Dependabot | The workflow files are the check |
 
+## What was built, and what differs from the table above
+
+All but item 8 are built. Differences: item 15 is a table of nine state-changing tools called by a
+fooled brain (no live-model eval mode: add one when a real brain is worth scoring); item 13 is a zip
+with its own Node.js plus `install.ps1`, not an `.exe` installer; item 9 keeps the journal in plain
+Markdown beside the memory notes rather than inside the memory index.
+
 ## Phases (each its own pull request)
 
 1. **Safety base** — 1, 2, 3.

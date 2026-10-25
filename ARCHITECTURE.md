@@ -579,6 +579,11 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 13 | Handover mode: shell, Chrome and screen, low-risk alone and the rest read back; ends only on Stop, "I'm back" or 4 h; a view-only live screen on the phone |
 | 14 | Desktop control through nut.js; never work around antivirus |
 | 15 | Voice: natural cloud voices with a self-hosted backup (Piper) and the phone's voice last; Tamil at every level |
+| 16 | Setup is judged by one set of plain-language checks (`malves doctor`), run on the real computer and on a made-up one in tests; the phone shows the same list under Settings → Check setup. A missing optional extra is "off", never a warning |
+| 17 | A notification a phone missed is replayed from a 24 h outbox using ntfy's `?since=`; a waiting question is nudged at 40% and 80% of its time. Reminders never change an outcome: silence still means timed out (R3) |
+| 18 | Secrets are written to a temp file and renamed, owner-only; logs hide secrets line by line; text typed into a window never carries control or invisible characters. A test fails if a token is written any other way |
+| 19 | The Windows computer side ships as a zip with its own Node.js (the native parts are built for it), unpacked by `install.ps1` after a checksum check. The check catches a damaged download, not a tampered release |
+| 20 | `features.json` records how far every feature is proven (seen on a real device or not) and CI checks it; CI actions are pinned to commits and the dependencies malves ships are audited |
 
 ---
 

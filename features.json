@@ -365,6 +365,15 @@
       "status": "awaiting-real-test",
       "evidence": [".github/workflows/apk.yml"],
       "real_test": "Merge a pull request and check a new release appears on the Releases page with all three files."
+    },
+    {
+      "id": "windows-installer",
+      "name": "Install the computer side on Windows with no Node.js, pnpm or git",
+      "area": "setup",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["install.ps1", "scripts/build-runner-bundle.mjs", "scripts/windows/malves.cmd"],
+      "real_test": "On a Windows PC with no Node.js, run install.ps1 from a release, then `malves doctor` and `malves serve`."
     }
   ]
 }

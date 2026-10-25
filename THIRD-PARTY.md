@@ -27,6 +27,15 @@ are not copied into this repository.
   `index.ts`, the `assets/` icons). The app's own code (`App.tsx`, `src/`)
   replaced the template's placeholder screen and is original.
 
+## Node.js (redistributed in the Windows download)
+
+- Source: https://nodejs.org (the official Windows build, the version noted in the
+  `NODE-VERSION` file inside `malves-windows.zip`)
+- Licence: MIT, Copyright Node.js contributors
+- Used in: `malves-windows.zip` carries an unmodified `node.exe`, so the computer side
+  runs without installing Node.js. The native parts (SQLite and others) are built for
+  exactly that version. No Node.js source is in this repository.
+
 ## Design inspiration, no code copied
 
 - **Happy** (https://github.com/slopus/happy, MIT): the phone ↔ desktop
@@ -95,3 +104,9 @@ are not copied into this repository.
   licence (BSD-style, kept in its package): the computer encodes and sends the screen. Used in
   `packages/runner/src/adapters/screen/video.ts`. No code copied.
 - `expo-screen-orientation` (Expo, MIT): landscape full screen.
+
+Ideas taken from Agent Relay (https://github.com/AgentWorkforce/relay, Apache-2.0), with
+no code copied: the setup doctor, injection hygiene (stripping control characters from
+text typed into a window), keeping notifications for a phone that was away, reminders
+for unanswered questions, a feature manifest with verification notes, and pinning CI
+actions by commit. See `docs/relay-ideas-plan.md`.

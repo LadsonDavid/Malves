@@ -122,6 +122,10 @@ public issue before it's decided, not after.
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
 | Leads | [signalstack](https://github.com/LadsonDavid/signalstack) on your computer or a server; leads and "Research in browser" on the phone |
 | Budget guard | Claude Code and Codex can run on your own free-tier keys through [freellmapi](https://github.com/tashfeenahmed/freellmapi); the phone shows which model answered and asks before a model below your quality floor is used |
+| Setup check | `malves doctor` and Settings → Check setup: plain-language checks of the computer, with what to do about each. Home shows a banner when something needs a look |
+| Catching up | A phone that was away gets the notifications it missed (kept for a day), and a question nobody answers is nudged twice before it times out |
+| Journal | With `MALVES_VAULT` set, every finished task is one line in `Journal/<day>.md` in your vault, with a short roll-up of each finished week. Written by plain code: no model, nothing sent anywhere |
+| Who took the computer | `malves audit` lists every time a phone watched or controlled the screen and every handover |
 | Relay (no Tailscale) | A small server you run yourself ([packages/relay](packages/relay/README.md)); the computer only dials out. Notifications still need Tailscale |
 
 Over mobile data the phone reaches your computer through
@@ -142,14 +146,16 @@ From the [latest release](https://github.com/LadsonDavid/Malves/releases/latest)
 | File | What it is |
 |---|---|
 | `malves.apk` | The phone app |
+| `malves-windows.zip` | The computer side for Windows, with its own Node.js (about 340 MB: it holds the Claude Code and Codex programs too) |
+| `install.ps1` | Unpacks `malves-windows.zip` for you and checks it (Windows) |
 | `malves-chrome.zip` | The Chrome extension (optional: lets malves use Chrome) |
 | `malves.vsix` | The IDE extension (optional: VS Code, Cursor, Antigravity or Windsurf) |
 
-The computer side runs from the source code (step 3).
+On Mac and Linux the computer side runs from the source code (step 3).
 
 ### Step 2: Prepare the computer
 
-1. Install **[Node.js 22.12 or newer](https://nodejs.org)**.
+1. Install **[Node.js 22.12 or newer](https://nodejs.org)**. (Not needed on Windows if you use the installer in step 3.)
 2. Install **[Tailscale](https://tailscale.com/download)** and sign in. This is
    what lets your phone reach your computer from anywhere, even on mobile data.
 3. Install and sign in to **at least one AI coding tool**:
@@ -163,7 +169,26 @@ The computer side runs from the source code (step 3).
 
 ### Step 3: Install malves on the computer
 
-Open a terminal and run:
+**Windows, the quick way.** No Node.js, pnpm or git needed. Download `install.ps1`
+from the release, open PowerShell in the folder you saved it to, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+It downloads `malves-windows.zip`, checks it against its published checksum
+(this catches a damaged download, not a tampered release), unpacks it to
+`%LOCALAPPDATA%\malves`, and runs `malves doctor` to say what's missing. It asks
+before it adds malves to your PATH or starts it at login. Then:
+
+```powershell
+malves serve
+```
+
+Settings (your name, keys) go in `%USERPROFILE%\.malves\.env`; the keys are
+listed in `.env.example`. Skip the rest of this step and go to step 4.
+
+**Mac, Linux, or to work on malves itself.** Open a terminal and run:
 
 ```sh
 git clone https://github.com/LadsonDavid/Malves.git
@@ -324,6 +349,10 @@ else waits for your yes. It ends when you tap **Stop**, say "I'm back", or after
 
 ## If something doesn't work
 
+First, run `malves doctor` (or open **Settings → Check setup** on the phone): it
+checks Node.js, the disk, the database, secret files, Tailscale or the relay,
+each agent, and every optional extra, and says what to do about each.
+
 | What you see | Try this |
 |---|---|
 | The phone says **Offline** | Check Tailscale is on, on **both** devices, and the computer is awake |
@@ -344,6 +373,8 @@ From the shell:
 malves serve [--host <ip>] [--port 7717] [--timeout 10m] [--leads <url>] [--relay wss://…]
 malves workspace add <folder> [--name <name>]  |  list  |  remove <id>
 malves agents                                   check which agents are ready
+malves doctor                                   check this computer's setup and say what to fix
+malves audit                                    who watched or controlled this computer, and when
 malves run [-w <id|name>] [-a <agent>] <task…>  run one task in this terminal
 malves log [--since <seq>]                      print the event log
 malves autostart on|off|status|start           Windows: serve at login
@@ -359,8 +390,10 @@ Typed into `serve` (or `malves console`):
 
 | Command | What it does |
 |---|---|
-| `pair`, `pair text` | Show a pairing QR code (valid 2 minutes); `text` prints it for an emulator |
+| `pair`, `pair text`, `pair link` | Show a pairing QR code (valid 2 minutes); `text` prints it for an emulator; `link` makes one the phone's camera app opens straight into malves |
 | `agents` | Check which agents are ready, e.g. after signing in |
+| `doctor` | Check this computer's setup and say what to fix (the phone shows the same under Settings → Check setup) |
+| `audit` | Who watched or controlled this computer from a phone, and when Malves took over |
 | `push`, `push new` | Notification setup; `new` makes a new topic and cuts off subscribed phones |
 | `extension`, `extension new` | Connect Chrome; `new` replaces its code |
 | `ide` | How to connect VS Code, Cursor, Antigravity or Windsurf |
