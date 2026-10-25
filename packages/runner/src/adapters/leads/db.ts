@@ -1,11 +1,14 @@
 import Database from "better-sqlite3";
 
+export type LeadStatus = "new" | "contacted" | "replied" | "won" | "lost";
+
 export type DbAccount = {
   domain: string;
   name: string;
   description?: string | null;
   industry?: string | null;
   size?: string | null;
+  status?: LeadStatus | null;
   created_at: number;
 };
 
@@ -35,6 +38,7 @@ export class LeadsDatabase {
   private readonly getSignalsForDomainStmt: Database.Statement;
   private readonly getIcpStmt: Database.Statement;
   private readonly setIcpStmt: Database.Statement;
+  private readonly updateStatusStmt: Database.Statement;
 
   constructor(fileOrDb: string | Database.Database) {
     this.db = typeof fileOrDb === "string" ? new Database(fileOrDb) : fileOrDb;
@@ -47,6 +51,7 @@ export class LeadsDatabase {
         description TEXT,
         industry TEXT,
         size TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
         created_at INTEGER NOT NULL
       );
 
@@ -70,6 +75,12 @@ export class LeadsDatabase {
         updated_at INTEGER NOT NULL
       );
     `);
+
+    try {
+      this.db.exec("ALTER TABLE lead_accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'new'");
+    } catch {
+      // Column already exists
+    }
 
     this.insertAccountStmt = this.db.prepare(`
       INSERT INTO lead_accounts (domain, name, description, industry, size, created_at)
@@ -100,6 +111,9 @@ export class LeadsDatabase {
         ideal_customer = excluded.ideal_customer,
         keywords = excluded.keywords,
         updated_at = excluded.updated_at
+    `);
+    this.updateStatusStmt = this.db.prepare(`
+      UPDATE lead_accounts SET status = ? WHERE domain = ?
     `);
   }
 
@@ -166,6 +180,15 @@ export class LeadsDatabase {
 
   setIcp(idealCustomer: string, keywords: string[]): void {
     this.setIcpStmt.run(idealCustomer, JSON.stringify(keywords), Date.now());
+  }
+
+  updateStatus(domain: string, status: LeadStatus): void {
+    this.updateStatusStmt.run(status, domain.toLowerCase().trim());
+  }
+
+  getStatus(domain: string): LeadStatus {
+    const acc = this.getAccount(domain);
+    return (acc?.status as LeadStatus) ?? "new";
   }
 
   close(): void {

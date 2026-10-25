@@ -427,6 +427,17 @@ const JobFinished = z.object({
   }),
 });
 
+const LeadStateUpdated = z.object({
+  type: z.literal("lead.state_updated"),
+  data: z.object({
+    domain: z.string(),
+    from_state: z.enum(["new", "contacted", "replied", "won", "lost"]),
+    to_state: z.enum(["new", "contacted", "replied", "won", "lost"]),
+    reason: z.string().optional(),
+    timestamp: z.number(),
+  }),
+});
+
 /** An event before the store has given it a sequence number. */
 export const EventBody = z.discriminatedUnion("type", [
   WorkspaceRegistered,
@@ -460,6 +471,7 @@ export const EventBody = z.discriminatedUnion("type", [
   JobStepUpdated,
   JobVerified,
   JobFinished,
+  LeadStateUpdated,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;
