@@ -23,6 +23,7 @@ import { fcmSender } from "./adapters/push/fcm.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { Outbox } from "./adapters/push/outbox.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
+import { forkVideoWorker, VideoProcess } from "./adapters/screen/video-process.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -32,6 +33,7 @@ import { auditLines } from "./audit.js";
 import { degradedLines, formatChecks, runDoctor } from "./doctor.js";
 import { realEnv } from "./doctor-env.js";
 import { Health } from "./health.js";
+import { startLagMonitor } from "./loop-lag.js";
 import {
   controlToken,
   extensionToken,
@@ -185,12 +187,24 @@ export async function serve(
         push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
     },
   });
+  // The live screen video runs in its own process, so a busy serve can't make it miss its moment.
+  const videoWorker = fileURLToPath(new URL("./adapters/screen/video-worker.js", import.meta.url));
+  const video =
+    process.platform === "win32"
+      ? new VideoProcess({ spawn: () => forkVideoWorker(videoWorker), log: (line) => say(line) })
+      : undefined;
+  // Load it once things have settled, so the first time you watch doesn't wait for it.
+  const warmVideo = video ? setTimeout(() => video.warm(), 20_000) : undefined;
+  warmVideo?.unref();
   const remoteScreen =
     process.platform === "win32"
       ? new RemoteScreen({
           load: () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop()),
           notice: (text) => windowsNotice(text, say),
           log: (line) => say(line),
+          ...(video
+            ? { video: { start: (sdp: string) => video.start(sdp), stop: () => video.stop() } }
+            : {}),
         })
       : undefined;
   // Malves ringing the phone: Google's push (Firebase) carries only a call id.
@@ -225,6 +239,8 @@ export async function serve(
   if (malves) warmPiper(process.env.MALVES_PIPER_URL);
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
+  // If the main loop gets stuck (it made the phone wait minutes once), the log says when and how long.
+  const stopLagMonitor = startLagMonitor({ say: (line) => say(line) });
   // The setup check: run once things have settled, and again when a phone asks.
   const health = new Health(() => runDoctor(realEnv(dir, false)));
   const server = new LinkServer(runner, {
@@ -612,6 +628,8 @@ ${link}`);
   stopWatcher();
   stopProfileReview();
   stopJournal();
+  stopLagMonitor();
+  video?.close();
   stopCalls();
   stopBackups();
   await push?.close();

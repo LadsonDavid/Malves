@@ -584,6 +584,7 @@ confinement is partial. Full isolation needs containers — out of scope.
 | 18 | Secrets are written to a temp file and renamed, owner-only; logs hide secrets line by line; text typed into a window never carries control or invisible characters. A test fails if a token is written any other way |
 | 19 | The Windows computer side ships as a zip with its own Node.js (the native parts are built for it), unpacked by `install.ps1` after a checksum check. The check catches a damaged download, not a tampered release |
 | 20 | `features.json` records how far every feature is proven (seen on a real device or not) and CI checks it; CI actions are pinned to commits and the dependencies malves ships are audited |
+| 21 | The live screen video runs in its own process, not the main one: capturing and encoding need a free event loop, and when the main process was busy the phone waited minutes and gave up. The main process only passes the offer in and the answer back; the phone waits up to 35 s for the answer, then 12 s for the connection, before falling back to pictures |
 
 ---
 

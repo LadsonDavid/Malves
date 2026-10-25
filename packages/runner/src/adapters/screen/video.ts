@@ -1,6 +1,3 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import path from "node:path";
 import wrtc from "@roamhq/wrtc";
 
 /**
@@ -78,11 +75,6 @@ export class ScreenVideo {
       }
       if (["failed", "closed", "disconnected"].includes(peer.connectionState)) this.stop(peer);
     };
-    // Diagnosis: keep the phone's offer so it can be replayed here, and log each step.
-    try {
-      mkdirSync(path.join(homedir(), ".malves"), { recursive: true });
-      writeFileSync(path.join(homedir(), ".malves", "last-offer.sdp"), offerSdp);
-    } catch {}
     await peer.setRemoteDescription({ type: "offer", sdp: offerSdp });
     this.say("Video: offer accepted.");
     const answer = await peer.createAnswer();

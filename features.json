@@ -177,10 +177,13 @@
       "name": "Watch the computer's screen as live video (WebRTC)",
       "area": "screen",
       "criticality": "hot",
-      "status": "known-issue",
-      "evidence": ["packages/runner/test/remote-screen.test.ts"],
-      "notes": "Connects when serve has been up a few minutes; right after a restart it is too slow to answer and the phone falls back to pictures. Frame rate on a real phone is not yet measured.",
-      "real_test": "Open Your screen three minutes after a restart and check live video connects and moves smoothly."
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/video-process.test.ts",
+        "packages/runner/test/video-e2e.test.ts",
+        "packages/runner/test/remote-screen.test.ts"
+      ],
+      "real_test": "Open Your screen right after restarting serve and again later: live video should appear within a few seconds and move smoothly (the computer-side test measures about 14 frames a second at 1080p)."
     },
     {
       "id": "screen-control",
