@@ -20,6 +20,7 @@ import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { fcmSender } from "./adapters/push/fcm.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { Outbox } from "./adapters/push/outbox.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
@@ -90,7 +91,13 @@ export async function serve(
   const computer = hostname();
   // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
   const push =
-    host === tailscaleAddress() ? new NtfyPush(runner, { host, topic: pushTopic(dir) }) : undefined;
+    host === tailscaleAddress()
+      ? new NtfyPush(runner, {
+          host,
+          topic: pushTopic(dir),
+          outbox: new Outbox({ file: path.join(dir, "notifications.json") }),
+        })
+      : undefined;
   const relayUrl = o.relay ?? process.env.MALVES_RELAY_URL;
   const relayToken = process.env.MALVES_RELAY_TOKEN ?? "";
   if (relayUrl && (!/^wss?:\/\/\S+$/.test(relayUrl) || relayToken.length < 24)) {

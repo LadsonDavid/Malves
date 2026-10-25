@@ -25,6 +25,11 @@ export type AnswerResult =
 
 export type OpenQuestion = DataOf<"question.opened">;
 
+/** When a waiting question is nudged, as a fraction of its time. Silence is never an answer. */
+const REMINDER_AT = [0.4, 0.8] as const;
+/** Questions shorter than this aren't nudged. */
+const MIN_REMINDABLE_MS = 10_000;
+
 type Waiter = { resolve: (answer: Answer) => void; cancelTimer: () => void };
 
 /**
@@ -81,10 +86,27 @@ export class Questions {
     };
 
     const answer = new Promise<Answer>((resolve) => {
-      const cancelTimer = this.clock.schedule(input.timeoutMs, () =>
-        this.close(questionId, { outcome: "timed_out" }),
-      );
-      this.waiters.set(questionId, { resolve, cancelTimer });
+      const cancels = [
+        this.clock.schedule(input.timeoutMs, () =>
+          this.close(questionId, { outcome: "timed_out" }),
+        ),
+      ];
+      // Nudge twice while it waits; a very short question isn't worth it.
+      if (input.timeoutMs >= MIN_REMINDABLE_MS) {
+        REMINDER_AT.forEach((fraction, i) => {
+          cancels.push(
+            this.clock.schedule(Math.round(input.timeoutMs * fraction), () =>
+              this.remind(questionId, i + 1),
+            ),
+          );
+        });
+      }
+      this.waiters.set(questionId, {
+        resolve,
+        cancelTimer: () => {
+          for (const cancel of cancels) cancel();
+        },
+      });
     });
 
     try {
@@ -155,6 +177,17 @@ export class Questions {
 
   pending(): OpenQuestion[] {
     return [...this.open.values()];
+  }
+
+  private remind(questionId: string, n: number): void {
+    const question = this.open.get(questionId);
+    if (!question || !this.notifier.questionReminder) return;
+    this.notifier.questionReminder(question, n).catch((error: unknown) => {
+      this.log.append({
+        type: "error",
+        data: { code: "push_failed", message: String(error), task_id: question.task_id },
+      });
+    });
   }
 
   private close(questionId: string, answer: Answer, commandId?: string): void {

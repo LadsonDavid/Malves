@@ -212,3 +212,61 @@ describe("questions.shutdown", () => {
     expect(c.questions.pending()).toHaveLength(1);
   });
 });
+
+describe("reminders for an unanswered question", () => {
+  it("nudges twice, at 40% and 80% of the time, and still times out as before", async () => {
+    const c = setup();
+    const answer = ask(c.questions, 10_000);
+    await flush();
+    c.clock.advance(3_999);
+    await flush();
+    expect(c.notifier.reminders).toEqual([]);
+    c.clock.advance(1);
+    await flush();
+    expect(c.notifier.reminders.map((r) => r.n)).toEqual([1]);
+    c.clock.advance(4_000);
+    await flush();
+    expect(c.notifier.reminders.map((r) => r.n)).toEqual([1, 2]);
+    c.clock.advance(2_000);
+    await expect(answer).resolves.toEqual({ outcome: "timed_out" });
+    expect(c.notifier.reminders).toHaveLength(2);
+  });
+
+  it("stops nudging once the question is answered", async () => {
+    const c = setup();
+    const answer = ask(c.questions, 10_000);
+    const [q] = c.questions.pending();
+    c.questions.answer({ questionId: q!.question_id, choiceId: "yes", commandId: "c1" });
+    await answer;
+    c.clock.advance(20_000);
+    await flush();
+    expect(c.notifier.reminders).toEqual([]);
+  });
+
+  it("does not nudge about a question that lasts only a few seconds", async () => {
+    const c = setup();
+    void ask(c.questions, 5_000);
+    c.clock.advance(5_000);
+    await flush();
+    expect(c.notifier.reminders).toEqual([]);
+  });
+
+  it("a reminder that can't be sent is logged and changes nothing", async () => {
+    const c = setup();
+    c.notifier.failReminder = true;
+    void ask(c.questions, 10_000);
+    c.clock.advance(4_000);
+    await flush();
+    expect(c.store.events.some((e) => e.type === "error")).toBe(true);
+    expect(c.questions.pending()).toHaveLength(1);
+  });
+
+  it("shutting down cancels the nudges", async () => {
+    const c = setup();
+    void ask(c.questions, 10_000);
+    c.questions.shutdown();
+    c.clock.advance(10_000);
+    await flush();
+    expect(c.notifier.reminders).toEqual([]);
+  });
+});
