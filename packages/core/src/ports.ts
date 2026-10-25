@@ -1,5 +1,15 @@
-import type { Choice, DataOf, EventBody, LoggedEvent, QuestionKind, Risk } from "@malves/protocol";
+import type {
+  Choice,
+  DataOf,
+  EventBody,
+  Importance,
+  LoggedEvent,
+  MonitorSource,
+  QuestionKind,
+  Risk,
+} from "@malves/protocol";
 import type { Command } from "./command.js";
+import type { Action } from "./policy/types.js";
 
 /**
  * Interfaces the core owns (§3). Adapters implement them; the core never knows
@@ -44,6 +54,14 @@ export type Decision = {
   text: string;
   choices: Choice[];
   risk: Risk;
+  /**
+   * What is being asked for, in structured form. With a policy on, the policy
+   * judges this first: tier 1 (and tier 2 when the project's autonomy allows) is
+   * allowed without a question, a hard deny is refused, everything else is asked.
+   */
+  action?: Action;
+  /** The choice that means "yes, once", used when the policy allows without asking. */
+  allowChoice?: string;
 };
 
 export type AgentRun = {
@@ -83,4 +101,30 @@ export interface AgentSession {
 
 export interface AgentHost {
   start(run: AgentRun, callbacks: AgentCallbacks): AgentSession;
+}
+
+// ── Automations (plan F2) ───────────────────────────────────────────────────
+
+/** Reads what a monitor watches. Throws when the source can't be read. */
+export interface MonitorRunner {
+  read(source: MonitorSource): Promise<string>;
+}
+
+/** What a monitor saw last time: its fingerprint, and its text so a diff can be shown. */
+export type MonitorSnapshot = { hash: string; text: string };
+
+export interface MonitorState {
+  get(ruleId: string): MonitorSnapshot | undefined;
+  set(ruleId: string, snapshot: MonitorSnapshot): void;
+  remove(ruleId: string): void;
+}
+
+export type Alert = { ruleId: string; name: string; text: string; importance: Importance };
+
+/**
+ * Tells the person: a notification, or a call for the important ones. The
+ * adapter decides how; a failure is logged and never stops an automation.
+ */
+export interface Delivery {
+  deliver(alert: Alert): Promise<void>;
 }

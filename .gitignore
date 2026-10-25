@@ -16,3 +16,8 @@ LLM keys.txt
 google-services.json
 *firebase-adminsdk*.json
 .bundle/
+
+# Local agents and external references
+.agent/
+external/
+

@@ -88,6 +88,10 @@ const TaskModel = z.object({
   data: z.object({ task_id: z.string(), model: z.string() }),
 });
 
+/** What a model was asked to do. Each role has its own model setting (plan F3). */
+export const ModelRole = z.enum(["routine", "planner", "reviewer", "vision"]);
+export type ModelRole = z.infer<typeof ModelRole>;
+
 /** Tokens a metered task used, through the budget guard. Logged when it ends. */
 const TaskUsage = z.object({
   type: z.literal("task.usage"),
@@ -96,7 +100,154 @@ const TaskUsage = z.object({
     calls: z.number().int(),
     input_tokens: z.number().int(),
     output_tokens: z.number().int(),
+    /** Which role the model answered for, when known. */
+    role: ModelRole.optional(),
+    /** Money spent, when the role has a price. Free models leave it out. */
+    cost_usd: z.number().nonnegative().optional(),
   }),
+});
+
+// ── Policy (F1): risk tiers and limits ──────────────────────────────────────
+
+/** 1 = read-only, silent. 2 = reversible, runs and is journaled. 3 = always asks. */
+export const Tier = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+export type Tier = z.infer<typeof Tier>;
+
+export const ActionSource = z.enum(["agent", "assistant", "automation", "computer", "browser"]);
+export type ActionSource = z.infer<typeof ActionSource>;
+
+export const ActionKind = z.enum([
+  "read",
+  "search",
+  "edit",
+  "delete",
+  "move",
+  "execute",
+  "network",
+  "browser",
+  "computer",
+  "spend",
+  "message",
+]);
+export type ActionKind = z.infer<typeof ActionKind>;
+
+/** careful: everything above tier 1 asks. normal: tier 2 runs. trusting: also remembers a yes. */
+export const Autonomy = z.enum(["careful", "normal", "trusting"]);
+export type Autonomy = z.infer<typeof Autonomy>;
+
+/** Every decision above a silent read, and every refusal, is in the log: `malves audit` lists them. */
+const PolicyDecided = z.object({
+  type: z.literal("policy.decided"),
+  data: z.object({
+    task_id: z.string().optional(),
+    source: ActionSource,
+    kind: ActionKind,
+    tier: Tier,
+    outcome: z.enum(["allow", "deny", "ask"]),
+    why: z.string().max(300),
+    summary: z.string().max(300),
+  }),
+});
+
+/** A project's autonomy setting. `*` caps every project at once: the one switch that turns it all down. */
+const PolicyAutonomy = z.object({
+  type: z.literal("policy.autonomy"),
+  data: z.object({ workspace_id: z.string(), autonomy: Autonomy }),
+});
+
+// ── Automations (F2): schedules, monitors, suggestions ──────────────────────
+
+export const Importance = z.enum(["log", "notification", "call"]);
+export type Importance = z.infer<typeof Importance>;
+
+/** What a monitor looks at. Its exact output is hashed; unchanged means nobody is told. */
+export const MonitorSource = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("command"), command: z.string().min(1), workspace_id: z.string() }),
+  z.object({ kind: z.literal("url"), url: z.string().min(1) }),
+  z.object({ kind: z.literal("port"), host: z.string().min(1), port: z.number().int().positive() }),
+]);
+export type MonitorSource = z.infer<typeof MonitorSource>;
+
+export const AutomationTrigger = z.discriminatedUnion("kind", [
+  /** `every 20m`, `weekdays 08:30` (a small grammar, not cron). */
+  z.object({ kind: z.literal("schedule"), schedule: z.string().min(1) }),
+  z.object({
+    kind: z.literal("event"),
+    on: z.enum(["task.failed", "task.done", "monitor.changed"]),
+  }),
+  z.object({ kind: z.literal("monitor"), every: z.string().min(1), source: MonitorSource }),
+]);
+export type AutomationTrigger = z.infer<typeof AutomationTrigger>;
+
+export const AutomationAction = z.discriminatedUnion("kind", [
+  /** A plain template: `{{name}}`, `{{diff}}`, `{{output}}`, `{{task}}`, `{{reason}}`. */
+  z.object({ kind: z.literal("notify"), template: z.string().min(1).max(2000) }),
+  /** A short task whose prompt is the template; its result is what gets delivered. */
+  z.object({
+    kind: z.literal("task"),
+    workspace_id: z.string(),
+    agent: z.string(),
+    prompt: z.string().min(1).max(4000),
+  }),
+]);
+export type AutomationAction = z.infer<typeof AutomationAction>;
+
+export const AutomationRule = z.object({
+  name: z.string().min(1).max(120),
+  trigger: AutomationTrigger,
+  action: AutomationAction,
+  importance: Importance,
+  enabled: z.boolean(),
+});
+export type AutomationRule = z.infer<typeof AutomationRule>;
+
+const AutomationCreated = z.object({
+  type: z.literal("automation.created"),
+  data: z.object({ rule_id: z.string(), rule: AutomationRule }),
+});
+
+const AutomationChanged = z.object({
+  type: z.literal("automation.changed"),
+  data: z.object({ rule_id: z.string(), rule: AutomationRule }),
+});
+
+const AutomationRemoved = z.object({
+  type: z.literal("automation.removed"),
+  data: z.object({ rule_id: z.string() }),
+});
+
+/** A rule did something. Unchanged monitors never get here: no change, no event. */
+const AutomationFired = z.object({
+  type: z.literal("automation.fired"),
+  data: z.object({
+    rule_id: z.string(),
+    reason: z.enum(["schedule", "event", "monitor"]),
+    importance: Importance,
+    text: z.string().max(4000),
+    task_id: z.string().optional(),
+  }),
+});
+
+/** Malves proposes a rule. Nothing is created without a tap (at most five wait at once). */
+const SuggestionOffered = z.object({
+  type: z.literal("suggestion.offered"),
+  data: z.object({
+    suggestion_id: z.string(),
+    /** Stable key: a dismissed suggestion with this key never comes back. */
+    key: z.string().min(1),
+    text: z.string().min(1).max(400),
+    rule: AutomationRule,
+  }),
+});
+
+const SuggestionAccepted = z.object({
+  type: z.literal("suggestion.accepted"),
+  data: z.object({ suggestion_id: z.string(), rule_id: z.string() }),
+});
+
+const SuggestionDismissed = z.object({
+  type: z.literal("suggestion.dismissed"),
+  data: z.object({ suggestion_id: z.string(), key: z.string() }),
 });
 
 /** Files a finished task changed in a git project (only the task's own, not earlier edits). */
@@ -199,6 +350,15 @@ export const EventBody = z.discriminatedUnion("type", [
   DeviceRevoked,
   ControlStarted,
   ControlEnded,
+  PolicyDecided,
+  PolicyAutonomy,
+  AutomationCreated,
+  AutomationChanged,
+  AutomationRemoved,
+  AutomationFired,
+  SuggestionOffered,
+  SuggestionAccepted,
+  SuggestionDismissed,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;

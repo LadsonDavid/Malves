@@ -25,6 +25,11 @@ export function auditLines(
       lines.push(`${stamp(e.at)}  ${what}`);
     } else if (e.type === "control.ended") {
       lines.push(`${stamp(e.at)}  Handover ended${e.data.reason ? `: ${e.data.reason}` : ""}`);
+    } else if (e.type === "policy.decided") {
+      const { kind, tier, outcome, why, summary } = e.data;
+      lines.push(`${stamp(e.at)}  Policy [tier ${tier}] ${outcome.toUpperCase()}: ${kind} - ${summary} (${why})`);
+    } else if (e.type === "policy.autonomy") {
+      lines.push(`${stamp(e.at)}  Autonomy set to ${e.data.autonomy} for workspace ${e.data.workspace_id}`);
     }
   }
   return lines.slice(-newest);

@@ -4,6 +4,7 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  Action,
   AgentCallbacks,
   AgentEnd,
   AgentHost,
@@ -414,14 +415,54 @@ export function permissionDecision(params: acp.RequestPermissionRequest): Decisi
   const call = params.toolCall;
   const where = (call.locations ?? []).map((l) => l.path).join(", ");
   const title = call.title ?? "The agent wants to use a tool";
+  const once = params.options.find((o) => o.kind === "allow_once");
+  const text = where ? `${title}\n${where}` : title;
   return {
     kind: "permission",
-    text: where ? `${title}\n${where}` : title,
+    text,
     choices: params.options
       .filter((o) => o.kind !== "allow_always")
       .map((o) => ({ id: o.optionId, label: o.name })),
     risk: riskOf(call.kind ?? undefined),
+    action: actionOf(call, title),
+    // Without a plain "allow once" the policy has nothing to answer with, so a person is asked.
+    ...(once ? { allowChoice: once.optionId } : {}),
   };
+}
+
+/**
+ * What a tool call is, in the policy's terms. A shell call carries its command
+ * in `rawInput`; the title is only for people and is never taken for a command.
+ */
+export function actionOf(call: acp.ToolCallUpdate, title: string): Action {
+  const paths = (call.locations ?? []).map((l) => l.path);
+  const raw = typeof call.rawInput === "object" && call.rawInput !== null ? call.rawInput : {};
+  const field = (name: string): unknown => (raw as Record<string, unknown>)[name];
+  const base = { source: "agent", summary: title } as const;
+  switch (call.kind ?? undefined) {
+    case "read":
+    case "search":
+    case "think":
+      return { ...base, kind: call.kind === "search" ? "search" : "read", paths };
+    case "edit":
+      return { ...base, kind: "edit", paths };
+    case "delete":
+      return { ...base, kind: "delete", paths };
+    case "move":
+      return { ...base, kind: "move", paths };
+    case "fetch": {
+      const url = field("url");
+      return { ...base, kind: "network", ...(typeof url === "string" ? { url } : {}) };
+    }
+    case "execute": {
+      const cmd = field("command") ?? field("cmd");
+      const command = Array.isArray(cmd) ? cmd.join(" ") : cmd;
+      return { ...base, kind: "execute", ...(typeof command === "string" ? { command } : {}) };
+    }
+    default:
+      // switch_mode, other, or no kind: nothing is known about it, so it is a question.
+      return { ...base, kind: "execute" };
+  }
 }
 
 function riskOf(kind: acp.ToolKind | undefined): Decision["risk"] {

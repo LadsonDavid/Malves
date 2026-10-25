@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import type { Core } from "@malves/core";
-import { TERMINAL_STATES } from "@malves/protocol";
+import { type ModelRole, TERMINAL_STATES } from "@malves/protocol";
 
 /**
  * The budget guard (§6, R8): a local endpoint between a metered agent and
@@ -28,7 +28,14 @@ export type GuardOptions = {
   port?: number;
 };
 
-type Usage = { model?: string; calls: number; input: number; output: number; allowed: Set<string> };
+type Usage = {
+  model?: string;
+  role?: ModelRole;
+  calls: number;
+  input: number;
+  output: number;
+  allowed: Set<string>;
+};
 
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 /** Request headers never passed on: our own auth replaces the agent's placeholder. */
@@ -77,9 +84,13 @@ export class BudgetGuard {
   }
 
   /** The base URL one task's agent talks to (Anthropic clients add `/v1/messages`). */
-  urlFor(taskId: string): string {
+  urlFor(taskId: string, role?: ModelRole): string {
     const token = randomBytes(18).toString("base64url");
     this.tokens.set(token, taskId);
+    if (role) {
+      const usage = this.usageOf(taskId);
+      usage.role = role;
+    }
     return `${this.base}/t/${token}`;
   }
 
@@ -193,6 +204,7 @@ export class BudgetGuard {
         calls: usage.calls,
         input_tokens: usage.input,
         output_tokens: usage.output,
+        ...(usage.role ? { role: usage.role } : {}),
       },
     });
   }

@@ -706,15 +706,37 @@ export class Assistant {
         const workspace = this.resolveWorkspace(args.project);
         if (!command || !workspace) return { text: "Which command, in which project?" };
         const go = async () => `<data>${await runCommand(command, workspace.path)}</data>`;
-        // Looking, and tests/builds, run at once in handover; anything else asks.
-        if (commandRisk(command) !== "ask") {
-          return {
-            text: await go(),
-            lookup: true,
-            did: `Ran "${command.slice(0, 80)}" in ${workspace.name}`,
-          };
+        const ran = {
+          text: "",
+          lookup: true,
+          did: `Ran "${command.slice(0, 80)}" in ${workspace.name}`,
+        };
+        const question = `Run "${command.slice(0, 200)}" in ${workspace.name}?`;
+        const policy = this.d.core.policy;
+        if (policy) {
+          const action = {
+            source: "assistant",
+            kind: "execute",
+            command,
+            summary: question,
+          } as const;
+          const where = { root: workspace.path, workspaceId: workspace.id };
+          const verdict = await policy.evaluate(action, where);
+          if (verdict.outcome === "deny") {
+            return { text: `I won't run that, even if you ask. ${verdict.why}` };
+          }
+          // Handover's promise: looking, tests and builds go by themselves.
+          if (verdict.outcome === "allow" || (verdict.tier === 2 && commandRisk(command) !== "ask")) {
+            return { ...ran, text: await go() };
+          }
+          return this.ask(question, async () => {
+            policy.rememberYes(action, where);
+            return go();
+          });
         }
-        return this.ask(`Run "${command.slice(0, 200)}" in ${workspace.name}?`, go);
+        // Looking, and tests/builds, run at once in handover; anything else asks.
+        if (commandRisk(command) !== "ask") return { ...ran, text: await go() };
+        return this.ask(question, go);
       }
       case "look_at_screen": {
         const desktop = await this.d.handover?.desktop();

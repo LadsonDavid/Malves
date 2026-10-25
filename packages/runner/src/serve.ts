@@ -217,6 +217,7 @@ export async function serve(
         quietHours: process.env.MALVES_QUIET_HOURS,
       })
     : undefined;
+  if (caller) runner.useCaller?.(caller);
   const malves = assistantFromEnv({
     core: runner,
     dataDir: dir,
@@ -397,6 +398,7 @@ export async function serve(
     say("  • install Tailscale on both devices (works anywhere), or");
     for (const ip of lanAddresses()) say(`  • on the same Wi-Fi: malves serve --host ${ip}`);
   }
+  runner.automations?.start();
 
   // Chrome: the extension connects to 127.0.0.1 only; agents get the gated tools.
   let token = extensionToken(dir);
@@ -618,6 +620,7 @@ ${link}`);
   await runner.tasks.stopAll();
   // Open questions (e.g. a commit approval) must not time out into a closed log.
   runner.questions.shutdown();
+  runner.automations?.stop();
   relay?.close();
   await server.close();
   stopRenewing();

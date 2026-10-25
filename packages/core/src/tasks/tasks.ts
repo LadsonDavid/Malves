@@ -1,6 +1,7 @@
 import { type TaskState, TERMINAL_STATES } from "@malves/protocol";
 import type { Command } from "../command.js";
 import type { EventLog } from "../events/log.js";
+import type { Policy } from "../policy/policy.js";
 import type { AgentEnd, AgentHost, AgentSession, Decision, Ids } from "../ports.js";
 import type { Answer, Questions } from "../questions/questions.js";
 import { confine, type Workspaces } from "../workspaces/workspaces.js";
@@ -44,6 +45,8 @@ export type TasksOptions = {
   /** Agent name → how to start it. Only these can be run. */
   agents: ReadonlyMap<string, Command>;
   questionTimeoutMs: number;
+  /** Judges each decision that carries an `action` before anyone is asked (plan F1). */
+  policy?: Policy | undefined;
 };
 
 /** queued → running ⇄ waiting → done | failed | stopped (§3). */
@@ -252,6 +255,22 @@ export class Tasks {
    */
   private async decide(taskId: string, decision: Decision): Promise<string | null> {
     if (!this.isActive(taskId)) return null;
+
+    // The policy speaks first. Only what it does not allow outright becomes a question.
+    const { policy } = this.o;
+    const task = this.tasks.get(taskId);
+    const workspace = task && this.o.workspaces.get(task.workspaceId);
+    const ctx = workspace
+      ? { root: workspace.path, workspaceId: workspace.id, taskId }
+      : undefined;
+    if (policy && decision.action && ctx) {
+      const verdict = await policy.evaluate(decision.action, ctx);
+      if (!this.isActive(taskId)) return null;
+      // A hard deny never reaches a person: the agent is told no, and carries on without it.
+      if (verdict.outcome === "deny") return null;
+      if (verdict.outcome === "allow" && decision.allowChoice) return decision.allowChoice;
+    }
+
     const open = (this.asking.get(taskId) ?? 0) + 1;
     this.asking.set(taskId, open);
     if (open === 1) this.transition(taskId, "waiting");
@@ -272,6 +291,9 @@ export class Tasks {
 
     if (answer.outcome === "answered" && this.isActive(taskId)) {
       if (stillOpen === 0) this.transition(taskId, "running");
+      if (policy && decision.action && ctx && answer.choiceId === decision.allowChoice) {
+        policy.rememberYes(decision.action, ctx);
+      }
       return answer.choiceId;
     }
     // Silence never means yes (R3): the agent is stopped before it hears back.
