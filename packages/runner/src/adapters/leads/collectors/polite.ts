@@ -21,7 +21,9 @@ export async function politeFetch(
   let hostname = "unknown";
   try {
     hostname = new URL(url).hostname;
-  } catch {}
+  } catch {
+    // Malformed URL, fallback to unknown
+  }
 
   const last = domainLastRequest.get(hostname) ?? 0;
   const elapsed = Date.now() - last;

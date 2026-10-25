@@ -48,6 +48,26 @@ export {
 export { classifyCommand, insideRoot, isSecretPath } from "./policy/command.js";
 export { DEFAULT_DENY, Policy, type PolicyOptions } from "./policy/policy.js";
 export type { Action, Classification, PolicyContext, Verdict } from "./policy/types.js";
+export type {
+  AgentCallbacks,
+  AgentEnd,
+  AgentHost,
+  AgentRun,
+  AgentSession,
+  Alert,
+  Clock,
+  Decision,
+  Delivery,
+  Ids,
+  JobVerifier,
+  MonitorRunner,
+  MonitorSnapshot,
+  MonitorState,
+  Notifier,
+  PullRequestOpener,
+  Store,
+  WorkspaceProvisioner,
+} from "./ports.js";
 export type * from "./ports.js";
 export {
   type Answer,

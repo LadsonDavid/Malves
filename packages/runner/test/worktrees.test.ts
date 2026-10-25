@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GitWorktrees } from "../src/adapters/git/worktrees.js";
+import { formatRoleContract } from "../src/agents/roles.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -105,5 +106,11 @@ describe("GitWorktrees provisioner", () => {
     expect(m2.conflictFiles).toContain("README.md");
 
     await provisioner.cleanup(repoPath, "j3");
+  });
+
+  it("formats role contracts for step prompts", () => {
+    const formatted = formatRoleContract("implementer", "Write feature code");
+    expect(formatted).toContain("ROLE CONTRACT");
+    expect(formatted).toContain("Write feature code");
   });
 });

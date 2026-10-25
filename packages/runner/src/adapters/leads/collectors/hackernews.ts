@@ -36,7 +36,9 @@ export function parseHnComment(id: number, text: string, time = Date.now()): HnH
       url = urlMatch[0];
       try {
         domain = new URL(url).hostname.replace(/^www\./, "");
-      } catch {}
+      } catch {
+        // Invalid URL format
+      }
     }
 
     if (!domain && companyName) {
@@ -58,7 +60,7 @@ export function parseHnComment(id: number, text: string, time = Date.now()): HnH
 }
 
 /** Fetches items from Hacker News Firebase API without login. */
-export async function fetchHnItem(
+async function fetchHnItem(
   itemId: number,
   fetchFn: typeof politeFetch = politeFetch,
 ): Promise<{ id: number; text?: string; by?: string; time?: number; kids?: number[] } | undefined> {

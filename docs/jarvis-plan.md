@@ -246,7 +246,7 @@ cannot log in, trips on dialogs and iframes, and cannot hold a long job.
 1. **Policy tiers instead of asking for everything.** Reading a site you already approved:
    tier 1. Clicking inside it: tier 2 (logged). Submitting a form, sending, buying,
    deleting: tier 3. Page text is always data, never instructions.
-2. **Secret autofill the model never sees** (idea from Hermes `browser_vault_tool.py`).
+2. **Secret autofill the model never sees** (idea from Hermes browser_vault_tool.py).
    The runner holds an encrypted vault (NaCl, key kept as the other secrets are). The model
    sees only a *handle* and the site. To fill, the runner asks your phone once ("fill the
    Stripe login?"), then sends the secret straight to the extension over the loopback
@@ -468,10 +468,11 @@ spike); porting the lead engine; model roles.
 
 | Idea | Source |
 |---|---|
-| Monitors hashed before any model call; suggestions with a cap and a dismissal latch | Hermes `cron/monitor.py`, `cron/suggestions.py` |
-| Deny rules before any bypass; advisor model treating the command as untrusted | Hermes `tools/approval_floors.py`, `approval_smart.py` |
-| Background reviewer proposing skills and memories | Hermes `agent/background_review.py` |
-| Origin-bound secret autofill the model never sees | Hermes `tools/browser_vault_tool.py` |
-| A worktree per task; steering at tool boundaries; lane contracts | OpenClaw `managed-worktrees.md`, `queue-steering.md`, `parallel-specialist-lanes.md` |
-| One `act` contract with a frame id; take-over handshake | OpenClaw `nodes/computer-use.md` |
-| Memory consolidation with reviewable output; escalating recall | OpenClaw `dreaming.md`, `active-memory.md` |
+| Monitors hashed before any model call; suggestions with a cap and a dismissal latch | Hermes (cron/monitor.py, cron/suggestions.py) |
+| Deny rules before any bypass; advisor model treating the command as untrusted | Hermes (tools/approval_floors.py, approval_smart.py) |
+| Background reviewer proposing skills and memories | Hermes (agent/background_review.py) |
+| Origin-bound secret autofill the model never sees | Hermes (tools/browser_vault_tool.py) |
+| A worktree per task; steering at tool boundaries; lane contracts | OpenClaw (managed-worktrees.md, queue-steering.md, parallel-specialist-lanes.md) |
+| One act contract with a frame id; take-over handshake | OpenClaw (nodes/computer-use.md) |
+| Memory consolidation with reviewable output; escalating recall | OpenClaw (dreaming.md, active-memory.md) |
+

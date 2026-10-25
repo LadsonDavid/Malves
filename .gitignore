@@ -19,5 +19,6 @@ google-services.json
 
 # Local agents and external references
 .agent/
+.agents/
 external/
 

@@ -1,6 +1,9 @@
 import type { AutomationRule } from "@malves/protocol";
 import type { Suggestions } from "@malves/core";
 import { createHash } from "node:crypto";
+import { modelForRole } from "./llm.js";
+
+export const DEFAULT_REVIEWER_MODEL = modelForRole("reviewer");
 
 export type TaskSummaryForReview = {
   taskId: string;

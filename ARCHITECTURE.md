@@ -648,9 +648,9 @@ Each step ends in something demoable:
    says "incoming" and the computer opens a connection that the link server
    adopts like a direct one. Frames and close codes pass unchanged. Limit:
    notifications still need Tailscale.
-8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
-   `malves serve --leads <url>`, the app's Leads screen with "Research in
-   browser". Awaiting a test against real signalstack data.
+8. Lead engine. R7. **Built** (§7): embedded in-process `LocalLeadEngine`
+   (SQLite accounts & signals, read-time scoring, polite zero-login collectors)
+   with optional `malves serve --leads <url>` fallback to external signalstack.
 9. Voice (English India/US, Tamil), hands-free, Whisper dictation. **Built.**
 10. Desktop IDE companion extension. **Built;** connects in VS Code and
     Antigravity; the phone side awaits a real test.
