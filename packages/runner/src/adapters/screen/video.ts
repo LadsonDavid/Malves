@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import wrtc from "@roamhq/wrtc";
 
 /**
@@ -39,8 +42,13 @@ export class ScreenVideo {
     private readonly log: (line: string) => void = () => {},
   ) {}
 
+  private say(line: string): void {
+    this.log(`${new Date().toISOString().slice(11, 23)} ${line}`);
+  }
+
   /** Answers the phone's offer and starts streaming; one viewer at a time. */
   async start(offerSdp: string): Promise<{ sdp: string; width: number; height: number }> {
+    this.say("Video: request arrived.");
     this.stop();
     const first = await this.grab();
     const source = new wrtc.nonstandard.RTCVideoSource({ isScreencast: true });
@@ -48,15 +56,39 @@ export class ScreenVideo {
     this.peer = peer;
     peer.addTrack(source.createTrack());
     // Diagnosis: which addresses the phone offered (a 100.x one means it can use Tailscale).
-    this.log(`Video: the phone offered ${addresses(offerSdp)}. Offer: ${shape(offerSdp)}.`);
+    this.say(`Video: the phone offered ${addresses(offerSdp)}. Offer: ${shape(offerSdp)}.`);
     peer.oniceconnectionstatechange = () =>
-      this.log(`Video: connection test ${peer.iceConnectionState}.`);
+      this.say(`Video: connection test ${peer.iceConnectionState}.`);
     peer.onconnectionstatechange = () => {
-      this.log(`Video: ${peer.connectionState}.`);
+      this.say(`Video: ${peer.connectionState}.`);
+      if (peer.connectionState === "connected") {
+        // Diagnosis: is the computer really sending frames? Every 5 s while connected.
+        const every = setInterval(() => {
+          if (peer.connectionState !== "connected") return clearInterval(every);
+          void peer.getStats().then((stats: Map<string, Record<string, unknown>>) => {
+            for (const r of stats.values()) {
+              if (r.type === "outbound-rtp" && r.kind === "video") {
+                this.say(
+                  `Video: sent ${r.framesEncoded ?? "?"} frames, ${r.bytesSent ?? "?"} bytes, ${r.frameWidth ?? "?"}x${r.frameHeight ?? "?"}, limited by ${r.qualityLimitationReason ?? "?"}.`,
+                );
+              }
+            }
+          });
+        }, 5000);
+      }
       if (["failed", "closed", "disconnected"].includes(peer.connectionState)) this.stop(peer);
     };
+    // Diagnosis: keep the phone's offer so it can be replayed here, and log each step.
+    try {
+      mkdirSync(path.join(homedir(), ".malves"), { recursive: true });
+      writeFileSync(path.join(homedir(), ".malves", "last-offer.sdp"), offerSdp);
+    } catch {}
     await peer.setRemoteDescription({ type: "offer", sdp: offerSdp });
-    await peer.setLocalDescription(await peer.createAnswer());
+    this.say("Video: offer accepted.");
+    const answer = await peer.createAnswer();
+    this.say("Video: answer created.");
+    await peer.setLocalDescription(answer);
+    this.say("Video: answer set.");
     // No trickle: wait (briefly) until every candidate is in the answer.
     await new Promise<void>((resolve) => {
       if (peer.iceGatheringState === "complete") return resolve();
@@ -89,7 +121,7 @@ export class ScreenVideo {
           busy = false;
         });
     }, 1000 / FPS);
-    this.log(
+    this.say(
       `Video: answered the phone (${width}x${height}, ${addresses(peer.localDescription?.sdp ?? "")}). Answer: ${shape(peer.localDescription?.sdp ?? "")}.`,
     );
     return { sdp: peer.localDescription?.sdp ?? "", width, height };
@@ -98,6 +130,8 @@ export class ScreenVideo {
   /** Stops streaming (the phone left the screen, or the connection dropped). */
   stop(only?: InstanceType<typeof wrtc.RTCPeerConnection>): void {
     if (only && only !== this.peer) return;
+    if (this.peer)
+      this.say(only ? "Video: stopped, the connection ended." : "Video: stopped on request.");
     clearInterval(this.timer);
     this.timer = undefined;
     this.peer?.close();
