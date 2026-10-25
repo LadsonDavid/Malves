@@ -4,6 +4,7 @@ import {
   type Ack,
   type AgentInfo,
   type AgentSessionInfo,
+  type Check,
   CLOSE,
   Command,
   FirstFrame,
@@ -39,6 +40,14 @@ export type LinkServerOptions = {
   /** Shown on the phone, e.g. the computer's hostname. */
   computer: string;
   agents: AgentDirectory;
+  /** The computer's setup check, for the phone's Home and Settings. */
+  health?:
+    | {
+        list(): Check[];
+        run(): Promise<Check[]>;
+        subscribe(listener: (checks: Check[]) => void): () => void;
+      }
+    | undefined;
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
@@ -457,7 +466,13 @@ export class LinkServer {
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
       ...(this.o.assistant ? { assistant: true } : {}),
+      ...(this.o.health ? { health: this.o.health.list() } : {}),
     };
+  }
+
+  /** @internal */
+  subscribeHealth(listener: (checks: Check[]) => void): () => void {
+    return this.o.health?.subscribe(listener) ?? (() => {});
   }
 
   /** @internal */
@@ -678,6 +693,10 @@ export class LinkServer {
           // The new states reach every phone through `subscribeAgents`.
           await this.o.agents.checkAll();
           return ack(true);
+        case "doctor.run":
+          // The result reaches every phone through `subscribeHealth`.
+          await this.o.health?.run();
+          return ack(true);
       }
     } catch (error) {
       return ack(false, { error: error instanceof Error ? error.message : String(error) });
@@ -701,6 +720,7 @@ export class LinkServer {
 class Session {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeAgents: () => void;
+  private readonly unsubscribeHealth: () => void;
   private readonly wish: ReadonlySet<string> | undefined;
 
   constructor(
@@ -733,6 +753,9 @@ class Session {
     this.unsubscribeAgents = server.subscribeAgents((agents) =>
       this.send({ type: "agents", agents }),
     );
+    this.unsubscribeHealth = server.subscribeHealth((checks) =>
+      this.send({ type: "health", checks }),
+    );
   }
 
   receive(frame: unknown): void {
@@ -759,6 +782,7 @@ class Session {
   dispose(): void {
     this.unsubscribe();
     this.unsubscribeAgents();
+    this.unsubscribeHealth();
   }
 
   private forward(event: LoggedEvent): void {

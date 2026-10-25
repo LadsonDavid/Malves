@@ -6,6 +6,7 @@ import { command, createCore, type Notifier } from "@malves/core";
 import {
   type AgentInfo,
   type AgentSessionInfo,
+  type Check,
   CLOSE,
   generateKeyPair,
   type KeyPair,
@@ -28,6 +29,7 @@ import {
   type LinkServerOptions,
 } from "../src/adapters/link/server.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
+import { Health } from "../src/health.js";
 import { randomIds, systemClock } from "../src/system.js";
 
 /**
@@ -112,6 +114,8 @@ type Phone = {
   statuses: LinkStatus[];
   /** Every live agent update received. */
   agentUpdates: AgentInfo[][];
+  /** Every setup-check update received. */
+  healthUpdates: Check[][];
   leads: Lead[][];
   activity: string[];
   /** Natural-voice pieces, as the phone gets them. */
@@ -140,6 +144,7 @@ function phone(
     events: [],
     statuses: [],
     agentUpdates: [],
+    healthUpdates: [],
     leads: [],
     activity: [],
     audio: [],
@@ -158,6 +163,7 @@ function phone(
     onEvent: (e) => p.events.push(e),
     onStatus: (s) => p.statuses.push(s),
     onAgents: (agents) => p.agentUpdates.push(agents),
+    onHealth: (checks) => p.healthUpdates.push(checks),
     onLeads: (leads) => p.leads.push(leads),
     onActivity: (taskId, text) => p.activity.push(`${taskId}: ${text}`),
     onAudio: (piece) => p.audio.push(piece),
@@ -187,6 +193,31 @@ async function pairedPhone(r: Awaited<ReturnType<typeof runner>>, extra = {}) {
 }
 
 describe("phone link, end to end", () => {
+  it("sends the setup check on connect, and again when the phone asks", async () => {
+    const first: Check[] = [{ id: "node", label: "Node.js", status: "ok", detail: "Node.js 24" }];
+    const second: Check[] = [
+      { id: "node", label: "Node.js", status: "ok", detail: "Node.js 24" },
+      {
+        id: "phone-link",
+        label: "Phone connection",
+        status: "warn",
+        detail: "Wi-Fi only",
+        fix: "x",
+      },
+    ];
+    let answer = first;
+    const health = new Health(async () => answer);
+    await health.run();
+    const r = await runner(undefined, undefined, undefined, { health });
+    const p = await pairedPhone(r);
+    expect(p.welcome?.health).toEqual(first);
+
+    answer = second;
+    expect(await p.client.checkSetup()).toMatchObject({ ok: true });
+    await waitFor(() => p.healthUpdates.length > 0, "the new setup check");
+    expect(p.healthUpdates.at(-1)).toEqual(second);
+  });
+
   it("speaks Malves' reply a sentence at a time as it streams, then marks the end", async () => {
     const heard: string[] = [];
     const assistant = {

@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentInfo } from "@malves/protocol";
+import { type AgentInfo, pairingLink } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Caller } from "./adapters/assistant/caller.js";
@@ -26,6 +26,9 @@ import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import { agentProfiles } from "./agents.js";
+import { degradedLines, formatChecks, runDoctor } from "./doctor.js";
+import { realEnv } from "./doctor-env.js";
+import { Health } from "./health.js";
 import {
   controlToken,
   extensionToken,
@@ -41,7 +44,9 @@ import type { Runner } from "./wire.js";
 const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
   pair text       the same code as text, to paste into an emulator
+  pair link       a QR code the phone's camera opens straight into malves
   agents          check which agents are ready (e.g. after signing in)
+  doctor          check this computer's setup and say what to fix
   push            notifications: status and how to set them up
   push new        new notification topic (cuts off every subscribed phone)
   extension       how to connect Chrome, and its code
@@ -198,6 +203,8 @@ export async function serve(
   if (malves) warmPiper(process.env.MALVES_PIPER_URL);
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
+  // The setup check: run once things have settled, and again when a phone asks.
+  const health = new Health(() => runDoctor(realEnv(dir, false)));
   const server = new LinkServer(runner, {
     host,
     port,
@@ -205,6 +212,7 @@ export async function serve(
     publicUrl: relay?.phoneUrl,
     computer,
     agents: runner.agents,
+    health,
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
@@ -406,11 +414,18 @@ export async function serve(
   const checkAgents = () => {
     say("Checking which agents are ready…");
     void runner.agents.checkAll().then(() => say(describeAgents(runner.agents.list())));
+    void health.run().then((checks) => {
+      const lines = degradedLines(checks);
+      if (lines.length) say(`Setup: ${lines.length} thing(s) to look at. Type doctor.`);
+    });
   };
 
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    doctor: () => {
+      void health.run().then((checks) => say(formatChecks(checks)));
+    },
     ide: () => {
       const vsix = fileURLToPath(new URL("../../ide/malves.vsix", import.meta.url));
       say(
@@ -449,6 +464,17 @@ export async function serve(
       });
     },
     pair: ([mode]) => {
+      if (mode === "link") {
+        // The phone's own camera app opens this straight into malves; the app still asks first.
+        const link = pairingLink(server.offerPairing());
+        qrcode.generate(link, { small: true }, (qr) =>
+          say(`
+${qr}`),
+        );
+        say(`Scan with the phone's camera (or open the link on the phone) within 2 minutes:
+${link}`);
+        return;
+      }
       if (mode !== "text") return showPairing();
       // For emulators and screens that can't scan: paste this into the app.
       say(JSON.stringify(server.offerPairing()));

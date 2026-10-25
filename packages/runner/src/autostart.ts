@@ -60,6 +60,17 @@ Turn it off with: pnpm malves autostart off`);
   return 0;
 }
 
+/** Whether the login task exists, without printing anything (for `malves doctor`). */
+export function autostartState(): "on" | "off" | "unknown" {
+  if (process.platform !== "win32") return "unknown";
+  const result = spawnSync("schtasks.exe", ["/query", "/tn", TASK], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  if (result.error) return "unknown";
+  return result.status === 0 ? "on" : "off";
+}
+
 function off(): number {
   const ok = powershell(
     `Unregister-ScheduledTask -TaskName ${quote(TASK)} -Confirm:$false -ErrorAction SilentlyContinue`,

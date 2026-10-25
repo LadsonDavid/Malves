@@ -43,6 +43,29 @@ export const PairingOffer = z.object({
 });
 export type PairingOffer = z.infer<typeof PairingOffer>;
 
+const PAIR_LINK = /^malves:\/\/pair\?o=(.+)$/;
+
+/**
+ * The offer as a link (`malves://pair?o=…`), so a phone's own camera app can
+ * open malves straight into pairing. The app still asks before it connects.
+ */
+export function pairingLink(offer: PairingOffer): string {
+  return `malves://pair?o=${encodeURIComponent(JSON.stringify(offer))}`;
+}
+
+/** An offer from a scanned or pasted text: the link, or the plain JSON. Undefined if it is neither. */
+export function readPairing(text: string): PairingOffer | undefined {
+  const trimmed = text.trim();
+  const link = PAIR_LINK.exec(trimmed);
+  try {
+    const json: unknown = JSON.parse(link?.[1] ? decodeURIComponent(link[1]) : trimmed);
+    const offer = PairingOffer.safeParse(json);
+    return offer.success ? offer.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Frames, in the clear ────────────────────────────────────────────────────
 
 export const ChallengeFrame = z.object({ type: z.literal("challenge"), challenge: Token });
@@ -383,6 +406,9 @@ export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), comman
 /** Re-check which agents are ready, e.g. right after signing in on the computer. */
 export const AgentsCheck = z.object({ type: z.literal("agents.check"), command_id: Id });
 
+/** Run the computer's setup check again; the answer arrives as a `health` message. */
+export const DoctorRun = z.object({ type: z.literal("doctor.run"), command_id: Id });
+
 /** Fetch this week's leads from the lead engine, through the computer. */
 export const LeadsRefresh = z.object({ type: z.literal("leads.refresh"), command_id: Id });
 
@@ -420,6 +446,7 @@ export const Command = z.discriminatedUnion("type", [
   IdeOpenChanges,
   IdeResume,
   AgentsCheck,
+  DoctorRun,
   LeadsRefresh,
 ]);
 export type Command = z.infer<typeof Command>;
@@ -460,6 +487,18 @@ export const HandoverState = z.object({
 });
 export type HandoverState = z.infer<typeof HandoverState>;
 
+/** One line of the computer's setup check (`malves doctor`), in plain words. */
+export const Check = z.object({
+  id: z.string().max(40),
+  label: z.string().max(80),
+  /** `off` is a feature that isn't set up and doesn't need to be. */
+  status: z.enum(["ok", "warn", "fail", "off"]),
+  detail: z.string().max(300),
+  /** What to do about it, when it isn't fine. */
+  fix: z.string().max(300).optional(),
+});
+export type Check = z.infer<typeof Check>;
+
 export const Welcome = z.object({
   type: z.literal("welcome"),
   v: z.number().int(),
@@ -480,6 +519,8 @@ export const Welcome = z.object({
   assistant: z.boolean().optional(),
   /** IDE windows open on the computer, with malves' IDE extension. */
   ides: z.array(IdeInfo).max(20).optional(),
+  /** The computer's setup check, so the phone can say what isn't working. */
+  health: z.array(Check).max(40).optional(),
 });
 export type Welcome = z.infer<typeof Welcome>;
 
@@ -523,6 +564,12 @@ export const HandoverMessage = z.object({ type: z.literal("handover"), state: Ha
 
 /** Sent whenever an agent's readiness changes. */
 export const AgentsMessage = z.object({ type: z.literal("agents"), agents: z.array(AgentInfo) });
+
+/** Sent when the computer's setup check is run again. */
+export const HealthMessage = z.object({
+  type: z.literal("health"),
+  checks: z.array(Check).max(40),
+});
 
 export const EventMessage = z.object({ type: z.literal("event"), event: LoggedEvent });
 
@@ -609,6 +656,7 @@ export const LeadsMessage = z.object({
 export const RunnerMessage = z.discriminatedUnion("type", [
   Welcome,
   AgentsMessage,
+  HealthMessage,
   ChromeMessage,
   IdesMessage,
   HandoverMessage,

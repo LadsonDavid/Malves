@@ -11,6 +11,7 @@ import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
 import { autostart, startNow } from "./autostart.js";
 import { supervise } from "./background.js";
+import { doctorCommand } from "./doctor-env.js";
 import { serve } from "./serve.js";
 import { controlToken, dataDir, parseDuration, resolveFolder, runningRunner } from "./system.js";
 import { openRunner, type Runner } from "./wire.js";
@@ -23,6 +24,7 @@ const USAGE = `malves — run coding agents and answer their questions
   malves workspace list
   malves workspace remove <id>
   malves agents
+  malves doctor                          check this computer's setup and say what to fix
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
   malves autostart on|off|status|start   start serve when you log in to Windows
@@ -68,6 +70,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const dir = dataDir();
+  if (cmd === "doctor") return doctorCommand(dir);
   // Before opening the runner: it must not take the lock a running serve holds.
   if (cmd === "autostart") return sub === "start" ? startNow() : autostart(sub, dir);
   if (cmd === "backup") return backup(sub, rest[0], values.to, dir);

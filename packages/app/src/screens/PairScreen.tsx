@@ -1,4 +1,4 @@
-import { PairingOffer } from "@malves/protocol";
+import { type PairingOffer, readPairing } from "@malves/protocol";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRef, useState } from "react";
 import { ScrollView, Text, TextInput } from "react-native";
@@ -18,19 +18,13 @@ export function PairScreen({ error, onOffer }: Props) {
   const used = useRef(false);
 
   const read = (text: string): boolean => {
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = undefined;
-    }
-    const offer = PairingOffer.safeParse(json);
-    if (!offer.success) {
+    const offer = readPairing(text);
+    if (!offer) {
       setProblem("That isn't a malves pairing code.");
       return false;
     }
     setProblem(undefined);
-    onOffer(offer.data);
+    onOffer(offer);
     return true;
   };
 
