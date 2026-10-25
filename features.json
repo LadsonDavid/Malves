@@ -374,6 +374,15 @@
       "status": "awaiting-real-test",
       "evidence": ["install.ps1", "scripts/build-runner-bundle.mjs", "scripts/windows/malves.cmd"],
       "real_test": "On a Windows PC with no Node.js, run install.ps1 from a release, then `malves doctor` and `malves serve`."
+    },
+    {
+      "id": "tailscale-late",
+      "name": "If Tailscale comes up after malves, serve restarts itself and binds to it",
+      "area": "link",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/tailscale-watch.test.ts"],
+      "real_test": "Turn Tailscale off, restart serve, wait two minutes, turn Tailscale on, and check serve restarts and the phone connects without you doing anything."
     }
   ]
 }

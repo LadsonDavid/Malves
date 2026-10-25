@@ -42,7 +42,11 @@ import {
   runnerKeys,
   tailscaleAddress,
 } from "./system.js";
+import { watchForTailscale } from "./tailscale-watch.js";
 import type { Runner } from "./wire.js";
+
+/** Exit code of a serve that stopped only to start again with Tailscale; the supervisor restarts on any non-zero code. */
+const RESTART_FOR_TAILSCALE = 75;
 
 const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
@@ -574,10 +578,24 @@ ${link}`);
   }).catch(() => undefined);
   // The phone and the console are up: now read every session, in the background.
   void sessions.list().catch(() => {});
+  // Came up before Tailscale: serve only reaches this computer. When Tailscale arrives, start
+  // again (the background supervisor restarts a serve that exits with this code).
+  let restarting = false;
+  const stopWatching =
+    !o.host && !tailscale
+      ? watchForTailscale(tailscaleAddress, (address) => {
+          restarting = true;
+          say(
+            `Tailscale is up now (${address}). Restarting so your phone can connect. If malves doesn't start again by itself, start it again.`,
+          );
+          process.emit("SIGTERM");
+        })
+      : () => {};
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
+  stopWatching();
 
   say("\nStopping…");
   control?.close();
@@ -600,7 +618,7 @@ ${link}`);
   await tools.close();
   await bridge.close();
   terminal.close();
-  return 0;
+  return restarting ? RESTART_FOR_TAILSCALE : 0;
 }
 
 const STATE_WORDS: Record<AgentInfo["state"], string> = {
