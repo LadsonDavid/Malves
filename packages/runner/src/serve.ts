@@ -16,6 +16,7 @@ import { BrowserTools } from "./adapters/browser/tools.js";
 import { IdeBridge } from "./adapters/ide/bridge.js";
 import { ideControl } from "./adapters/ide/control.js";
 import { startDigest } from "./adapters/leads/digest.js";
+import { LocalLeadEngine } from "./adapters/leads/engine.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
@@ -136,7 +137,7 @@ export async function serve(
   }
   const leads = leadsUrl
     ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY })
-    : undefined;
+    : new LocalLeadEngine({ db: path.join(dir, "malves.db") });
   // IDEs (VS Code, Cursor, Antigravity, Windsurf) with malves' extension connect here.
   const profiles = agentProfiles(dir);
   const label = (agent: string) => profiles.get(agent)?.label ?? agent;
@@ -388,6 +389,7 @@ export async function serve(
       : "Malves (assistant): off (set MALVES_MODELS_URL, MALVES_MODELS_KEY and MALVES_VAULT).",
   );
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
+  else say("Leads: embedded local engine active.");
   say(
     pushOn
       ? "Notifications: on (type `push` to set up the phone)."
