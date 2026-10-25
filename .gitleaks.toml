@@ -1,0 +1,7 @@
+# The scanner's default rules, minus the made-up keys that the tests use on purpose.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake keys in tests"
+paths = ['''packages/[a-z]+/test/.*''']
