@@ -6,6 +6,7 @@ import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
+import { rollUpWeeks, startJournal } from "./adapters/assistant/journal.js";
 import { startProfileReview } from "./adapters/assistant/profile.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
@@ -27,6 +28,7 @@ import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import { agentProfiles } from "./agents.js";
+import { auditLines } from "./audit.js";
 import { degradedLines, formatChecks, runDoctor } from "./doctor.js";
 import { realEnv } from "./doctor-env.js";
 import { Health } from "./health.js";
@@ -53,6 +55,7 @@ const HELP = `Commands while serving:
   extension       how to connect Chrome, and its code
   ide             how to connect VS Code, Cursor, Antigravity or Windsurf
   extension new   replace the Chrome code (shuts out the old one)
+  audit           who watched or controlled this computer, and when
   devices         list paired phones
   revoke <id>     unpair a phone immediately (lost phone)
   add <folder>    register a project folder the phone can start tasks in
@@ -165,6 +168,14 @@ export async function serve(
         : undefined,
     onChange: (state) => {
       server.setHandover(state);
+      runner.log.append(
+        state.active
+          ? { type: "control.started", data: { kind: "handover" } }
+          : {
+              type: "control.ended",
+              data: { kind: "handover", ...(state.reason ? { reason: state.reason } : {}) },
+            },
+      );
       say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);
       if (!state.active && pushOn)
         push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
@@ -317,6 +328,23 @@ export async function serve(
       : () => {};
   const backupTarget = process.env.MALVES_BACKUP_SSH;
   const vault = process.env.MALVES_VAULT;
+  // A plain Markdown journal of finished tasks in the vault (no model, nothing sent anywhere).
+  const stopJournal = vault
+    ? (() => {
+        try {
+          rollUpWeeks(vault, new Date());
+        } catch {
+          // A locked or missing vault must not stop serve.
+        }
+        return startJournal({
+          vault,
+          subscribe: (listener) => runner.log.subscribe(listener),
+          task: (id) => runner.tasks.get(id),
+          workspaceName: (id) => runner.workspaces.list().find((w) => w.id === id)?.name,
+          label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+        });
+      })()
+    : () => {};
   const stopBackups =
     malves && backupTarget && vault
       ? startBackups(
@@ -487,6 +515,13 @@ ${link}`);
       say(JSON.stringify(server.offerPairing()));
       say("Paste that line into the app within 2 minutes.");
     },
+    audit: () => {
+      const lines = auditLines(
+        runner.log.since(0, 10_000),
+        (id) => runner.devices.list().find((d) => d.id === id)?.name,
+      );
+      say(lines.length ? lines.join("\n") : "Nobody has taken the computer yet.");
+    },
     devices: () => {
       const list = runner.devices.list();
       if (list.length === 0) say("No phones paired. Type `pair`.");
@@ -558,6 +593,7 @@ ${link}`);
   stopDigest();
   stopWatcher();
   stopProfileReview();
+  stopJournal();
   stopCalls();
   stopBackups();
   await push?.close();

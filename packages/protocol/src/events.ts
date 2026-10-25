@@ -154,6 +154,24 @@ const DeviceRevoked = z.object({
   data: z.object({ device_id: z.string() }),
 });
 
+/**
+ * Someone took the computer: a phone started watching or controlling its
+ * screen, or Malves took over (handover). Who and when, for `malves audit`.
+ * Stays on the computer, like device events.
+ */
+export const ControlKind = z.enum(["screen_view", "screen_control", "handover"]);
+export type ControlKind = z.infer<typeof ControlKind>;
+
+const ControlStarted = z.object({
+  type: z.literal("control.started"),
+  data: z.object({ kind: ControlKind, device_id: z.string().optional() }),
+});
+
+const ControlEnded = z.object({
+  type: z.literal("control.ended"),
+  data: z.object({ kind: ControlKind, reason: z.string().max(200).optional() }),
+});
+
 const ErrorReport = z.object({
   type: z.literal("error"),
   data: z.object({
@@ -179,6 +197,8 @@ export const EventBody = z.discriminatedUnion("type", [
   QuestionClosed,
   DevicePaired,
   DeviceRevoked,
+  ControlStarted,
+  ControlEnded,
   ErrorReport,
 ]);
 export type EventBody = z.infer<typeof EventBody>;

@@ -193,6 +193,41 @@ async function pairedPhone(r: Awaited<ReturnType<typeof runner>>, extra = {}) {
 }
 
 describe("phone link, end to end", () => {
+  it("writes who watched or controlled the screen to the log, once per burst", async () => {
+    let now = 1_000_000;
+    const screen = {
+      frame: async () => ({ jpeg: "x", width: 1, height: 1 }),
+      input: async () => {},
+    };
+    const r = await runner(undefined, undefined, undefined, { screen, now: () => now });
+    const p = await pairedPhone(r);
+    const control = () =>
+      r.core.log
+        .since(0, 1000)
+        .filter((e) => e.type === "control.started")
+        .map((e) => (e.type === "control.started" ? [e.data.kind, e.data.device_id] : []));
+    const device = r.core.devices.list()[0]?.id;
+
+    await p.client.screenInput({ action: "click", x: 0.5, y: 0.5 });
+    await p.client.screenInput({ action: "click", x: 0.6, y: 0.6 });
+    now += 30_000;
+    await p.client.screenInput({ action: "scroll", lines: 3 });
+    expect(control()).toEqual([["screen_control", device]]);
+
+    // A pause longer than a minute is a new moment of control, and watching is its own line.
+    now += 61_000;
+    await p.client.screenInput({ action: "scroll", lines: 3 });
+    await p.client.screenFrame();
+    expect(control()).toEqual([
+      ["screen_control", device],
+      ["screen_control", device],
+      ["screen_view", device],
+    ]);
+
+    // The phone itself never hears about these.
+    expect(p.events.some((e) => e.type === "control.started")).toBe(false);
+  });
+
   it("sends the setup check on connect, and again when the phone asks", async () => {
     const first: Check[] = [{ id: "node", label: "Node.js", status: "ok", detail: "Node.js 24" }];
     const second: Check[] = [

@@ -123,21 +123,37 @@ export class Sessions {
   }
 }
 
-/** The opening message of a session that follows on from one that can't be resumed. */
+/**
+ * The opening message of a session that follows on from one that can't be
+ * resumed. Bounded: the newest turns that fit, plus the oldest one for the
+ * goal, and a line saying how much was left out so the new agent knows its
+ * picture is partial and asks instead of guessing.
+ */
 export function continuation(
   tool: string,
   title: string,
   history: SessionMessage[],
   next: string,
 ): string {
-  let budget = 3500;
-  const lines: string[] = [];
-  for (const m of [...history].reverse()) {
-    const line = `${m.who === "you" ? "Me" : "You"}: ${m.text.replace(/\s+/g, " ").slice(0, 600)}`;
+  const say = (m: SessionMessage, max: number) =>
+    `${m.who === "you" ? "Me" : "You"}: ${m.text.replace(/\s+/g, " ").slice(0, max)}`;
+  const [first, ...rest] = history;
+  // The goal line is always kept; the newest turns that fit follow it.
+  const goal = first ? say(first, 300) : undefined;
+  let budget = 3500 - (goal?.length ?? 0);
+  const recent: string[] = [];
+  for (const m of [...rest].reverse()) {
+    const line = say(m, 600);
     if (line.length > budget) break;
     budget -= line.length;
-    lines.unshift(line);
+    recent.unshift(line);
   }
+  const left = rest.length - recent.length;
+  const lines = [
+    ...(goal ? [goal] : []),
+    ...(left > 0 ? [`(… ${left} more earlier message${left === 1 ? "" : "s"} not shown)`] : []),
+    ...recent,
+  ];
   return [
     `This continues an earlier ${tool} conversation in this folder, titled "${title}". What happened so far:`,
     "",

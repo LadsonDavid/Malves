@@ -9,6 +9,7 @@ import { guardFromEnv } from "./adapters/budget/guard.js";
 import { console_ } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { knownAgents } from "./agents.js";
+import { auditLines } from "./audit.js";
 import { autostart, startNow } from "./autostart.js";
 import { supervise } from "./background.js";
 import { doctorCommand } from "./doctor-env.js";
@@ -27,6 +28,7 @@ const USAGE = `malves — run coding agents and answer their questions
   malves doctor                          check this computer's setup and say what to fix
   malves run [--workspace <id|name>] [--agent <name>] [--timeout 10m] <task description…>
   malves log [--since <seq>]
+  malves audit                           who watched or controlled this computer, and when
   malves autostart on|off|status|start   start serve when you log in to Windows
   malves console [command]               type serve's commands while it runs in the background
   malves backup now                      back up Malves' memory to MALVES_BACKUP_SSH now
@@ -110,6 +112,14 @@ async function main(argv: string[]): Promise<number> {
           return 1;
         }
         for (const e of runner.log.since(since)) console.log(JSON.stringify(e));
+        return 0;
+      }
+      case "audit": {
+        const lines = auditLines(
+          runner.log.since(0, 10_000),
+          (id) => runner.devices.list().find((d) => d.id === id)?.name,
+        );
+        console.log(lines.length ? lines.join("\n") : "Nobody has taken the computer yet.");
         return 0;
       }
       case "run":
