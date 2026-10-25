@@ -4,8 +4,10 @@ import {
   type Ack,
   type AgentInfo,
   type AgentSessionInfo,
+  type Check,
   CLOSE,
   Command,
+  type ControlKind,
   FirstFrame,
   type HandoverState,
   Hello,
@@ -39,6 +41,14 @@ export type LinkServerOptions = {
   /** Shown on the phone, e.g. the computer's hostname. */
   computer: string;
   agents: AgentDirectory;
+  /** The computer's setup check, for the phone's Home and Settings. */
+  health?:
+    | {
+        list(): Check[];
+        run(): Promise<Check[]>;
+        subscribe(listener: (checks: Check[]) => void): () => void;
+      }
+    | undefined;
   /** The lead engine, if set up (`--leads`). */
   leads?: LeadSource | undefined;
   /** An agent's saved conversations in a workspace, newest first. */
@@ -81,6 +91,8 @@ export type LinkServerOptions = {
   pushLink?: (() => string | undefined) | undefined;
   listSessions?: ((agent: string, workspaceId: string) => Promise<AgentSessionInfo[]>) | undefined;
   pairingTtlMs?: number;
+  /** For tests: the clock the control audit uses. */
+  now?: () => number;
   handshakeTimeoutMs?: number;
   heartbeatMs?: number;
 };
@@ -457,12 +469,34 @@ export class LinkServer {
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
       ...(this.o.assistant ? { assistant: true } : {}),
+      ...(this.o.health ? { health: this.o.health.list() } : {}),
     };
+  }
+
+  /** @internal */
+  subscribeHealth(listener: (checks: Check[]) => void): () => void {
+    return this.o.health?.subscribe(listener) ?? (() => {});
   }
 
   /** @internal */
   subscribeAgents(listener: (agents: AgentInfo[]) => void): () => void {
     return this.o.agents.subscribe(listener);
+  }
+
+  /** Last time each phone's kind of control was written to the log, so a burst is one line. */
+  private readonly audited = new Map<string, number>();
+
+  /**
+   * Records in the log (and so in `malves audit`) that a phone took the
+   * screen. A burst of taps is one line: a new line after a pause of `gapMs`.
+   */
+  private audit(deviceId: string, kind: ControlKind, gapMs: number): void {
+    const now = (this.o.now ?? Date.now)();
+    const key = `${deviceId}:${kind}`;
+    const last = this.audited.get(key);
+    this.audited.set(key, now);
+    if (last !== undefined && now - last <= gapMs) return;
+    this.core.log.append({ type: "control.started", data: { kind, device_id: deviceId } });
   }
 
   private async run(command: Command, deviceId: string): Promise<Ack> {
@@ -627,10 +661,12 @@ export class LinkServer {
         case "screen.frame":
           if (!this.o.screen)
             return ack(false, { error: "The live view isn't available on this computer." });
+          this.audit(deviceId, "screen_view", 30_000);
           return ack(true, { frame: await this.o.screen.frame() });
         case "screen.video":
           if (!this.o.screen?.startVideo)
             return ack(false, { error: "Live video isn't available on this computer." });
+          this.audit(deviceId, "screen_view", 30_000);
           return ack(true, { video: await this.o.screen.startVideo(command.sdp) });
         case "screen.video.stop":
           this.o.screen?.stopVideo?.();
@@ -640,6 +676,7 @@ export class LinkServer {
             return ack(false, {
               error: "Control from the phone isn't available on this computer.",
             });
+          this.audit(deviceId, "screen_control", 60_000);
           const { type: _type, command_id: _id, ...input } = command;
           await this.o.screen.input(input);
           return ack(true);
@@ -678,6 +715,10 @@ export class LinkServer {
           // The new states reach every phone through `subscribeAgents`.
           await this.o.agents.checkAll();
           return ack(true);
+        case "doctor.run":
+          // The result reaches every phone through `subscribeHealth`.
+          await this.o.health?.run();
+          return ack(true);
       }
     } catch (error) {
       return ack(false, { error: error instanceof Error ? error.message : String(error) });
@@ -701,6 +742,7 @@ export class LinkServer {
 class Session {
   private readonly unsubscribe: () => void;
   private readonly unsubscribeAgents: () => void;
+  private readonly unsubscribeHealth: () => void;
   private readonly wish: ReadonlySet<string> | undefined;
 
   constructor(
@@ -733,6 +775,9 @@ class Session {
     this.unsubscribeAgents = server.subscribeAgents((agents) =>
       this.send({ type: "agents", agents }),
     );
+    this.unsubscribeHealth = server.subscribeHealth((checks) =>
+      this.send({ type: "health", checks }),
+    );
   }
 
   receive(frame: unknown): void {
@@ -759,11 +804,12 @@ class Session {
   dispose(): void {
     this.unsubscribe();
     this.unsubscribeAgents();
+    this.unsubscribeHealth();
   }
 
   private forward(event: LoggedEvent): void {
     // Device events stay on the desktop; the Wish List narrows the rest.
-    if (event.type.startsWith("device.")) return;
+    if (event.type.startsWith("device.") || event.type.startsWith("control.")) return;
     if (this.wish && !this.wish.has(event.type)) return;
     this.send({ type: "event", event });
   }

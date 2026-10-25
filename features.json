@@ -1,0 +1,391 @@
+{
+  "about": "Every feature of malves and how far it has been proven. CI runs `node scripts/check-features.mjs`: a feature needs evidence files that exist, and anything not yet proven on a real device must say how to prove it. Statuses: verified-real (seen working on a real phone, computer or service), automated-only (tests pass, not yet seen on a real device), awaiting-real-test (built, the owner still has to try it), known-issue (broken in a known way).",
+  "features": [
+    {
+      "id": "questions",
+      "name": "Every human decision goes through one place; silence stops the task",
+      "area": "core",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": ["packages/core/test/questions.test.ts", "packages/runner/test/link.test.ts"],
+      "notes": "Tested on a real phone with the demo agent and Claude (build steps 1 and 2)."
+    },
+    {
+      "id": "event-log",
+      "name": "Append-only event log; a phone resumes from where it left off",
+      "area": "core",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/store.test.ts", "packages/runner/test/link.test.ts"]
+    },
+    {
+      "id": "sealed-link",
+      "name": "Encrypted phone link with a challenge handshake",
+      "area": "link",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": ["packages/protocol/test/crypto.test.ts", "packages/runner/test/link.test.ts"]
+    },
+    {
+      "id": "pairing-qr",
+      "name": "Pair a phone by scanning a QR code",
+      "area": "link",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": [
+        "packages/runner/test/link.test.ts",
+        "packages/protocol/test/pairing-link.test.ts"
+      ]
+    },
+    {
+      "id": "pairing-link",
+      "name": "Pair from a malves://pair link (the phone's camera opens the app)",
+      "area": "link",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/protocol/test/pairing-link.test.ts",
+        "packages/app/test/model.test.ts"
+      ],
+      "real_test": "On the computer type `pair link`, scan the QR with the phone's camera app, tap Pair in the dialog, and check the phone ends up paired."
+    },
+    {
+      "id": "claude-agent",
+      "name": "Run Claude Code through ACP",
+      "area": "agents",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/acp.test.ts", "packages/runner/test/agents.test.ts"]
+    },
+    {
+      "id": "codex-agent",
+      "name": "Run Codex through ACP",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/agents.test.ts"],
+      "real_test": "Start a small task with Codex from the phone and answer its permission question."
+    },
+    {
+      "id": "antigravity-agent",
+      "name": "Run Antigravity (API key, never a Google login)",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/agents.test.ts"],
+      "notes": "Works, but takes about 30 seconds to start; shown as slow, not broken."
+    },
+    {
+      "id": "cursor-agent",
+      "name": "Run Cursor through its CLI",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "known-issue",
+      "evidence": ["packages/runner/test/agents.test.ts"],
+      "notes": "The CLI installs as agent.cmd, which malves will not start through a shell; malves has to learn the real program behind it.",
+      "real_test": "After the fix, start a small task with Cursor from the phone and answer its question."
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications through the ntfy app, with answer buttons",
+      "area": "push",
+      "criticality": "critical",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/push.test.ts"],
+      "real_test": "Lock the phone, start a task that asks permission, and answer it from the notification's buttons."
+    },
+    {
+      "id": "notification-catch-up",
+      "name": "A phone that was away gets the notifications it missed",
+      "area": "push",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/outbox.test.ts", "packages/runner/test/push.test.ts"],
+      "real_test": "Turn the phone's data off, finish a task, turn it back on, and check the ntfy app shows that the task finished."
+    },
+    {
+      "id": "question-reminders",
+      "name": "A waiting question is nudged twice before it times out",
+      "area": "push",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/core/test/questions.test.ts", "packages/runner/test/push.test.ts"],
+      "real_test": "Start a task that asks a question, leave it unanswered, and check the phone is nudged again (the notification is replaced, not stacked)."
+    },
+    {
+      "id": "doctor",
+      "name": "malves doctor and the phone's Check setup page",
+      "area": "setup",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/doctor.test.ts",
+        "packages/runner/test/link.test.ts",
+        "packages/app/test/model.test.ts"
+      ],
+      "real_test": "Run `pnpm malves doctor`, then open Settings > Check setup on the phone and tap Check again."
+    },
+    {
+      "id": "secret-files",
+      "name": "Tokens and keys are written atomically and owner-only",
+      "area": "security",
+      "criticality": "critical",
+      "status": "automated-only",
+      "evidence": [
+        "packages/runner/test/secure-file.test.ts",
+        "packages/runner/test/fitness.test.ts"
+      ],
+      "real_test": "On Linux or macOS check `ls -l ~/.malves/*.json` shows -rw------- for every secret file."
+    },
+    {
+      "id": "log-redaction",
+      "name": "Secrets are hidden in serve.log and the vault conversation log",
+      "area": "security",
+      "criticality": "hot",
+      "status": "automated-only",
+      "evidence": ["packages/runner/test/redact.test.ts"],
+      "real_test": "Start serve in the background, trigger an error that prints a key, and check serve.log shows [hidden]."
+    },
+    {
+      "id": "safe-typing",
+      "name": "Typed text never carries control or invisible characters",
+      "area": "security",
+      "criticality": "hot",
+      "status": "automated-only",
+      "evidence": ["packages/runner/test/safe-text.test.ts"],
+      "real_test": "In handover mode ask Malves to type text containing a hidden character and check the read-back mentions it."
+    },
+    {
+      "id": "control-audit",
+      "name": "A log of who watched or controlled the computer",
+      "area": "security",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/audit.test.ts", "packages/runner/test/link.test.ts"],
+      "real_test": "Watch and tap the screen from the phone, then run `pnpm malves audit` and check both appear once."
+    },
+    {
+      "id": "screen-pictures",
+      "name": "Watch the computer's screen as pictures",
+      "area": "screen",
+      "criticality": "hot",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/remote-screen.test.ts"]
+    },
+    {
+      "id": "screen-live-video",
+      "name": "Watch the computer's screen as live video (WebRTC)",
+      "area": "screen",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/video-process.test.ts",
+        "packages/runner/test/video-e2e.test.ts",
+        "packages/runner/test/remote-screen.test.ts"
+      ],
+      "real_test": "Open Your screen right after restarting serve and again later: live video should appear within a few seconds and move smoothly (the computer-side test measures about 14 frames a second at 1080p)."
+    },
+    {
+      "id": "screen-control",
+      "name": "Click, scroll and type on the computer from the phone",
+      "area": "screen",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/remote-screen.test.ts"],
+      "real_test": "Open Your screen, tap a button on the computer, scroll, and type a sentence into Notepad."
+    },
+    {
+      "id": "handover",
+      "name": "Handover mode: Malves keeps the computer until Stop, I'm back, or four hours",
+      "area": "assistant",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/handover.test.ts"],
+      "real_test": "Say 'I'm leaving, take over', ask it to run the tests, and check risky commands are read back for your yes."
+    },
+    {
+      "id": "assistant-brain",
+      "name": "Malves, the assistant: tool calls proposed by the brain, decided by code",
+      "area": "assistant",
+      "criticality": "critical",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/assistant.test.ts",
+        "packages/runner/test/humanize.test.ts"
+      ],
+      "real_test": "From the phone say 'start Claude on a small task', check it is read back, confirm it, and check the task starts."
+    },
+    {
+      "id": "natural-voice",
+      "name": "Natural voice: Cartesia, then ElevenLabs, then Piper, then the phone's",
+      "area": "voice",
+      "criticality": "hot",
+      "status": "verified-real",
+      "evidence": [
+        "packages/runner/test/natural-voice.test.ts",
+        "packages/runner/test/voice.test.ts"
+      ]
+    },
+    {
+      "id": "voice-commands",
+      "name": "Voice commands, hands-free mode and the floating mic",
+      "area": "voice",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/app/test/intent.test.ts", "packages/runner/test/voice.test.ts"],
+      "real_test": "In the APK say 'what's running?' from Home and from another screen, and talk over a reply to stop it."
+    },
+    {
+      "id": "calls",
+      "name": "Malves rings the phone with Android's call screen (Firebase)",
+      "area": "voice",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/calls.test.ts"],
+      "real_test": "Settings > Calls > Test call, with the phone locked, and answer it."
+    },
+    {
+      "id": "memory-vault",
+      "name": "Memory as Markdown notes in an Obsidian vault",
+      "area": "memory",
+      "criticality": "hot",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/assistant.test.ts"],
+      "notes": "Runner side tested live; the phone's Memory page awaits a real test."
+    },
+    {
+      "id": "vault-backup",
+      "name": "Nightly encrypted vault backup to your own server",
+      "area": "memory",
+      "criticality": "standard",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/backup.test.ts"],
+      "notes": "A round trip (backup then restore) was tested live."
+    },
+    {
+      "id": "journal",
+      "name": "A Markdown journal of finished tasks, with a weekly roll-up",
+      "area": "memory",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/journal.test.ts"],
+      "real_test": "Set MALVES_VAULT, finish a task, and open Journal/<today>.md in Obsidian."
+    },
+    {
+      "id": "work-profile",
+      "name": "Work profile that is kept true, edited only on your yes",
+      "area": "memory",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/assistant.test.ts"],
+      "real_test": "Do something that contradicts About me.md and check Malves drafts a change and waits for your yes."
+    },
+    {
+      "id": "skill-library",
+      "name": "Advice drawn from the skills in ~/.claude/skills",
+      "area": "memory",
+      "criticality": "standard",
+      "status": "automated-only",
+      "evidence": ["packages/runner/test/skills.test.ts"],
+      "real_test": "Ask Malves a question one of your skills covers and check the reply names the skill."
+    },
+    {
+      "id": "sessions",
+      "name": "One list of sessions across Claude Code, Codex, Cursor and Antigravity",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/sessions.test.ts"],
+      "real_test": "Open Work > Sessions, read an earlier Claude session, and continue it from the phone."
+    },
+    {
+      "id": "browser",
+      "name": "Browser tasks through the Chrome extension",
+      "area": "browser",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/browser.test.ts", "packages/extension/test/page.test.ts"],
+      "real_test": "Load the extension, ask Malves to open a page and read it, and check a click asks your phone first."
+    },
+    {
+      "id": "ide-extension",
+      "name": "One extension for VS Code, Cursor, Antigravity and Windsurf",
+      "area": "ide",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/ide.test.ts"],
+      "real_test": "From the phone, open a finished task's changes in VS Code on the computer."
+    },
+    {
+      "id": "leads",
+      "name": "Leads from signalstack on the phone, with a weekly digest",
+      "area": "leads",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/leads.test.ts", "packages/runner/test/digest.test.ts"],
+      "real_test": "Run signalstack with real data, open the Leads tab, and check Monday's digest arrives."
+    },
+    {
+      "id": "budget-guard",
+      "name": "Claude and Codex on free models with a quality floor",
+      "area": "budget",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/budget.test.ts"],
+      "real_test": "Run 'Claude (free models)' against a real freellmapi and check the phone shows the model that answered."
+    },
+    {
+      "id": "changes-review",
+      "name": "Review a finished task's changes and commit them from the phone",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/changes.test.ts"],
+      "real_test": "Finish a task that edits a file, open its changes on the phone, and approve the commit."
+    },
+    {
+      "id": "relay",
+      "name": "Reach the computer through your own relay (no Tailscale)",
+      "area": "link",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/relay.test.ts"],
+      "real_test": "Run the relay on a server, start serve with --relay, and pair a phone on mobile data."
+    },
+    {
+      "id": "autostart",
+      "name": "Start malves in the background when you log in to Windows",
+      "area": "setup",
+      "criticality": "hot",
+      "status": "verified-real",
+      "evidence": ["packages/runner/test/lock.test.ts", "packages/runner/test/control.test.ts"]
+    },
+    {
+      "id": "release-build",
+      "name": "Every merge to main builds the APK, Chrome zip and VSIX and publishes a release",
+      "area": "release",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": [".github/workflows/apk.yml"],
+      "real_test": "Merge a pull request and check a new release appears on the Releases page with all three files."
+    },
+    {
+      "id": "windows-installer",
+      "name": "Install the computer side on Windows with no Node.js, pnpm or git",
+      "area": "setup",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["install.ps1", "scripts/build-runner-bundle.mjs", "scripts/windows/malves.cmd"],
+      "real_test": "On a Windows PC with no Node.js, run install.ps1 from a release, then `malves doctor` and `malves serve`."
+    },
+    {
+      "id": "tailscale-late",
+      "name": "If Tailscale comes up after malves, serve restarts itself and binds to it",
+      "area": "link",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/runner/test/tailscale-watch.test.ts"],
+      "real_test": "Turn Tailscale off, restart serve, wait two minutes, turn Tailscale on, and check serve restarts and the phone connects without you doing anything."
+    }
+  ]
+}

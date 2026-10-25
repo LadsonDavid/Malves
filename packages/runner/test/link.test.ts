@@ -6,6 +6,7 @@ import { command, createCore, type Notifier } from "@malves/core";
 import {
   type AgentInfo,
   type AgentSessionInfo,
+  type Check,
   CLOSE,
   generateKeyPair,
   type KeyPair,
@@ -28,6 +29,7 @@ import {
   type LinkServerOptions,
 } from "../src/adapters/link/server.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
+import { Health } from "../src/health.js";
 import { randomIds, systemClock } from "../src/system.js";
 
 /**
@@ -112,6 +114,8 @@ type Phone = {
   statuses: LinkStatus[];
   /** Every live agent update received. */
   agentUpdates: AgentInfo[][];
+  /** Every setup-check update received. */
+  healthUpdates: Check[][];
   leads: Lead[][];
   activity: string[];
   /** Natural-voice pieces, as the phone gets them. */
@@ -140,6 +144,7 @@ function phone(
     events: [],
     statuses: [],
     agentUpdates: [],
+    healthUpdates: [],
     leads: [],
     activity: [],
     audio: [],
@@ -158,6 +163,7 @@ function phone(
     onEvent: (e) => p.events.push(e),
     onStatus: (s) => p.statuses.push(s),
     onAgents: (agents) => p.agentUpdates.push(agents),
+    onHealth: (checks) => p.healthUpdates.push(checks),
     onLeads: (leads) => p.leads.push(leads),
     onActivity: (taskId, text) => p.activity.push(`${taskId}: ${text}`),
     onAudio: (piece) => p.audio.push(piece),
@@ -187,6 +193,66 @@ async function pairedPhone(r: Awaited<ReturnType<typeof runner>>, extra = {}) {
 }
 
 describe("phone link, end to end", () => {
+  it("writes who watched or controlled the screen to the log, once per burst", async () => {
+    let now = 1_000_000;
+    const screen = {
+      frame: async () => ({ jpeg: "x", width: 1, height: 1 }),
+      input: async () => {},
+    };
+    const r = await runner(undefined, undefined, undefined, { screen, now: () => now });
+    const p = await pairedPhone(r);
+    const control = () =>
+      r.core.log
+        .since(0, 1000)
+        .filter((e) => e.type === "control.started")
+        .map((e) => (e.type === "control.started" ? [e.data.kind, e.data.device_id] : []));
+    const device = r.core.devices.list()[0]?.id;
+
+    await p.client.screenInput({ action: "click", x: 0.5, y: 0.5 });
+    await p.client.screenInput({ action: "click", x: 0.6, y: 0.6 });
+    now += 30_000;
+    await p.client.screenInput({ action: "scroll", lines: 3 });
+    expect(control()).toEqual([["screen_control", device]]);
+
+    // A pause longer than a minute is a new moment of control, and watching is its own line.
+    now += 61_000;
+    await p.client.screenInput({ action: "scroll", lines: 3 });
+    await p.client.screenFrame();
+    expect(control()).toEqual([
+      ["screen_control", device],
+      ["screen_control", device],
+      ["screen_view", device],
+    ]);
+
+    // The phone itself never hears about these.
+    expect(p.events.some((e) => e.type === "control.started")).toBe(false);
+  });
+
+  it("sends the setup check on connect, and again when the phone asks", async () => {
+    const first: Check[] = [{ id: "node", label: "Node.js", status: "ok", detail: "Node.js 24" }];
+    const second: Check[] = [
+      { id: "node", label: "Node.js", status: "ok", detail: "Node.js 24" },
+      {
+        id: "phone-link",
+        label: "Phone connection",
+        status: "warn",
+        detail: "Wi-Fi only",
+        fix: "x",
+      },
+    ];
+    let answer = first;
+    const health = new Health(async () => answer);
+    await health.run();
+    const r = await runner(undefined, undefined, undefined, { health });
+    const p = await pairedPhone(r);
+    expect(p.welcome?.health).toEqual(first);
+
+    answer = second;
+    expect(await p.client.checkSetup()).toMatchObject({ ok: true });
+    await waitFor(() => p.healthUpdates.length > 0, "the new setup check");
+    expect(p.healthUpdates.at(-1)).toEqual(second);
+  });
+
   it("speaks Malves' reply a sentence at a time as it streams, then marks the end", async () => {
     const heard: string[] = [];
     const assistant = {

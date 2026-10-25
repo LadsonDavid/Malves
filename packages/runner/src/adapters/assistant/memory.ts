@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { redact } from "../../redact.js";
 
 /**
  * Malves' long-term memory. The notes are the memory: plain Markdown in an
@@ -225,7 +226,7 @@ export class Memory {
     const file = path.join(dir, `${day}.md`);
     if (!existsSync(file)) writeFileSync(file, `# Conversations ${day}\n\n`, "utf8");
     const time = this.now().toISOString().slice(11, 16);
-    appendFileSync(file, `- ${time} ${line.replace(/\s*\n\s*/g, " ")}\n`, "utf8");
+    appendFileSync(file, `- ${time} ${redact(line.replace(/\s*\n\s*/g, " "))}\n`, "utf8");
   }
 
   /**

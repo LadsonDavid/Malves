@@ -103,8 +103,10 @@ export function ScreenScreen({
         await new Promise((r) => setTimeout(r, 200));
       }
     };
-    // Live video that hasn't connected within 10 s (or fails) falls back to
-    // pictures, and says so: never "Connecting…" forever.
+    // Live video that doesn't connect (or fails) falls back to pictures, and says so:
+    // never "Connecting…" forever. Two waits: up to 35 s for the computer to answer (it
+    // may be busy, and the phone's own wait used to run out first), then 12 s for the
+    // connection itself.
     let connected = false;
     let fellBack = false;
     const fallBack = (why: string) => {
@@ -117,7 +119,7 @@ export function ScreenScreen({
       setProblem(`Live video didn't connect (${why}). Showing pictures instead.`);
       void pictures();
     };
-    const giveUp = setTimeout(() => fallBack("timed out"), 10_000);
+    let giveUp = setTimeout(() => fallBack("the computer took too long to answer"), 35_000);
     void (async () => {
       if (!webrtc) return pictures();
       try {
@@ -153,6 +155,8 @@ export function ScreenScreen({
         await peer.setRemoteDescription(
           new webrtc.RTCSessionDescription({ type: "answer", sdp: ack.video.sdp }),
         );
+        clearTimeout(giveUp);
+        if (!connected) giveUp = setTimeout(() => fallBack("timed out"), 12_000);
       } catch (error) {
         fallBack(error instanceof Error ? error.message : "setup failed");
       }

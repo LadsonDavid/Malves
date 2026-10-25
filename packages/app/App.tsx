@@ -6,6 +6,7 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   BackHandler,
   Linking,
   Platform,
@@ -146,10 +147,22 @@ function Main() {
     return () => sub.remove();
   }, [stack.length, screen, tab, back]);
 
+  // Set below, once `startPairing` exists: a pairing link calls it after you agree.
+  const startPairingRef = useRef<(offer: PairingOffer) => void>(() => {});
   // Tapping a notification opens malves at that task (or Leads).
   const go = useCallback((target: Target) => {
     if (!target) return;
-    if ("tab" in target) {
+    if ("pair" in target) {
+      // A link can come from anywhere, so nothing connects until you say yes.
+      Alert.alert(
+        `Pair with ${target.pair.computer}?`,
+        "Only pair with a computer you set up yourself. It will be able to show you tasks and questions, and you'll send it what you type and say.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Pair", onPress: () => startPairingRef.current(target.pair) },
+        ],
+      );
+    } else if ("tab" in target) {
       setStack([]);
       setTab(target.tab);
     } else if ("malves" in target) setStack([{ kind: "malves" }]);
@@ -173,6 +186,8 @@ function Main() {
     });
     setScreen("pairing");
   };
+
+  startPairingRef.current = startPairing;
 
   const unpair = () => {
     pending.current = undefined;

@@ -37,7 +37,8 @@ function on(dataDir: string): number {
       "$Host.UI.RawUI.WindowTitle = 'malves serve'",
       `Set-Location -LiteralPath ${quote(process.cwd())}`,
       // In the background: no window, output in serve.log, restarted if it crashes.
-      `& ${quote(process.execPath)} --env-file-if-exists=.env ${quote(main)} serve --background`,
+      // Settings from the malves folder first, then a `.env` in this folder (which wins).
+      `& ${quote(process.execPath)} ${quote(`--env-file-if-exists=${path.join(dataDir, ".env")}`)} --env-file-if-exists=.env ${quote(main)} serve --background`,
       "exit $LASTEXITCODE",
       "",
     ].join("\r\n"),
@@ -48,7 +49,7 @@ function on(dataDir: string): number {
       `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${launcher}"`,
     )}
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-    $settings = New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    $settings = New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 4 -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName ${quote(TASK)} -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
   `);
@@ -58,6 +59,17 @@ No window: type its commands with pnpm malves console; its output is in ${path.j
 To start it now, close any open malves serve, then run: pnpm malves autostart start
 Turn it off with: pnpm malves autostart off`);
   return 0;
+}
+
+/** Whether the login task exists, without printing anything (for `malves doctor`). */
+export function autostartState(): "on" | "off" | "unknown" {
+  if (process.platform !== "win32") return "unknown";
+  const result = spawnSync("schtasks.exe", ["/query", "/tn", TASK], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  if (result.error) return "unknown";
+  return result.status === 0 ? "on" : "off";
 }
 
 function off(): number {

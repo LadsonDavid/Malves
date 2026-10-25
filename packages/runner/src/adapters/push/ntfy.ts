@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import type { Core, Notifier, OpenQuestion } from "@malves/core";
 import { type WebSocket, WebSocketServer } from "ws";
+import type { Outbox } from "./outbox.js";
 
 export const PUSH_PORT = 7719;
 
@@ -24,6 +25,8 @@ export type NtfyOptions = {
   /** The secret topic the phone subscribes to. */
   topic: string;
   keepaliveMs?: number;
+  /** Sent notifications, kept so a phone that was away catches up (`?since=`). */
+  outbox?: Outbox;
 };
 
 /** One answer button: which question and choice it answers. Single use. */
@@ -110,12 +113,20 @@ export class NtfyPush implements Notifier {
 
   /** A plain notification with no buttons (the leads digest, a finished task); tapping opens `click`. Phones not connected now miss it. */
   notify(title: string, message: string, click = "malves://leads"): void {
+    const note = { ...this.event("message"), title, message, priority: 3, click };
+    // Kept for a day: a phone that is away gets it when it reconnects.
+    this.o.outbox?.add(note);
+    this.broadcast(note);
+  }
+
+  /** Still no answer: the same notification again (same sequence id, so it replaces, not stacks). */
+  async questionReminder(question: OpenQuestion, n: number): Promise<void> {
+    const note = this.messageFor(question);
     this.broadcast({
-      ...this.event("message"),
-      title,
-      message,
-      priority: 3,
-      click,
+      ...note,
+      id: this.event("message").id,
+      title: `${n > 1 ? "Still waiting" : "Waiting for you"} · ${KIND_TITLE[question.kind]}`,
+      priority: 5,
     });
   }
 
@@ -140,6 +151,8 @@ export class NtfyPush implements Notifier {
     res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8" });
     if (url.searchParams.get("poll") === "1") {
       for (const q of this.core.questions.pending()) res.write(line(this.messageFor(q)));
+      for (const missed of this.o.outbox?.since(url.searchParams.get("since") ?? undefined) ?? [])
+        res.write(line(missed));
       res.end();
       return;
     }
@@ -154,6 +167,9 @@ export class NtfyPush implements Notifier {
     else req.on("close", gone);
     send(stream, this.event("open"));
     for (const q of this.core.questions.pending()) send(stream, this.messageFor(q));
+    // What the phone missed while it was away (the ntfy app says where it left off).
+    const since = new URL(req.url ?? "/", "http://x").searchParams.get("since") ?? undefined;
+    for (const missed of this.o.outbox?.since(since) ?? []) send(stream, missed);
   }
 
   private answer(token: string, res: ServerResponse) {

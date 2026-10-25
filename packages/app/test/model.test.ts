@@ -1,4 +1,12 @@
-import type { AgentInfo, EventBody, Lead, LoggedEvent } from "@malves/protocol";
+import {
+  type AgentInfo,
+  type EventBody,
+  generateKeyPair,
+  type Lead,
+  LINK_VERSION,
+  type LoggedEvent,
+  pairingLink,
+} from "@malves/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type Action,
@@ -21,6 +29,7 @@ import {
   reduce,
   researchPrompt,
   running,
+  setupProblems,
   type Task,
 } from "../src/model";
 
@@ -394,5 +403,56 @@ describe("IDEs at your desk", () => {
       welcome: welcome([cursor, { ...cursor, id: "i3", projects: [{ name: "website" }] }]),
     });
     expect(ideName(twins, cursor)).toBe("Cursor (malves)");
+  });
+});
+
+describe("the computer's setup check on the phone", () => {
+  const checks = [
+    { id: "node", label: "Node.js", status: "ok" as const, detail: "Node.js 24" },
+    { id: "calls", label: "Calls", status: "off" as const, detail: "Not set up" },
+    {
+      id: "agents",
+      label: "Coding agents",
+      status: "warn" as const,
+      detail: "Cursor missing",
+      fix: "x",
+    },
+    {
+      id: "database",
+      label: "Memory database",
+      status: "fail" as const,
+      detail: "No SQLite",
+      fix: "y",
+    },
+  ];
+
+  it("keeps the latest check and counts only warnings and failures as problems", () => {
+    const model = reduce(emptyModel, { type: "health", checks });
+    expect(model.health).toEqual(checks);
+    expect(setupProblems(model).map((c) => c.id)).toEqual(["agents", "database"]);
+  });
+
+  it("an optional feature that is off is not a problem, and a fresh phone has none", () => {
+    expect(setupProblems(emptyModel)).toEqual([]);
+    const onlyOff = reduce(emptyModel, {
+      type: "health",
+      checks: [checks[1] as (typeof checks)[number]],
+    });
+    expect(setupProblems(onlyOff)).toEqual([]);
+  });
+});
+
+describe("pairing links", () => {
+  it("a pairing link opens as a pairing target; a broken one opens nothing", () => {
+    const offer = {
+      v: LINK_VERSION as 1,
+      url: "ws://100.64.0.1:7717",
+      runner: generateKeyPair().publicKey,
+      code: "abcdefghijklmnopqrstuvwx",
+      computer: "Office PC",
+    };
+    expect(parseLink(pairingLink(offer))).toEqual({ pair: offer });
+    expect(parseLink("malves://pair?o=%7Bbroken")).toBeUndefined();
+    expect(parseLink("malves://pair")).toBeUndefined();
   });
 });

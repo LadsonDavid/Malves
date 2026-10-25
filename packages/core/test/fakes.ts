@@ -59,10 +59,16 @@ export class CounterIds implements Ids {
 
 export class RecordingNotifier implements Notifier {
   readonly sent: OpenQuestion[] = [];
+  readonly reminders: Array<{ id: string; n: number }> = [];
   fail = false;
+  failReminder = false;
   async questionOpened(question: OpenQuestion): Promise<void> {
     if (this.fail) throw new Error("push service down");
     this.sent.push(question);
+  }
+  async questionReminder(question: OpenQuestion, n: number): Promise<void> {
+    if (this.failReminder) throw new Error("push service down");
+    this.reminders.push({ id: question.question_id, n });
   }
 }
 

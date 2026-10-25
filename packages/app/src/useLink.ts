@@ -48,6 +48,7 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
         welcomed.current?.(welcome);
       },
       onAgents: (agents) => dispatch({ type: "agents", agents }),
+      onHealth: (checks) => dispatch({ type: "health", checks }),
       onChrome: (connected) => dispatch({ type: "chrome", connected }),
       onHandover: (state) => dispatch({ type: "handover", state }),
       onAudio: deliver,

@@ -83,6 +83,12 @@ export function openRunner(o: RunnerOptions): Runner {
             push?.questionOpened(question),
           ]);
         },
+        async questionReminder(question, n) {
+          await Promise.all([
+            (o.notifier ?? noPush).questionReminder?.(question, n),
+            push?.questionReminder?.(question, n),
+          ]);
+        },
       },
       host,
       agents,

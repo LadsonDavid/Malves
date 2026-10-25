@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { AcpHost } from "../src/adapters/acp/host.js";
 import { NtfyPush } from "../src/adapters/push/ntfy.js";
+import { Outbox } from "../src/adapters/push/outbox.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { randomIds, systemClock } from "../src/system.js";
 
@@ -31,7 +32,7 @@ type Msg = {
   actions?: Array<{ action: string; label: string; url: string; method: string; clear: boolean }>;
 };
 
-async function setup() {
+async function setup(options: { outbox?: Outbox } = {}) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-push-")));
   const store = new SqliteStore(path.join(dir, "malves.db"));
   let push: NtfyPush | undefined;
@@ -45,7 +46,12 @@ async function setup() {
     agents: new Map(),
     questionTimeoutMs: 60_000,
   });
-  push = new NtfyPush(core, { host: "127.0.0.1", port: 0, topic: "secret-topic-abcdefgh" });
+  push = new NtfyPush(core, {
+    host: "127.0.0.1",
+    port: 0,
+    topic: "secret-topic-abcdefgh",
+    ...options,
+  });
   await push.start();
   cleanup.push(() => store.close());
   cleanup.push(() => push?.close());
@@ -175,5 +181,51 @@ describe("notifications through the ntfy app", () => {
     // The question itself is untouched: it can still be answered in the app.
     expect(s.core.questions.pending()).toHaveLength(1);
     void answered;
+  });
+
+  it("a phone that was away gets what it missed, once, by saying where it left off", async () => {
+    const s = await setup({ outbox: new Outbox() });
+    s.push.notify("Codex finished", "Fix the footer year: done.", "malves://task/t9");
+
+    // A brand-new subscription hears only what happens from now on.
+    const fresh = stream(`${s.push.subscribeUrl}/json`);
+    await waitFor(() => fresh.got.some((m) => m.event === "open"), "the subscription");
+    expect(fresh.got.filter((m) => m.event === "message")).toEqual([]);
+
+    // The ntfy app reconnecting after a gap asks for everything since a time.
+    const back = stream(`${s.push.subscribeUrl}/json?since=1h`);
+    await waitFor(() => back.got.some((m) => m.event === "message"), "the missed notification");
+    const note = back.got.find((m) => m.event === "message");
+    expect(note).toMatchObject({ title: "Codex finished", message: "Fix the footer year: done." });
+
+    // Saying "since this id" gets nothing more: it already has it.
+    const caught = stream(`${s.push.subscribeUrl}/json?since=${note?.id}`);
+    await waitFor(() => caught.got.some((m) => m.event === "open"), "the third subscription");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(caught.got.filter((m) => m.event === "message")).toEqual([]);
+  });
+
+  it("a reminder replaces the question's notification and says it is still waiting", async () => {
+    const s = await setup();
+    const phone = stream(`${s.push.subscribeUrl}/json`);
+    await waitFor(() => phone.got.some((m) => m.event === "open"), "the subscription");
+    void s.ask();
+    await waitFor(() => phone.got.some((m) => m.event === "message"), "the question");
+    const first = phone.got.find((m) => m.event === "message");
+
+    const [question] = s.core.questions.pending();
+    await s.push.questionReminder(question as NonNullable<typeof question>, 2);
+    await waitFor(
+      () => phone.got.filter((m) => m.event === "message").length === 2,
+      "the reminder",
+    );
+    const again = phone.got.filter((m) => m.event === "message")[1];
+    expect(again?.sequence_id).toBe(first?.sequence_id);
+    expect(again?.id).not.toBe(first?.id);
+    expect(again?.title).toMatch(/^Still waiting/);
+    expect(again?.priority).toBe(5);
+    // The same buttons, so answering from the reminder works.
+    expect(again?.actions?.map((a) => a.label)).toEqual(["Allow", "Skip"]);
+    expect((await tap(again?.actions?.[0]?.url ?? "")).status).toBe(200);
   });
 });

@@ -5,3 +5,9 @@ onlyBuiltDependencies:
   - better-sqlite3
 patchedDependencies:
   react-native-full-screen-notification-incoming-call@1.1.0: patches/react-native-full-screen-notification-incoming-call@1.1.0.patch
+# body-parser <2.4.0 can be made to hang by trailing bytes after a compressed body (GHSA-27r3-jxmh-p828);
+# it arrives through the MCP SDK's express. Remove this once the SDK asks for 2.4 itself.
+overrides:
+  body-parser: ">=2.4.0"
+  # zod 4.0 to 4.6.5 can use all memory on a huge list (GHSA-mrhx-c7xc-m3w5); packages that bundle an older 4.x get the fix.
+  "zod@>=4.0.0 <4.6.6": "^4.6.7"

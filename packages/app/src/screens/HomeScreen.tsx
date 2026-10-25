@@ -4,7 +4,7 @@ import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { QuestionCard } from "../components/QuestionCard";
 import { TaskRow } from "../components/TaskRow";
 import { Desktop, Plus } from "../icons";
-import { ago, ideName, type Model, needsYou, recent, running } from "../model";
+import { ago, ideName, type Model, needsYou, recent, running, setupProblems } from "../model";
 import { PushCard } from "../PushCard";
 import { Banner, Button, Card, color, List, Row, Section, space, styles, Title } from "../ui";
 import { VoiceBar } from "../voice/VoiceBar";
@@ -84,6 +84,15 @@ export function HomeScreen({
         <Banner tone="warn">
           Can't reach your computer. Check it's awake and Tailscale is on. Anything you send now
           waits and goes when it's back.
+        </Banner>
+      ) : null}
+
+      {status === "online" && setupProblems(model).length > 0 ? (
+        <Banner tone="warn">
+          {setupProblems(model).length === 1
+            ? `${setupProblems(model)[0]?.label}: ${setupProblems(model)[0]?.detail}`
+            : `${setupProblems(model).length} things on the computer need a look.`}{" "}
+          Settings → Check setup.
         </Banner>
       ) : null}
 

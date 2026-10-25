@@ -219,14 +219,33 @@ describe("sessions across tools", () => {
     );
   });
 
-  it("keeps the follow-on message within budget, newest history first", () => {
+  it("keeps the follow-on message within budget: newest turns, the goal, and what was left out", () => {
     const long = Array.from({ length: 20 }, (_, i) => ({
-      who: "agent" as const,
+      who: i === 0 ? ("you" as const) : ("agent" as const),
       text: `step ${i} ${"x".repeat(500)}`,
     }));
     const text = continuation("Antigravity", "Big job", long, "finish it");
     expect(text.length).toBeLessThan(4500);
+    // The newest turn, the very first one (the goal), and an honest gap between.
     expect(text).toContain("step 19");
-    expect(text).not.toContain("step 0 ");
+    expect(text).toContain("Me: step 0 ");
+    expect(text).not.toContain("step 5 ");
+    expect(text).toMatch(/\(… \d+ more earlier messages not shown\)/);
+    expect(text).toContain("Now: finish it");
+  });
+
+  it("a short history is kept whole, with no gap line", () => {
+    const text = continuation(
+      "Codex",
+      "Small",
+      [
+        { who: "you", text: "make the plan" },
+        { who: "agent", text: "here it is" },
+      ],
+      "go",
+    );
+    expect(text).toContain("Me: make the plan");
+    expect(text).toContain("You: here it is");
+    expect(text).not.toContain("not shown");
   });
 });

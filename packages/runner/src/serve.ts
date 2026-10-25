@@ -1,11 +1,12 @@
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentInfo } from "@malves/protocol";
+import { type AgentInfo, pairingLink } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
+import { rollUpWeeks, startJournal } from "./adapters/assistant/journal.js";
 import { startProfileReview } from "./adapters/assistant/profile.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
@@ -20,12 +21,19 @@ import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { fcmSender } from "./adapters/push/fcm.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
+import { Outbox } from "./adapters/push/outbox.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
+import { forkVideoWorker, VideoProcess } from "./adapters/screen/video-process.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
 import { transcriberFromEnv } from "./adapters/voice/whisper.js";
 import { agentProfiles } from "./agents.js";
+import { auditLines } from "./audit.js";
+import { degradedLines, formatChecks, runDoctor } from "./doctor.js";
+import { realEnv } from "./doctor-env.js";
+import { Health } from "./health.js";
+import { startLagMonitor } from "./loop-lag.js";
 import {
   controlToken,
   extensionToken,
@@ -36,17 +44,24 @@ import {
   runnerKeys,
   tailscaleAddress,
 } from "./system.js";
+import { watchForTailscale } from "./tailscale-watch.js";
 import type { Runner } from "./wire.js";
+
+/** Exit code of a serve that stopped only to start again with Tailscale; the supervisor restarts on any non-zero code. */
+const RESTART_FOR_TAILSCALE = 75;
 
 const HELP = `Commands while serving:
   pair            show a new pairing QR code (valid 2 minutes)
   pair text       the same code as text, to paste into an emulator
+  pair link       a QR code the phone's camera opens straight into malves
   agents          check which agents are ready (e.g. after signing in)
+  doctor          check this computer's setup and say what to fix
   push            notifications: status and how to set them up
   push new        new notification topic (cuts off every subscribed phone)
   extension       how to connect Chrome, and its code
   ide             how to connect VS Code, Cursor, Antigravity or Windsurf
   extension new   replace the Chrome code (shuts out the old one)
+  audit           who watched or controlled this computer, and when
   devices         list paired phones
   revoke <id>     unpair a phone immediately (lost phone)
   add <folder>    register a project folder the phone can start tasks in
@@ -85,7 +100,13 @@ export async function serve(
   const computer = hostname();
   // Notifications are plain JSON to the ntfy app, so only over Tailscale's encrypted network.
   const push =
-    host === tailscaleAddress() ? new NtfyPush(runner, { host, topic: pushTopic(dir) }) : undefined;
+    host === tailscaleAddress()
+      ? new NtfyPush(runner, {
+          host,
+          topic: pushTopic(dir),
+          outbox: new Outbox({ file: path.join(dir, "notifications.json") }),
+        })
+      : undefined;
   const relayUrl = o.relay ?? process.env.MALVES_RELAY_URL;
   const relayToken = process.env.MALVES_RELAY_TOKEN ?? "";
   if (relayUrl && (!/^wss?:\/\/\S+$/.test(relayUrl) || relayToken.length < 24)) {
@@ -153,17 +174,37 @@ export async function serve(
         : undefined,
     onChange: (state) => {
       server.setHandover(state);
+      runner.log.append(
+        state.active
+          ? { type: "control.started", data: { kind: "handover" } }
+          : {
+              type: "control.ended",
+              data: { kind: "handover", ...(state.reason ? { reason: state.reason } : {}) },
+            },
+      );
       say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);
       if (!state.active && pushOn)
         push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
     },
   });
+  // The live screen video runs in its own process, so a busy serve can't make it miss its moment.
+  const videoWorker = fileURLToPath(new URL("./adapters/screen/video-worker.js", import.meta.url));
+  const video =
+    process.platform === "win32"
+      ? new VideoProcess({ spawn: () => forkVideoWorker(videoWorker), log: (line) => say(line) })
+      : undefined;
+  // Load it once things have settled, so the first time you watch doesn't wait for it.
+  const warmVideo = video ? setTimeout(() => video.warm(), 20_000) : undefined;
+  warmVideo?.unref();
   const remoteScreen =
     process.platform === "win32"
       ? new RemoteScreen({
           load: () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop()),
           notice: (text) => windowsNotice(text, say),
           log: (line) => say(line),
+          ...(video
+            ? { video: { start: (sdp: string) => video.start(sdp), stop: () => video.stop() } }
+            : {}),
         })
       : undefined;
   // Malves ringing the phone: Google's push (Firebase) carries only a call id.
@@ -198,6 +239,10 @@ export async function serve(
   if (malves) warmPiper(process.env.MALVES_PIPER_URL);
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
+  // If the main loop gets stuck (it made the phone wait minutes once), the log says when and how long.
+  const stopLagMonitor = startLagMonitor({ say: (line) => say(line) });
+  // The setup check: run once things have settled, and again when a phone asks.
+  const health = new Health(() => runDoctor(realEnv(dir, false)));
   const server = new LinkServer(runner, {
     host,
     port,
@@ -205,6 +250,7 @@ export async function serve(
     publicUrl: relay?.phoneUrl,
     computer,
     agents: runner.agents,
+    health,
     pushLink: () => (pushOn ? push?.subscribeLink : undefined),
     listSessions: (agent, workspaceId) => runner.listSessions(agent, workspaceId),
     diff: (taskId) => runner.diff(taskId),
@@ -302,6 +348,23 @@ export async function serve(
       : () => {};
   const backupTarget = process.env.MALVES_BACKUP_SSH;
   const vault = process.env.MALVES_VAULT;
+  // A plain Markdown journal of finished tasks in the vault (no model, nothing sent anywhere).
+  const stopJournal = vault
+    ? (() => {
+        try {
+          rollUpWeeks(vault, new Date());
+        } catch {
+          // A locked or missing vault must not stop serve.
+        }
+        return startJournal({
+          vault,
+          subscribe: (listener) => runner.log.subscribe(listener),
+          task: (id) => runner.tasks.get(id),
+          workspaceName: (id) => runner.workspaces.list().find((w) => w.id === id)?.name,
+          label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+        });
+      })()
+    : () => {};
   const stopBackups =
     malves && backupTarget && vault
       ? startBackups(
@@ -406,11 +469,18 @@ export async function serve(
   const checkAgents = () => {
     say("Checking which agents are ready…");
     void runner.agents.checkAll().then(() => say(describeAgents(runner.agents.list())));
+    void health.run().then((checks) => {
+      const lines = degradedLines(checks);
+      if (lines.length) say(`Setup: ${lines.length} thing(s) to look at. Type doctor.`);
+    });
   };
 
   const commands: Record<string, (args: string[]) => void> = {
     help: () => say(HELP),
     agents: () => checkAgents(),
+    doctor: () => {
+      void health.run().then((checks) => say(formatChecks(checks)));
+    },
     ide: () => {
       const vsix = fileURLToPath(new URL("../../ide/malves.vsix", import.meta.url));
       say(
@@ -449,10 +519,28 @@ export async function serve(
       });
     },
     pair: ([mode]) => {
+      if (mode === "link") {
+        // The phone's own camera app opens this straight into malves; the app still asks first.
+        const link = pairingLink(server.offerPairing());
+        qrcode.generate(link, { small: true }, (qr) =>
+          say(`
+${qr}`),
+        );
+        say(`Scan with the phone's camera (or open the link on the phone) within 2 minutes:
+${link}`);
+        return;
+      }
       if (mode !== "text") return showPairing();
       // For emulators and screens that can't scan: paste this into the app.
       say(JSON.stringify(server.offerPairing()));
       say("Paste that line into the app within 2 minutes.");
+    },
+    audit: () => {
+      const lines = auditLines(
+        runner.log.since(0, 10_000),
+        (id) => runner.devices.list().find((d) => d.id === id)?.name,
+      );
+      say(lines.length ? lines.join("\n") : "Nobody has taken the computer yet.");
     },
     devices: () => {
       const list = runner.devices.list();
@@ -506,10 +594,24 @@ export async function serve(
   }).catch(() => undefined);
   // The phone and the console are up: now read every session, in the background.
   void sessions.list().catch(() => {});
+  // Came up before Tailscale: serve only reaches this computer. When Tailscale arrives, start
+  // again (the background supervisor restarts a serve that exits with this code).
+  let restarting = false;
+  const stopWatching =
+    !o.host && !tailscale
+      ? watchForTailscale(tailscaleAddress, (address) => {
+          restarting = true;
+          say(
+            `Tailscale is up now (${address}). Restarting so your phone can connect. If malves doesn't start again by itself, start it again.`,
+          );
+          process.emit("SIGTERM");
+        })
+      : () => {};
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
+  stopWatching();
 
   say("\nStopping…");
   control?.close();
@@ -525,13 +627,16 @@ export async function serve(
   stopDigest();
   stopWatcher();
   stopProfileReview();
+  stopJournal();
+  stopLagMonitor();
+  video?.close();
   stopCalls();
   stopBackups();
   await push?.close();
   await tools.close();
   await bridge.close();
   terminal.close();
-  return 0;
+  return restarting ? RESTART_FOR_TAILSCALE : 0;
 }
 
 const STATE_WORDS: Record<AgentInfo["state"], string> = {

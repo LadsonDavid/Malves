@@ -16,6 +16,6 @@
   "dependencies": {
     "tweetnacl": "1.0.3",
     "tweetnacl-util": "0.15.1",
-    "zod": "^4.3.0"
+    "zod": "^4.6.7"
   }
 }

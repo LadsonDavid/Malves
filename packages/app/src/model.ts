@@ -1,15 +1,18 @@
 import type {
   AgentInfo,
+  Check,
   Choice,
   HandoverState,
   IdeInfo,
   Lead,
   LoggedEvent,
+  PairingOffer,
   QuestionKind,
   Risk,
   TaskState,
   Welcome,
 } from "@malves/protocol";
+import { readPairing } from "@malves/protocol";
 
 /**
  * What the phone knows, rebuilt from the runner's event stream. `reduce` is a
@@ -73,11 +76,17 @@ export type Model = {
   assistant: boolean;
   /** IDE windows open on the computer (with malves' IDE extension). */
   ides: IdeInfo[];
+  /** The computer's setup check: what's fine and what needs fixing. */
+  health: Check[];
   /** What each task's agent has been doing, newest last. Live only: lost on restart. */
   activity: Record<string, Activity[]>;
 };
 
 export type Activity = { text: string; at: number };
+
+/** What in the computer's setup check isn't fine (warnings and failures, not optional extras). */
+export const setupProblems = (model: Model): Check[] =>
+  model.health.filter((c) => c.status === "warn" || c.status === "fail");
 
 /** Lines of live activity kept per task. */
 const MAX_ACTIVITY = 50;
@@ -89,6 +98,7 @@ export type Action =
   | { type: "chrome"; connected: boolean }
   | { type: "handover"; state: HandoverState }
   | { type: "ides"; ides: IdeInfo[] }
+  | { type: "health"; checks: Check[] }
   | { type: "activity"; taskId: string; text: string; at: number }
   | { type: "leads"; leads: Lead[]; fetchedAt: number }
   | { type: "reset" };
@@ -106,6 +116,7 @@ export const emptyModel: Model = {
   transcribe: false,
   assistant: false,
   ides: [],
+  health: [],
   activity: {},
 };
 
@@ -119,6 +130,8 @@ export function reduce(model: Model, action: Action): Model {
       return { ...model, handover: action.state };
     case "ides":
       return { ...model, ides: action.ides };
+    case "health":
+      return { ...model, health: action.checks };
     case "activity": {
       const lines = [
         ...(model.activity[action.taskId] ?? []),
@@ -145,6 +158,7 @@ export function reduce(model: Model, action: Action): Model {
         transcribe: action.welcome.transcribe ?? false,
         assistant: action.welcome.assistant ?? false,
         ides: action.welcome.ides ?? [],
+        health: action.welcome.health ?? [],
       };
     case "event":
       return apply(model, action.event);
@@ -333,11 +347,20 @@ export function countdown(expiresAt: number, now = Date.now()): string {
 }
 
 /** Where a `malves://` link (from a notification) should open. */
-export type Target = { tab: "leads" } | { taskId: string } | { malves: true } | undefined;
+export type Target =
+  | { tab: "leads" }
+  | { taskId: string }
+  | { malves: true }
+  | { pair: PairingOffer }
+  | undefined;
 
 export function parseLink(url: string | null | undefined): Target {
   const match = url?.match(/^malves:\/\/([a-z]+)(?:\/([^/?#]+))?/i);
   if (!match) return undefined;
+  if (match[1] === "pair") {
+    const offer = readPairing(url ?? "");
+    return offer ? { pair: offer } : undefined;
+  }
   if (match[1] === "leads") return { tab: "leads" };
   if (match[1] === "malves") return { malves: true };
   if (match[1] === "task" && match[2]) return { taskId: decodeURIComponent(match[2]) };

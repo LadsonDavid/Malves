@@ -5,6 +5,7 @@ import {
   type Ack,
   type AgentInfo,
   ChallengeFrame,
+  type Check,
   CLOSE,
   type Command,
   FINAL_CLOSE_CODES,
@@ -69,6 +70,8 @@ export type LinkClientOptions = {
   onWelcome?: (welcome: Welcome) => void;
   /** Agent readiness changed on the computer. */
   onAgents?: (agents: AgentInfo[]) => void;
+  /** The computer's setup check changed. */
+  onHealth?: (checks: Check[]) => void;
   /** IDE windows on the computer changed. */
   onIdes?: (ides: IdeInfo[]) => void;
   /** A running task's agent did something (live only). */
@@ -410,6 +413,11 @@ export class LinkClient {
     return this.send({ type: "agents.check" });
   }
 
+  /** Asks the computer to run its setup check again; the result arrives through `onHealth`. */
+  checkSetup(): Promise<Ack> {
+    return this.send({ type: "doctor.run" });
+  }
+
   /** Asks the computer for this week's leads; they arrive through `onLeads`. */
   refreshLeads(): Promise<Ack> {
     return this.send({ type: "leads.refresh" });
@@ -522,6 +530,9 @@ export class LinkClient {
         break;
       case "agents":
         this.o.onAgents?.(message.agents);
+        break;
+      case "health":
+        this.o.onHealth?.(message.checks);
         break;
       case "event":
         if (message.event.seq <= this.seq) break;

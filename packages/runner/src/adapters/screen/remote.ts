@@ -5,6 +5,12 @@ import { ScreenVideo } from "./video.js";
 
 type Frame = { jpeg: string; width: number; height: number };
 
+/** Makes the live video: answers the phone's offer, and stops when the phone leaves. */
+export type VideoPort = {
+  start(sdp: string): Promise<{ sdp: string; width: number; height: number }>;
+  stop(): void;
+};
+
 /**
  * Your computer's screen on the phone, any time: watching it (the next picture
  * captured while the last one travels, about three a second) and controlling it
@@ -19,10 +25,7 @@ export class RemoteScreen {
   /** The next picture, started while the last one travels to the phone. */
   private next: { at: number; picture: Promise<Frame> } | undefined;
   private readonly now: () => number;
-  private readonly video = new ScreenVideo(
-    async () => (await this.desktop()).raw(),
-    (line) => this.o.log?.(line),
-  );
+  private readonly video: VideoPort;
 
   constructor(
     private readonly o: {
@@ -31,10 +34,23 @@ export class RemoteScreen {
       notice: (text: string) => void;
       /** Lines for serve.log only (not shown on the computer). */
       log?: (line: string) => void;
+      /** Where the live video is made. Default: in this process. */
+      video?: VideoPort;
       now?: () => number;
     },
   ) {
     this.now = o.now ?? Date.now;
+    // Normally the video runs in its own process (see VideoProcess); filming in this one is
+    // the simple fallback.
+    this.video = o.video ?? this.inProcessVideo();
+  }
+
+  private inProcessVideo(): VideoPort {
+    const film = new ScreenVideo(
+      async () => (await this.desktop()).raw(),
+      (line) => this.o.log?.(line),
+    );
+    return { start: (sdp) => film.start(sdp), stop: () => film.stop() };
   }
 
   private desktop(): Promise<Desktop> {

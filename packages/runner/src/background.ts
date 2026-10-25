@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, renameSync } from "node:fs";
+import { closeSync, existsSync, openSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { LineRedactor } from "./redact.js";
 import { runningRunner } from "./system.js";
 
 /**
@@ -32,15 +33,22 @@ export async function supervise(dataDir: string, serveArgs: string[]): Promise<n
     const code = await new Promise<number | null>((resolve) => {
       // windowsHide: no console window, not even Windows Terminal's.
       const child = spawn(process.execPath, [main, "serve", ...serveArgs], {
-        stdio: ["ignore", out, out],
+        // Through a pipe, so secrets are hidden line by line before they reach the file.
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
         env: process.env,
+      });
+      const lines = [child.stdout, child.stderr].map((stream) => {
+        const redactor = new LineRedactor((line) => writeSync(out, line));
+        stream.on("data", (chunk: Buffer) => redactor.write(chunk));
+        return redactor;
       });
       const stop = () => child.kill();
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
       child.once("error", () => resolve(1));
-      child.once("exit", (exitCode) => {
+      child.once("close", (exitCode) => {
+        for (const redactor of lines) redactor.end();
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);
         resolve(exitCode);

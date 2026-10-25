@@ -30,6 +30,12 @@ export interface Ids {
  */
 export interface Notifier {
   questionOpened(question: DataOf<"question.opened">): Promise<void>;
+  /**
+   * The question is still open: nudge again (`n` is 1, then 2). Optional, and a
+   * failure is as harmless as for `questionOpened`. A reminder never changes
+   * the outcome: silence still ends the question as timed out (R3).
+   */
+  questionReminder?(question: DataOf<"question.opened">, n: number): Promise<void>;
 }
 
 /** Something an agent needs a person to decide. */

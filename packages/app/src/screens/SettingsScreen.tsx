@@ -1,8 +1,8 @@
-import type { AgentInfo, LinkClient, LinkStatus } from "@malves/protocol";
+import type { AgentInfo, Check, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
 import { Alert, BackHandler, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Speaker } from "../icons";
-import { ago, type Model, running } from "../model";
+import { ago, type Model, running, setupProblems } from "../model";
 import { PushCard } from "../PushCard";
 import {
   BackBar,
@@ -39,7 +39,7 @@ const AGENT_STATE: Record<AgentInfo["state"], [string, Tone | "plain"]> = {
 };
 
 /** Everything about the connection and the computer, plus the rare, serious actions. */
-type Page = "voice" | "calls" | "memory" | "computer" | "notifications";
+type Page = "voice" | "calls" | "memory" | "computer" | "setup" | "notifications";
 
 export function SettingsScreen({ model, status, lastOnline, client, onUnpair, say }: Props) {
   const [checking, setChecking] = useState(false);
@@ -113,6 +113,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
       calls: "Calls",
       memory: "Memory",
       computer: "This computer",
+      setup: "Check setup",
       notifications: "Notifications",
     };
     return (
@@ -172,6 +173,9 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             />
           </>
         ) : null}
+        {page === "setup" ? (
+          <SetupCard model={model} client={client} online={status === "online"} say={say} />
+        ) : null}
         {page === "notifications" ? <PushCard link={model.push} /> : null}
       </ScrollView>
     );
@@ -198,6 +202,15 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
             : []),
           ["memory", "Memory", ""],
           ["computer", "This computer", status === "online" ? "Connected" : "Offline"],
+          [
+            "setup",
+            "Check setup",
+            model.health.length === 0
+              ? ""
+              : setupProblems(model).length > 0
+                ? `${setupProblems(model).length} to fix`
+                : "All good",
+          ],
           ["notifications", "Notifications", model.push ? "" : "Off"],
         ].map(([key, label, value]) => (
           <Row key={key} onPress={() => setPage(key as Page)} label={label}>
@@ -224,6 +237,78 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         <Button title="Unpair this phone" kind="plain" onPress={unpair} />
       </Section>
     </ScrollView>
+  );
+}
+
+const CHECK_STATE: Record<Check["status"], [string, Tone | "plain"]> = {
+  ok: ["OK", "ok"],
+  warn: ["Check", "warn"],
+  fail: ["Fix", "bad"],
+  off: ["Off", "plain"],
+};
+
+/** The computer's setup check: what works, what doesn't, and what to do about it. */
+function SetupCard({
+  model,
+  client,
+  online,
+  say,
+}: {
+  model: Model;
+  client: LinkClient | undefined;
+  online: boolean;
+  say: (message: string) => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const again = async () => {
+    if (!client) return;
+    setRunning(true);
+    try {
+      const ack = await client.checkSetup();
+      if (!ack.ok) say(ack.error ?? "The computer couldn't check.");
+    } catch {
+      say("Couldn't reach the computer.");
+    }
+    setRunning(false);
+  };
+  if (model.health.length === 0) {
+    return (
+      <Card>
+        <Text style={styles.muted}>
+          The computer hasn't checked yet. Tap the button, or type doctor on the computer.
+        </Text>
+        <Button title="Check now" busy={running} disabled={!online} onPress={() => void again()} />
+      </Card>
+    );
+  }
+  const problems = setupProblems(model).length;
+  return (
+    <>
+      <Banner tone={problems > 0 ? "warn" : "ok"}>
+        {problems > 0
+          ? `${problems} thing${problems === 1 ? "" : "s"} to look at.`
+          : "Everything that's switched on works."}
+      </Banner>
+      <List>
+        {model.health.map((c) => (
+          <Row key={c.id}>
+            <View style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}>
+              <Text style={styles.body}>{c.label}</Text>
+              <Chip label={CHECK_STATE[c.status][0]} tone={CHECK_STATE[c.status][1]} />
+            </View>
+            <Text style={styles.muted}>{c.detail}</Text>
+            {c.fix && c.status !== "ok" ? <Text style={styles.muted}>Fix: {c.fix}</Text> : null}
+          </Row>
+        ))}
+      </List>
+      <Button
+        title="Check again"
+        kind="plain"
+        busy={running}
+        disabled={!online}
+        onPress={() => void again()}
+      />
+    </>
   );
 }
 
