@@ -1,3 +1,5 @@
+import { safeTyped } from "./safe-text.js";
+
 /**
  * Mouse, keyboard and screen for handover mode and the phone's remote view,
  * through nut.js (the free community fork, Apache-2.0). Loaded only when first
@@ -103,7 +105,9 @@ export async function nutDesktop(): Promise<Desktop> {
       await nut.mouse.leftClick();
     },
     async type(text) {
-      await nut.keyboard.type(text);
+      // Content, never keystrokes: the same filter the read-back was shown.
+      const { text: safe } = safeTyped(text);
+      if (safe) await nut.keyboard.type(safe);
     },
     async keys(combo) {
       const keys = combo.toLowerCase().replace(/\s+/g, "").split("+").filter(Boolean).map(keyOf);

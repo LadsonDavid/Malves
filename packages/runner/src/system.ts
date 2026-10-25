@@ -7,13 +7,13 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  writeFileSync,
   writeSync,
 } from "node:fs";
 import { homedir, networkInterfaces, uptime } from "node:os";
 import path from "node:path";
 import type { Clock, Ids } from "@malves/core";
 import { generateKeyPair, type KeyPair, publicKeyOf } from "@malves/protocol";
+import { readSecretJson, writeSecretJson } from "./secure-file.js";
 
 export const systemClock: Clock = {
   now: () => Date.now(),
@@ -126,15 +126,11 @@ export function resolveFolder(folder: string): string {
  */
 export function runnerKeys(dir: string): KeyPair {
   const file = path.join(dir, "runner-key.json");
-  try {
-    const { secretKey } = JSON.parse(readFileSync(file, "utf8")) as { secretKey: string };
-    return { secretKey, publicKey: publicKeyOf(secretKey) };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const keys = generateKeyPair();
-    writeFileSync(file, JSON.stringify({ secretKey: keys.secretKey }), { mode: 0o600, flag: "wx" });
-    return keys;
-  }
+  const stored = readSecretJson<{ secretKey: string }>(file);
+  if (stored) return { secretKey: stored.secretKey, publicKey: publicKeyOf(stored.secretKey) };
+  const keys = generateKeyPair();
+  writeSecretJson(file, { secretKey: keys.secretKey });
+  return keys;
 }
 
 /**
@@ -166,14 +162,11 @@ export function pushTopic(dir: string, renew = false): string {
 function secret(dir: string, name: string, renew: boolean): string {
   const file = path.join(dir, name);
   if (!renew) {
-    try {
-      return (JSON.parse(readFileSync(file, "utf8")) as { token: string }).token;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    const stored = readSecretJson<{ token: string }>(file);
+    if (stored) return stored.token;
   }
   const token = randomBytes(24).toString("base64url");
-  writeFileSync(file, JSON.stringify({ token }), { mode: 0o600 });
+  writeSecretJson(file, { token });
   return token;
 }
 

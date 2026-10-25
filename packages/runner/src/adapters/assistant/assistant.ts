@@ -16,6 +16,7 @@ import { humanize } from "./humanize.js";
 import type { ChatMessage, Llm, Tool } from "./llm.js";
 import type { Memory, MemoryKind, MemoryNote } from "./memory.js";
 import type { Profile } from "./profile.js";
+import { safeTyped } from "./safe-text.js";
 import type { SkillLibrary } from "./skills.js";
 
 /**
@@ -771,10 +772,14 @@ export class Assistant {
           );
         }
         if (name === "type_on_screen") {
-          const text = args.text ?? "";
+          const { text, dropped, cut } = safeTyped(args.text ?? "");
           if (!text) return { text: "What should I type?" };
+          const notes = [
+            dropped ? `leaving out ${dropped} hidden character${dropped === 1 ? "" : "s"}` : "",
+            cut ? "cut to the first 2000 characters" : "",
+          ].filter(Boolean);
           return this.ask(
-            `Type "${text.slice(0, 80)}" ${where}?`,
+            `Type "${text.slice(0, 80)}" ${where}${notes.length ? `, ${notes.join(" and ")}` : ""}?`,
             act(() => desktop.type(text), "Typed it."),
           );
         }

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Task } from "@malves/core";
 import type { LoggedEvent } from "@malves/protocol";
+import { readSecretJson, writeSecretJson } from "../../secure-file.js";
 import type { FcmSend } from "../push/fcm.js";
 import { isQuiet } from "./watcher.js";
 
@@ -43,7 +43,7 @@ export class Caller {
 
   private tokens(): Record<string, string> {
     try {
-      return JSON.parse(readFileSync(this.tokensFile, "utf8")) as Record<string, string>;
+      return readSecretJson<Record<string, string>>(this.tokensFile) ?? {};
     } catch {
       return {};
     }
@@ -51,7 +51,7 @@ export class Caller {
 
   /** A phone's Firebase token, so it can be rung. */
   register(deviceId: string, token: string): void {
-    writeFileSync(this.tokensFile, JSON.stringify({ ...this.tokens(), [deviceId]: token }));
+    writeSecretJson(this.tokensFile, { ...this.tokens(), [deviceId]: token });
   }
 
   /** Rings every paired phone; the answer says why it couldn't, if it couldn't. */
