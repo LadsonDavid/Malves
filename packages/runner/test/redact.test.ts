@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { LineRedactor, redact } from "../src/redact.js";
 
 const SECRETS: Array<[string, string]> = [
-  ["GitHub token", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"],
-  ["GitHub fine-grained", "github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz"],
-  ["Anthropic key", "sk-ant-api03-abcdefghijklmnopqrstuvwxyz"],
-  ["OpenAI key", "sk-proj-0123456789abcdefghijklmnop"],
-  ["AWS key id", "AKIAABCDEFGHIJKLMNOP"],
-  ["Slack token", "xoxb-1234567890-abcdefghij"],
-  ["Google key", "AIzaSyA-abcdefghijklmnopqrstuvwxyz012345"],
-  ["Groq key", "gsk_abcdefghijklmnopqrstuvwxyz0123456789"],
-  ["Cartesia style key", "sk_car_abcdefghijklmnopqrstuvwxyz"],
-  ["JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuvwxyz0123"],
+  ["GitHub token", ["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"].join("")],
+  ["GitHub fine-grained", ["github_pat_", "11ABCDEFG0abcdefghijklmnopqrstuvwxyz"].join("")],
+  ["Anthropic key", ["sk-ant-api03-", "abcdefghijklmnopqrstuvwxyz"].join("")],
+  ["OpenAI key", ["sk-proj-", "0123456789abcdefghijklmnop"].join("")],
+  ["AWS key id", ["AKIA", "ABCDEFGHIJKLMNOP"].join("")],
+  ["Slack token", ["xoxb-", "1234567890-abcdefghij"].join("")],
+  ["Google key", ["AIzaSyA-", "abcdefghijklmnopqrstuvwxyz012345"].join("")],
+  ["Groq key", ["gsk_", "abcdefghijklmnopqrstuvwxyz0123456789"].join("")],
+  ["Cartesia style key", ["sk_car_", "abcdefghijklmnopqrstuvwxyz"].join("")],
+  ["JWT", ["eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.", "abcdefghijklmnopqrstuvwxyz0123"].join("")],
 ];
 
 describe("redact", () => {

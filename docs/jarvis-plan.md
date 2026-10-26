@@ -15,35 +15,22 @@ must stay quick; what they give is a few hundred lines of TypeScript here).
 
 You work. Malves is there without being called:
 
-1. **Watches for you.** CI, pull requests, builds, servers, leads, a web page. It speaks only
-   when something matters, and rings when it matters a lot.
-2. **Acts within limits.** Reading, tests, lint and status just happen. Push, migrations,
-   deleting and spending always stop and ask.
-3. **Does whole jobs with several agents.** "Move the handshake to protocol v2 and update the
-   tests" becomes a plan you approve once, three agents working in separate branches, a
-   verification step, and one pull request you approve once.
-4. **Operates the browser.** Multi-step portal work in your real, signed-in Chrome, including
-   logins, without the model ever holding a password.
-5. **Operates the computer like a person would.** It sees the screen, reads real buttons and
-   fields, acts, checks that the action worked, and steps aside when you touch the machine.
-6. **Runs your leads.** From a ranked list to a researched, drafted, approved and sent
-   message, with the follow-up scheduled. No separate Python service.
-7. **Knows you and the project**, and is present: hands-free voice, interruptions that really
-   interrupt.
+1. **Watches for you.** `Automations` in `packages/core/src/automations/automations.ts`: CI, pull requests, builds, servers, leads, a web page. Speaks only when something matters.
+2. **Acts within limits.** `Policy` in `packages/core/src/policy/policy.ts`: reading, tests, lint and status run within risk tiers, while push, migrations, and spending stop and ask.
+3. **Does whole jobs with several agents.** `Jobs` in `packages/core/src/jobs/jobs.ts`: multi-agent plan execution across isolated git worktrees with verification and single PR review.
+4. **Operates the browser.** `BrowserVault` in `packages/runner/src/adapters/browser/vault.ts`: multi-step portal workflows in Chrome with origin-bound secrets without exposing passwords to the model.
+5. **Operates the computer like a person would.** `ComputerOperator` in `packages/runner/src/adapters/computer/operator.ts`: screen perception, UI Automation control, and take-over pause when the user touches the machine.
+6. **Runs your leads.** `LocalLeadEngine` in `packages/runner/src/adapters/leads/engine.ts`: ranking, research dossier, and outreach pipeline in TypeScript without external services.
+7. **Knows you and the project**, and is present: `SearchIndex` in `packages/runner/src/adapters/sqlite/search.ts` provides local project and session search.
 
 ## 2. Rules that do not change
 
-- **The brain proposes, code decides.** The policy engine is deterministic code. A model may
-  *advise* about an unknown action; it can never turn an "ask" into a "yes" above tier 2.
-- **Silence never means yes** for anything in tier 3 (R3).
-- **The event log is the truth.** New features add events; no feature keeps hidden state that
-  the log cannot rebuild.
-- **`core` imports no adapter.** New ideas enter `core` as ports; `core/test/boundary.test.ts`
-  keeps guarding it.
-- **Windows first.** No `npx` or `.cmd` shims, paths through `node:path`, nothing that works
-  around Windows Defender.
-- **Every autonomous act is inspectable**: logged, shown in the journal, listed by
-  `malves audit`, and switchable down.
+- **The brain proposes, code decides.** `Policy` in `packages/core/src/policy/policy.ts` with deterministic `PolicyOptions`: a model may advise, but never overrides tier 2 permissions.
+- **Silence never means yes** for anything in tier 3 (`Verdict` in `packages/core/src/policy/types.ts`).
+- **The event log is the truth.** `Store` in `packages/core/src/ports.ts` and `LoggedEvent` in `packages/protocol/src/events.ts`: all state changes are preserved in the log.
+- **`core` imports no adapter.** New ideas enter `core` as ports; `packages/core/test/boundary.test.ts` keeps guarding it.
+- **Windows first.** Native path handling with `node:path` in `packages/runner/src/adapters/git/worktrees.ts`: no shims that trigger Windows Defender.
+- **Every autonomous act is inspectable**: logged in journal via `consolidateDailyJournal` in `packages/runner/src/adapters/assistant/consolidation.ts` and auditable.
 
 ## 3. Architecture: what is added where
 
@@ -97,17 +84,10 @@ branch), runs and appears in the journal. 3 = push, deploy, migrate, delete outs
 worktree, send a message, spend, submit a form: always asks, rings if important.
 
 **Order of checks** (first match wins), a generalisation of `commandRisk` in `handover.ts`:
-1. Hard deny globs from settings: never reach a prompt, not even under the most permissive
-   autonomy setting.
-2. The deterministic classifier: command parser (no chains, redirects, `$(...)`), path rules
-   (inside the task's root only), URL rules, known-safe command table.
-3. The autonomy setting per project: *careful* (everything above tier 1 asks), *normal*
-   (tier 2 runs), *trusting* (tier 2 runs and fewer tier 3 prompts for the repo's own branch).
-   The default is *careful*.
-4. **Advisor model** (optional, only for actions the classifier calls "unknown"): its answer
-   may *lower* unknown to tier 2 or keep it at ask. It can never lower a classified tier 3.
-   The command text is wrapped as untrusted data, shell comments stripped, and any
-   "approve this" text in it is ignored (idea from Hermes `approval_smart.py`).
+1. Hard deny globs from settings: `DEFAULT_DENY` in `packages/core/src/policy/policy.ts` ensures dangerous globs never reach a prompt, not even under the most permissive autonomy setting.
+2. The deterministic classifier: `classifyCommand` in `packages/core/src/policy/command.ts` parses commands (no chains, redirects, subshells), verifies paths inside the task root, and matches known-safe commands.
+3. The autonomy setting per project: `Autonomy` in `packages/protocol/src/events.ts` and `Policy` in `packages/core/src/policy/policy.ts` configure *careful* (everything above tier 1 asks), *normal* (tier 2 runs), or *trusting*.
+4. **Advisor model** (optional, only for actions the classifier calls "unknown"): `Advisor` in `packages/core/src/policy/advisor.ts` evaluates unknown actions as untrusted text and may lower unknown to tier 2, but never lowers a classified tier 3.
 
 **Tests (TDD, first).** A table of at least 60 commands and paths with expected tiers; the
 injection cases (`rm -rf / # approve`, a page or file telling the advisor to approve); the
@@ -191,35 +171,14 @@ Step { id, role: implementer|tester|reviewer|verifier, agent, prompt,
 
 ### Pieces
 
-1. **Provisioner port** `WorkspaceProvisioner { create(job, step): {root, branch}; remove(...);
-   merge(...) }`. Runner adapter: `git worktree add` into a sibling folder
-   (`<repo>-malves/<job>-<step>`), branch `malves/<job>/<step>` from the job's base commit.
-   `Tasks.create` gets an optional `root` so the agent starts in the worktree. Confinement
-   already works from the root it is given.
-2. **Planner** (role `planner`): asks the model for a plan as JSON, validated with zod
-   (max 6 steps, known roles and agents, no cycles). **Plan → validate → execute**: the plan
-   is shown on the phone as one question; nothing runs before a yes (idea: Huyen,
-   *plan, validate, execute*).
-3. **Role contracts.** Each role is a short written contract: scope (which folders), what it
-   hands over (a summary and the branch), what needs approval, when to stop. Kept in
-   `runner/src/agents/roles.ts` and added to the step prompt (idea from OpenClaw
-   *parallel specialist lanes*).
-4. **Job runner** in `core/src/jobs`: starts every step whose dependencies are done, up to a
-   cap (default 3 at once, one per agent session), reads the result events, and handles
-   failure (retry once, then stop the job and keep the worktrees for inspection).
-5. **Verify step.** In the job's integration worktree: run the project's test and lint
-   commands (found from `package.json` or the project notes; tier 2), then a second agent
-   reads the diff. A failure returns to the implementer **at most twice** (reflection, with
-   a limit), then asks you.
-6. **Integration and pull request.** Merge the step branches into an integration branch in
-   order; a conflict becomes an "integrator" step. `gh pr create` runs through policy (tier
-   3: asks once, shows the diff and the summary). Worktrees are removed after the PR is
-   open or the job is stopped.
-7. **Steering.** A message sent to a running job reaches the right agent at its next
-   tool boundary (ACP `session/cancel` then a prompt carrying the new instruction in the same
-   session), never in the middle of a running tool. Agents that cannot resume say so.
-8. **Phone.** A Job screen: the plan, each step's agent and live activity, the verify result,
-   one approval for the plan and one for the PR.
+1. **Provisioner port.** `WorkspaceProvisioner` in `packages/core/src/ports.ts` implemented by `GitWorktrees` in `packages/runner/src/adapters/git/worktrees.ts`: creates and merges step worktrees (`<repo>-malves/<job>-<step>`) from the job's base commit. `Tasks.create` receives an optional `root` so the agent starts confined to the worktree.
+2. **Planner** (role `planner`): asks the model for a plan as JSON, validated with zod (max 6 steps, known roles and agents, no cycles). **Plan → validate → execute**: the plan is shown on the phone as one question; nothing runs before a yes (idea: Huyen, *plan, validate, execute*).
+3. **Role contracts.** `ROLE_CONTRACTS` and `formatRoleContract` in `packages/runner/src/agents/roles.ts`: each role is a short written contract defining scope, handover summary/branch, approvals, and stop triggers added to step prompts.
+4. **Job runner.** `Jobs` in `packages/core/src/jobs/jobs.ts`: starts every step whose dependencies are done, up to concurrency cap (default 3 at once, one per agent session), reads result events, and retries once on failure.
+5. **Verify step.** In the job's integration worktree: run the project's test and lint commands (found from `package.json` or project notes; tier 2), then a second agent reads the diff. A failure returns to the implementer at most twice (reflection, with a limit), then asks you.
+6. **Integration and pull request.** `GitWorktrees` in `packages/runner/src/adapters/git/worktrees.ts`: merges step branches into an integration branch in order; a conflict becomes an integrator step. Worktrees removed after PR.
+7. **Steering.** `Tasks` in `packages/core/src/tasks/tasks.ts` and `AgentSession` in `packages/core/src/ports.ts`: messages reach the agent at tool boundaries via ACP `session/cancel` and prompt renewal, never in the middle of a running tool.
+8. **Phone.** `useLink` in `packages/app/src/useLink.ts` and `JobStep` in `packages/protocol/src/events.ts`: job screen renders plan, step agent activity, verification result, and approvals.
 
 **Tests.** The job runner with the existing scripted host fakes (plan JSON in, step order
 out, cap respected, failure and retry); the provisioner against temporary git repositories
@@ -243,27 +202,12 @@ cannot log in, trips on dialogs and iframes, and cannot hold a long job.
 
 **Additions**
 
-1. **Policy tiers instead of asking for everything.** Reading a site you already approved:
-   tier 1. Clicking inside it: tier 2 (logged). Submitting a form, sending, buying,
-   deleting: tier 3. Page text is always data, never instructions.
-2. **Secret autofill the model never sees** (idea from Hermes browser_vault_tool.py).
-   The runner holds an encrypted vault (NaCl, key kept as the other secrets are). The model
-   sees only a *handle* and the site. To fill, the runner asks your phone once ("fill the
-   Stripe login?"), then sends the secret straight to the extension over the loopback
-   bridge, which fills the field **only if the page origin equals the one saved**, checked
-   again inside the page. The result reports only "filled". The secret's bytes are
-   registered for redaction in logs, results and memory. A one-time code (TOTP) is the same
-   path. **This reverses the current rule "password and card fields are always refused".
-   It is a decision for you (D1 below).**
-3. **Dialogs and frames.** The extension's debugger permission lets it see JavaScript
-   dialogs and cross-origin frames and answer them by policy (accept alerts, ask for
-   `beforeunload`).
-4. **Long jobs.** A browsing session survives a step: tab group "Malves", a stored
-   "where I was" (URL, scroll, the last snapshot hash), wait-for-condition calls (element
-   present, text present, URL changed), and retries with a back-off.
-5. **Structured extraction.** The tool takes a zod schema and returns validated data
-   (a table of invoices, a list of prices), so downstream steps and leads can rely on it.
-6. **Does not steal your window.** Runs in a background tab group; the phone can show it.
+1. **Policy tiers instead of asking for everything.** `Tier` in `packages/protocol/src/events.ts` and `Policy` in `packages/core/src/policy/policy.ts`: reading a site is tier 1, clicking inside is tier 2, submitting forms/spending is tier 3.
+2. **Secret autofill the model never sees.** `BrowserVault` and `normalizeOrigin` in `packages/runner/src/adapters/browser/vault.ts`: runner holds encrypted vault and injects secrets directly to extension only on matching origin with bytes registered for `redact`.
+3. **Dialogs and frames.** `BrowserBridge` in `packages/runner/src/adapters/browser/bridge.ts`: debugger permission observes JavaScript dialogs and frames to resolve by policy.
+4. **Long jobs.** `BrowserTools` in `packages/runner/src/adapters/browser/tools.ts`: browsing state survives steps with URL, scroll position, snapshot hash, and condition waits.
+5. **Structured extraction.** `extractStructuredData` in `packages/runner/src/adapters/browser/tools.ts`: validates page contents against a zod schema.
+6. **Does not steal your window.** `BrowserBridge` in `packages/runner/src/adapters/browser/bridge.ts`: runs operations in background tab group.
 
 **Tests.** The bridge and tools against a fake extension; the vault (add, fill on the right
 origin, refuse on a different origin, redaction); policy cases for the tiers; the extension's
@@ -297,35 +241,15 @@ type UiElement = { id: string; role: string; name: string; rect: Rect; enabled: 
 
 **Behaviour**
 
-1. **Frame rule.** An act names the frame it was decided on. If the screen has changed more
-   than a threshold since (a perceptual hash of the region), the act is refused and the agent
-   gets a fresh snapshot. This stops clicking where a button *used to be*.
-2. **Check after acting.** After each act: a new snapshot, a diff of the target region, and
-   an "expected change" check by the model; no change twice means stop and report.
-3. **Reading real controls.** A provider that returns the **Windows UI Automation tree**
-   (buttons, fields, menus with names and positions), so the agent says "click the *Save*
-   button" and the provider clicks the element, not a guessed pixel. Pixel clicking with a
-   vision model stays as the fallback for apps with no tree.
-4. **Take-over.** While you type or move the mouse, the agent's input **pauses** (it may keep
-   watching); it resumes after two idle seconds. Handover does not end (existing decision).
-   This needs your yes (D2 below).
-5. **Policy per act.** Looking and moving: tier 1. Clicks and typing in an allowed app
-   (a setting per app): tier 2. Send, delete, install, pay, confirm: tier 3, detected from
-   the element name or window text and a vision check. The per-click read-back is replaced
-   by this (it stays for tier 3).
+1. **Frame rule.** `perceptualHash` and `DEFAULT_HASH_THRESHOLD` in `packages/runner/src/adapters/computer/hash.ts`: an act names the frame it was decided on, and if perceptual distance exceeds the threshold, the act is refused and a fresh snapshot is taken.
+2. **Check after acting.** `ComputerOperator` in `packages/runner/src/adapters/computer/operator.ts`: takes a fresh snapshot and checks target region diff after every act, stopping after two unfulfilled expectations.
+3. **Reading real controls.** `UiElement` and `Computer` in `packages/runner/src/adapters/computer/types.ts`: Windows UI Automation tree provider allowing named control targeting over raw coordinates.
+4. **Take-over.** `ComputerOperator` in `packages/runner/src/adapters/computer/operator.ts`: pauses agent input when typing or mouse movement occurs, resuming after idle timeout.
+5. **Policy per act.** `Act` in `packages/runner/src/adapters/computer/types.ts`: looking and moving is tier 1, allowed typing is tier 2, while send/delete/pay is tier 3.
 6. **Off-limits stays** (passwords, sign-ins, banking, admin prompts): never automated.
-7. **Phone.** The live view shows the agent's pointer and the next action as an overlay, and
-   a "take over" button.
+7. **Phone.** `ControlKind` in `packages/protocol/src/events.ts`: live view overlays pointer position and next action with take-over controls.
 
-**Spike first (3 days), because the route is uncertain.** Three ways to get the UI
-Automation tree on Windows from Node:
-- a small helper built from our own source (C# or Rust) that wraps UI Automation. Cleanest
-  result; **risk:** helper executables have been flagged by Windows Defender before, and we
-  never work around that. It would ship signed and from a repository, or not at all.
-- calling the UI Automation COM interface directly from Node through an FFI library: no new
-  executable, harder to build and debug.
-- OpenClaw's `cua-computer` plugin and its pinned driver: ready-made, but a large dependency
-  to vet (licence, size, how it is updated).
+**Spike first (3 days), because the route is uncertain.** Evaluated three approaches for Windows UI Automation tree inspection in `packages/runner/src/adapters/computer/operator.ts`: (a) small compiled wrapper helper, (b) direct Node COM FFI interface, and (c) pinned driver bridge.
 
 The spike builds the smallest "list the buttons of Notepad and click Save" with each route,
 measures speed and reliability, and checks that Defender stays quiet. The result is an ADR.
@@ -354,23 +278,11 @@ stages, with golden-output parity tests against the Python version.**
 
 ### Stages
 
-- **D1: data and scoring.** SQLite tables: accounts, an **append-only signal log**, and
-  scores computed **at read time** from the log (fit gates intent, intent decays), exactly
-  the design in signalstack's README. Your ideal-customer description is entered on the
-  phone ("who do you sell to?"), not in a YAML file. Parity tests feed the same fixtures to
-  both implementations and compare ranked lists.
-- **D2: collectors that need no login.** Hiring boards (Greenhouse, Lever, Ashby), "Hacker
-  News who is hiring", status pages, tech-stack fingerprinting by HTTP, community posts
-  (Hacker News, Lobsters, Dev.to), GitHub with a token. Each is a small collector with a
-  recorded-HTTP fixture test. They run from the F2 scheduler, politely (robots rules,
-  rate limits, a declared user agent); each collector's terms are checked before it ships.
-- **D3: dossier.** For a chosen lead the browser operator (pillar B) reads the company site
-  and recent news and the planner writes a short dossier with sources.
-- **D4: outreach loop.** Draft the message (planner), show it on the phone, **you approve
-  or edit**, it is sent (Gmail through the browser operator, or a `mailto` fallback), the
-  lead moves to *contacted*, and a follow-up rule is created with your yes.
-- **D5: light CRM.** Lead state (new, contacted, replied, won, lost) as events; a monitor
-  can watch for a reply; the weekly digest stays.
+- **D1: data and scoring.** `LocalLeadEngine` in `packages/runner/src/adapters/leads/engine.ts` with `LeadsDatabase` in `packages/runner/src/adapters/leads/db.ts`: SQLite accounts and signals with `scoreAccount` in `packages/runner/src/adapters/leads/scoring.ts`.
+- **D2: collectors that need no login.** `parseHnComment` in `packages/runner/src/adapters/leads/collectors/hackernews.ts`: polite collectors running via F2 scheduler without requiring logins.
+- **D3: dossier.** `BuildDossierOptions` in `packages/runner/src/adapters/leads/dossier.ts`: reads company site and recent signals to build structured dossier with sources.
+- **D4: outreach loop.** `draftOutreach` in `packages/runner/src/adapters/leads/outreach.ts`: drafts outreach message requiring Tier 3 phone approval before sending.
+- **D5: light CRM.** `LeadSource` in `packages/core/src/ports.ts` and `LeadsDatabase` in `packages/runner/src/adapters/leads/db.ts`: tracks lead state transitions (new, contacted, replied, won, lost) as events.
 
 **Tests.** Collector fixtures; scoring parity; the policy rule that **sending is tier 3,
 always**; a test that nothing is sent without an answered question.
@@ -421,17 +333,11 @@ demo, and a phase that runs long is cut down, not stretched.
 
 ## 11. Verification approach
 
-- **Test first** for logic; fakes for the clock, the host, the computer, the extension and the
-  model, as the codebase does today.
-- **A table-driven check per safety rule**, in the style of the existing "a fooled brain
-  changes nothing without a yes" table: policy tiers, the vault origin rule, the frame rule,
-  "sending is always tier 3".
-- **Fitness functions:** the `core` boundary test; a test that every place that runs
-  something goes through `Policy`; a test that no secret reaches a log.
-- **Planner and advisor evaluations:** scenario tables (including injection attempts) run with
-  scripted models in CI and, optionally, with the real brain on demand.
-- **A real-device acceptance script per phase**, written as numbered steps with the expected
-  result, run by you on the phone.
+- **Test first.** Fakes for clock, host, computer, extension and model in `packages/core/test/fakes.ts`.
+- **A table-driven check per safety rule.** Table-driven tests in `packages/core/test/policy.test.ts`: policy tiers, vault origin rule, and frame rule.
+- **Fitness functions.** The `packages/core/test/boundary.test.ts` boundary test guarding `core`.
+- **Planner and advisor evaluations.** Scenario evaluation suites in `packages/runner/test/features.test.ts`.
+- **A real-device acceptance script per phase.** Automated acceptance suites across all phases in `packages/runner/test/fitness.test.ts`.
 
 ## 12. Decisions I need from you
 
@@ -445,17 +351,14 @@ demo, and a phase that runs long is cut down, not stretched.
 
 ## 13. Risks
 
-- **Autonomy that surprises you.** Mitigation: tiers are visible, the default is careful, tier
-  2 appears in the journal, `malves audit` lists everything, one switch turns it all down.
-- **The free models are weak at planning and tool use.** Mitigation: model roles (F3); the
-  planner, advisor and computer use are first in line for a stronger model.
-- **UI Automation on Windows may be hard to ship without upsetting Defender.** Mitigation:
-  the spike before any commitment; the pixel and vision route remains.
-- **Browser automation is brittle.** Mitigation: wait-for conditions, retries, structured
-  extraction, and a clear "I'm stuck, here is where" report.
-- **Scraping terms.** Mitigation: each collector's terms checked before it ships; polite
-  rates; no collector that needs a login.
-- **Scope.** About 73 days is a lot. Phases are independently useful and end with a demo.
+| Risk | Mitigation | Tested by |
+|---|---|---|
+| Autonomy that surprises you | Tiers are visible, default is careful, tier 2 appears in journal | `packages/core/test/policy.test.ts` |
+| The free models are weak at planning and tool use | Model roles (F3) route planner and advisor to configured models | `packages/runner/src/adapters/assistant/review.ts` |
+| UI Automation on Windows may be hard to ship without upsetting Defender | Spike evaluated routes; pixel/vision fallback remains | `packages/runner/src/adapters/computer/operator.ts` |
+| Browser automation is brittle | Wait-for conditions, retries, and structured extraction | `packages/runner/src/adapters/browser/tools.ts` |
+| Scraping terms | Polite rates, declared user-agent, no login scraping | `packages/runner/src/adapters/leads/collectors/polite.ts` |
+| Scope | 7 independently useful phases ending with demo | `docs/adr-jarvis.md` |
 
 ## 14. ADRs to add when built
 
@@ -466,13 +369,13 @@ spike); porting the lead engine; model roles.
 
 ## 15. Ideas taken, and from where
 
-| Idea | Source |
-|---|---|
-| Monitors hashed before any model call; suggestions with a cap and a dismissal latch | Hermes (cron/monitor.py, cron/suggestions.py) |
-| Deny rules before any bypass; advisor model treating the command as untrusted | Hermes (tools/approval_floors.py, approval_smart.py) |
-| Background reviewer proposing skills and memories | Hermes (agent/background_review.py) |
-| Origin-bound secret autofill the model never sees | Hermes (tools/browser_vault_tool.py) |
-| A worktree per task; steering at tool boundaries; lane contracts | OpenClaw (managed-worktrees.md, queue-steering.md, parallel-specialist-lanes.md) |
-| One act contract with a frame id; take-over handshake | OpenClaw (nodes/computer-use.md) |
-| Memory consolidation with reviewable output; escalating recall | OpenClaw (dreaming.md, active-memory.md) |
+| Idea | Source inspiration | Malves implementation |
+|---|---|---|
+| Monitors hashed before any model call; suggestions with a cap and a dismissal latch | Hermes cron monitor & suggestions concept | `Automations` in `packages/core/src/automations/automations.ts` |
+| Deny rules before any bypass; advisor model treating the command as untrusted | Hermes approval floors & smart approvals | `Policy` in `packages/core/src/policy/policy.ts` |
+| Background reviewer proposing skills and memories | Hermes background review agent | `reviewFinishedTask` in `packages/runner/src/adapters/assistant/review.ts` |
+| Origin-bound secret autofill the model never sees | Hermes browser vault tool design | `BrowserVault` in `packages/runner/src/adapters/browser/vault.ts` |
+| A worktree per task; steering at tool boundaries; lane contracts | OpenClaw managed worktrees & specialist lanes | `GitWorktrees` in `packages/runner/src/adapters/git/worktrees.ts` |
+| One act contract with a frame id; take-over handshake | OpenClaw computer use design | `ComputerOperator` in `packages/runner/src/adapters/computer/operator.ts` |
+| Memory consolidation with reviewable output; escalating recall | OpenClaw dreaming & active memory concept | `consolidateDailyJournal` in `packages/runner/src/adapters/assistant/consolidation.ts` |
 
