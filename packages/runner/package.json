@@ -11,8 +11,8 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.82.0",
-    "@agentclientprotocol/codex-acp": "2.0.0",
+    "@agentclientprotocol/claude-agent-acp": "0.99.0",
+    "@agentclientprotocol/codex-acp": "2.4.0",
     "@agentclientprotocol/sdk": "1.5.1",
     "@malves/core": "workspace:*",
     "@malves/protocol": "workspace:*",
@@ -27,6 +27,6 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/qrcode-terminal": "0.12.2",
-    "@types/ws": "8.18.1"
+    "@types/ws": "8.18.2"
   }
 }

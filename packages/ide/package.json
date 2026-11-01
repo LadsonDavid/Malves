@@ -46,9 +46,9 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
-    "@types/vscode": "1.85.0",
-    "@types/ws": "8.18.1",
-    "@vscode/vsce": "4.0.0",
+    "@types/vscode": "1.144.0",
+    "@types/ws": "8.18.2",
+    "@vscode/vsce": "4.1.0",
     "esbuild": "0.28.2"
   }
 }
