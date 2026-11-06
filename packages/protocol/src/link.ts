@@ -275,6 +275,8 @@ export const AssistantSay = z.object({
   where: z.string().max(500).optional(),
   /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
   speak: Speak.optional(),
+  /** Send the reply's words as they are written, as `assistant.delta` (the chat screen). */
+  stream: z.boolean().optional(),
 });
 export const AssistantCancel = z.object({
   type: z.literal("assistant.cancel"),
@@ -311,6 +313,35 @@ export const AssistantLook = z.object({
   question: z.string().max(500).optional(),
   /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
   speak: Speak.optional(),
+});
+
+/** His chats with Malves: normal ones are kept, temp ones live only in the runner's memory. */
+export const ChatList = z.object({ type: z.literal("chat.list"), command_id: Id });
+export const ChatNew = z.object({
+  type: z.literal("chat.new"),
+  command_id: Id,
+  temp: z.boolean(),
+});
+export const ChatOpen = z.object({ type: z.literal("chat.open"), command_id: Id, chat_id: Id });
+/** Turns a temp chat into a normal one; only then is it remembered. */
+export const ChatSave = z.object({ type: z.literal("chat.save"), command_id: Id, chat_id: Id });
+export const ChatDelete = z.object({
+  type: z.literal("chat.delete"),
+  command_id: Id,
+  chat_id: Id,
+});
+
+/** His skill library: list it, import a pasted SKILL.md, remove an imported one. */
+export const SkillsList = z.object({ type: z.literal("skills.list"), command_id: Id });
+export const SkillsAdd = z.object({
+  type: z.literal("skills.add"),
+  command_id: Id,
+  text: z.string().min(1).max(60_000),
+});
+export const SkillsRemove = z.object({
+  type: z.literal("skills.remove"),
+  command_id: Id,
+  name: z.string().min(1).max(64),
 });
 
 /** What Malves remembers (answered in `ack.memories`). */
@@ -491,6 +522,14 @@ export const Command = z.discriminatedUnion("type", [
   AssistantLook,
   MemoryList,
   MemoryForget,
+  ChatList,
+  ChatNew,
+  ChatOpen,
+  ChatSave,
+  ChatDelete,
+  SkillsList,
+  SkillsAdd,
+  SkillsRemove,
   IdeAgent,
   IdeOpenChanges,
   IdeResume,
@@ -610,6 +649,12 @@ export const AssistantAudio = z.object({
   /** Said once when a voice runs out for the month, e.g. "Cartesia is used up; using ElevenLabs." */
   note: z.string().max(200).optional(),
 });
+/** A piece of Malves' reply as it is written (only when `assistant.say` asked for `stream`). */
+export const AssistantDelta = z.object({
+  type: z.literal("assistant.delta"),
+  command_id: Id,
+  text: z.string().max(2000),
+});
 export const AssistantProgress = z.object({
   type: z.literal("assistant.progress"),
   command_id: Id,
@@ -691,6 +736,38 @@ export const Ack = z.object({
   frame: z
     .object({ jpeg: z.string().max(400_000), width: z.number().int(), height: z.number().int() })
     .optional(),
+  /** The answer to `chat.list` / `chat.new` / `chat.save`. */
+  chats: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string().max(100),
+        temp: z.boolean(),
+        created: z.number(),
+        updated: z.number(),
+        preview: z.string().max(200),
+      }),
+    )
+    .max(500)
+    .optional(),
+  /** The answer to `skills.list` / `skills.add`. */
+  skill_items: z
+    .array(
+      z.object({
+        name: z.string().max(80),
+        description: z.string().max(240),
+        imported: z.boolean(),
+      }),
+    )
+    .max(2000)
+    .optional(),
+  /** The answer to `chat.open`. */
+  chat_lines: z
+    .array(
+      z.object({ who: z.enum(["you", "malves"]), text: z.string().max(20_000), at: z.number() }),
+    )
+    .max(400)
+    .optional(),
   /** The answer to `memory.list`. */
   memories: z
     .array(
@@ -722,6 +799,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   HandoverMessage,
   AssistantAudio,
   AssistantProgress,
+  AssistantDelta,
   ActivityMessage,
   LeadsMessage,
   EventMessage,

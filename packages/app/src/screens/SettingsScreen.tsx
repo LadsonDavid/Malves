@@ -1,6 +1,15 @@
 import type { AgentInfo, Check, LinkClient, LinkStatus } from "@malves/protocol";
 import { useEffect, useState } from "react";
-import { Alert, BackHandler, Linking, RefreshControl, ScrollView, Text, View } from "react-native";
+import {
+  Alert,
+  BackHandler,
+  Linking,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Speaker } from "../icons";
 import { ago, type Model, running, setupProblems } from "../model";
 import { PushCard } from "../PushCard";
@@ -28,6 +37,13 @@ type Props = {
   lastOnline: number | undefined;
   client: LinkClient | undefined;
   onUnpair: () => void;
+  /** The standby copy on the server: pair it, or forget it. */
+  standby?: {
+    name?: string | undefined;
+    active: boolean;
+    onPair: () => void;
+    onForget: () => void;
+  };
   say: (message: string) => void;
 };
 
@@ -39,9 +55,17 @@ const AGENT_STATE: Record<AgentInfo["state"], [string, Tone | "plain"]> = {
 };
 
 /** Everything about the connection and the computer, plus the rare, serious actions. */
-type Page = "voice" | "calls" | "memory" | "computer" | "setup" | "notifications";
+type Page = "voice" | "calls" | "memory" | "skills" | "computer" | "setup" | "notifications";
 
-export function SettingsScreen({ model, status, lastOnline, client, onUnpair, say }: Props) {
+export function SettingsScreen({
+  model,
+  status,
+  lastOnline,
+  client,
+  onUnpair,
+  standby,
+  say,
+}: Props) {
   const [checking, setChecking] = useState(false);
   // Settings is a short list; each row opens its own page.
   const [page, setPage] = useState<Page>();
@@ -112,6 +136,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
       voice: "Voice",
       calls: "Calls",
       memory: "Memory",
+      skills: "Skills",
       computer: "This computer",
       setup: "Check setup",
       notifications: "Notifications",
@@ -122,6 +147,9 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
         <Title>{titles[page]}</Title>
         {page === "voice" ? <VoiceCard voice={voice} phoneVoices={phoneVoices} /> : null}
         {page === "calls" ? <CallsCard voice={voice} /> : null}
+        {page === "skills" ? (
+          <SkillsCard client={client} online={status === "online"} say={say} />
+        ) : null}
         {page === "memory" ? (
           <MemoryCard model={model} client={client} online={status === "online"} say={say} />
         ) : null}
@@ -151,6 +179,27 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
                 {model.workspaces.map((w) => w.name).join(", ") || "none yet (type add <folder>)"}
               </Text>
             </Card>
+            {standby ? (
+              <Card>
+                <Text style={[styles.body, styles.strong]}>Standby copy</Text>
+                {standby.name ? (
+                  <Text style={styles.muted}>
+                    {standby.name} answers when this computer is off or out of reach.
+                    {standby.active ? " You are using it now." : ""}
+                  </Text>
+                ) : (
+                  <Text style={styles.muted}>
+                    Pair the copy on your server and you can still talk to Malves, your memory and
+                    your books when this computer is off.
+                  </Text>
+                )}
+                {standby.name ? (
+                  <Button title="Remove standby" kind="danger" onPress={standby.onForget} />
+                ) : (
+                  <Button title="Pair standby" kind="secondary" onPress={standby.onPair} />
+                )}
+              </Card>
+            ) : null}
             <List>
               {model.agents.map((a) => (
                 <Row key={a.name}>
@@ -201,6 +250,7 @@ export function SettingsScreen({ model, status, lastOnline, client, onUnpair, sa
               ] as const)
             : []),
           ["memory", "Memory", ""],
+          ["skills", "Skills", ""],
           ["computer", "This computer", status === "online" ? "Connected" : "Offline"],
           [
             "setup",
@@ -308,6 +358,117 @@ function SetupCard({
         disabled={!online}
         onPress={() => void again()}
       />
+    </>
+  );
+}
+
+type SkillItem = NonNullable<Awaited<ReturnType<LinkClient["skillsList"]>>["skill_items"]>[number];
+
+/** His skill library, plus importing a pasted SKILL.md. Skills stay read-only advice. */
+function SkillsCard({
+  client,
+  online,
+  say,
+}: {
+  client: LinkClient | undefined;
+  online: boolean;
+  say: (message: string) => void;
+}) {
+  const [items, setItems] = useState<SkillItem[]>();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (!client || !online) return;
+    void client.skillsList().then(
+      (ack) => {
+        if (ack.ok) setItems(ack.skill_items ?? []);
+      },
+      () => {},
+    );
+  }, [client, online]);
+
+  const add = async () => {
+    if (!client || !text.trim()) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const ack = await client.skillsAdd(text);
+      if (ack.ok) {
+        setItems(ack.skill_items ?? []);
+        setText("");
+        say("Skill added. It is read as advice, never followed as orders.");
+      } else setError(ack.error ?? "That skill couldn't be added.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That skill couldn't be added.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = (name: string) =>
+    Alert.alert(`Remove "${name}"?`, "Only skills you imported here can be removed.", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => {
+          void client?.skillsRemove(name).then((ack) => {
+            if (ack.ok) setItems(ack.skill_items ?? []);
+            else say(ack.error ?? "Couldn't remove it.");
+          });
+        },
+      },
+    ]);
+
+  return (
+    <>
+      <Text style={styles.muted}>
+        Malves reads these for advice when you ask for it. Skills from other tools are knowledge
+        only: it never runs what they say.
+      </Text>
+      <Section title="Add a skill">
+        <TextInput
+          style={[styles.input, { minHeight: 140, textAlignVertical: "top" }]}
+          multiline
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={"Paste a SKILL.md, starting with ---\nname: my-skill\ndescription: …"}
+          value={text}
+          onChangeText={setText}
+        />
+        <Button
+          title="Add skill"
+          busy={busy}
+          disabled={!online || !text.trim()}
+          onPress={() => void add()}
+        />
+        {error ? <Banner tone="bad">{error}</Banner> : null}
+      </Section>
+      <Section title={items ? `Your skills (${items.length})` : "Your skills"}>
+        {items === undefined ? (
+          <Text style={styles.muted}>{online ? "Loading…" : "Connect to see your skills."}</Text>
+        ) : (
+          <List>
+            {items.map((item) => (
+              <Row key={item.name} {...(item.imported ? { onPress: () => remove(item.name) } : {})}>
+                <View
+                  style={[styles.row, { alignItems: "center", justifyContent: "space-between" }]}
+                >
+                  <Text style={[styles.body, { flex: 1 }]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.imported ? <Chip label="Imported" tone="info" /> : null}
+                </View>
+                <Text style={styles.muted} numberOfLines={2}>
+                  {item.description}
+                </Text>
+              </Row>
+            ))}
+          </List>
+        )}
+      </Section>
     </>
   );
 }

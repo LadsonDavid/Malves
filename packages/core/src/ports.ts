@@ -145,6 +145,8 @@ export interface WorkspaceProvisioner {
   ): Promise<{ root: string; branch: string }>;
   /** Removes one step's worktree. */
   remove(workspacePath: string, jobId: string, stepId: string): Promise<void>;
+  /** Whether a step's worktree has uncommitted changes (a reviewer must leave none). */
+  hasChanges?(worktree: string): Promise<boolean>;
   /** Merges sourceBranch into targetBranch in the workspace or integration worktree. */
   merge(
     workspacePath: string,

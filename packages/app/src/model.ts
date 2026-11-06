@@ -369,7 +369,7 @@ export function countdown(expiresAt: number, now = Date.now()): string {
 
 /** Where a `malves://` link (from a notification) should open. */
 export type Target =
-  | { tab: "leads" }
+  | { tab: "leads" | "home" }
   | { taskId: string }
   | { malves: true }
   | { pair: PairingOffer }
@@ -383,6 +383,7 @@ export function parseLink(url: string | null | undefined): Target {
     return offer ? { pair: offer } : undefined;
   }
   if (match[1] === "leads") return { tab: "leads" };
+  if (match[1] === "home") return { tab: "home" };
   if (match[1] === "malves") return { malves: true };
   if (match[1] === "task" && match[2]) return { taskId: decodeURIComponent(match[2]) };
   return undefined;

@@ -60,4 +60,60 @@ describe("his skill library", () => {
     // Two words aren't a question worth looking up.
     expect(await lib.shortlist("naming ok")).toEqual([]);
   });
+
+  it("reads several folders (Claude, Codex, .agents) and the first one keeps a shared name", () => {
+    const make = (skills: Record<string, string>) => {
+      const root = mkdtempSync(path.join(tmpdir(), "malves-skills-"));
+      dirs.push(root);
+      for (const [name, text] of Object.entries(skills)) {
+        mkdirSync(path.join(root, name));
+        writeFileSync(path.join(root, name, "SKILL.md"), text);
+      }
+      return root;
+    };
+    const claude = make({ "clean-code": skill("clean-code", "From Claude.", "Claude body.") });
+    const codex = make({
+      "clean-code": skill("clean-code", "From Codex.", "Codex body."),
+      "never-split": skill("never-split", "Negotiate."),
+    });
+    const lib = new SkillLibrary({
+      root: [claude, codex, "/no/such/folder"],
+      dataDir: claude,
+      embed,
+    });
+    expect(lib.size()).toBe(2);
+    expect(lib.read("clean-code")?.body).toContain("Claude body.");
+    expect(lib.read("never-split")).toBeDefined();
+  });
+
+  it("imports a pasted skill, lists it, and removes only what was imported", async () => {
+    const own = mkdtempSync(path.join(tmpdir(), "malves-skills-"));
+    const imported = mkdtempSync(path.join(tmpdir(), "malves-imported-"));
+    dirs.push(own, imported);
+    mkdirSync(path.join(own, "clean-code"));
+    writeFileSync(path.join(own, "clean-code", "SKILL.md"), skill("clean-code", "Naming. Own."));
+    const lib = new SkillLibrary({ root: own, importRoot: imported, dataDir: own, embed });
+
+    expect(lib.add(skill("deep-focus", "Work without distraction. Imported.", "Body."))).toEqual({
+      name: "deep-focus",
+    });
+    expect(lib.list().map((s) => [s.name, s.imported])).toEqual([
+      ["clean-code", false],
+      ["deep-focus", true],
+    ]);
+    expect(lib.read("deep-focus")?.body).toContain("Body.");
+
+    // Bad input is refused before anything is written.
+    expect(() => lib.add("no front matter")).toThrow(/name/);
+    expect(() => lib.add("---\nname: ../evil\ndescription: x.\n---\n")).toThrow(/name/);
+    expect(() => lib.add(skill("gsd-thing", "A tool workflow."))).toThrow(/workflows/);
+    expect(() => lib.add("---\nname: ok-name\n---\n")).toThrow(/description/);
+    expect(() => lib.add(skill("big", "Big.", "x".repeat(60_001)))).toThrow(/too long/);
+
+    // His own folders are never removed from here.
+    expect(lib.remove("clean-code")).toBe(false);
+    expect(lib.remove("../clean-code")).toBe(false);
+    expect(lib.remove("deep-focus")).toBe(true);
+    expect(lib.list().map((s) => s.name)).toEqual(["clean-code"]);
+  });
 });

@@ -54,6 +54,14 @@ export class Caller {
     writeSecretJson(this.tokensFile, { ...this.tokens(), [deviceId]: token });
   }
 
+  /** Firebase tokens of the phones still paired (for notifications as well as calls). */
+  phones(): string[] {
+    const paired = new Set(this.o.paired());
+    return Object.entries(this.tokens())
+      .filter(([device]) => paired.has(device))
+      .map(([, token]) => token);
+  }
+
   /** Rings every paired phone; the answer says why it couldn't, if it couldn't. */
   async call(reason: string, test = false): Promise<string> {
     const now = this.now();

@@ -29,6 +29,11 @@ class FakeProvisioner implements WorkspaceProvisioner {
   removed: Array<{ jobId: string; stepId: string }> = [];
   merged: Array<{ source: string; target: string }> = [];
   cleaned: string[] = [];
+  /** Worktrees (by step) a test marks as having uncommitted changes. */
+  changedSteps = new Set<string>();
+  async hasChanges(worktree: string) {
+    return [...this.changedSteps].some((step) => worktree.endsWith(`/${step}`));
+  }
 
   async create(_ws: string, jobId: string, stepId: string) {
     this.created.push({ jobId, stepId });
@@ -111,7 +116,7 @@ describe("Jobs orchestrator", () => {
       questions,
       workspaces,
       host: host as any,
-      agents: new Map([["claude", "claude"] as any]),
+      agents: new Map([["claude", "claude"] as any, ["codex", "codex"] as any]),
       questionTimeoutMs: 60_000,
     });
     provisioner = new FakeProvisioner();
@@ -338,5 +343,157 @@ describe("Jobs orchestrator", () => {
     jobs.recover();
     const job = jobs.get(jobId);
     expect(job!.plan[0]!.state).toBe("failed");
+  });
+
+  describe("a team: reviewer, owned paths and budget", () => {
+    const step = (id: string, role: string, agent: string, extra: object = {}) => ({
+      id,
+      role: role as "implementer",
+      agent,
+      prompt: `Do ${id}`,
+      depends_on: [] as string[],
+      ...extra,
+    });
+    const team = (): Jobs =>
+      new Jobs({
+        log,
+        clock,
+        ids,
+        tasks,
+        workspaces,
+        questions,
+        provisioner,
+        verifier,
+        prOpener,
+        availableAgents: ["claude", "codex"],
+        maxConcurrentSteps: 2,
+      });
+    const taskOf = (id: string, stepId: string) =>
+      tasks.get(jobsRef(id).plan.find((p) => p.id === stepId)?.task_id ?? "");
+    let jobsRef: (id: string) => ReturnType<Jobs["get"]> & object;
+    const settle = () => new Promise((r) => setTimeout(r, 10));
+
+    it("refuses a reviewer that is the same agent as the implementer it checks", () => {
+      const ws = workspaces.list()[0]!;
+      const t = team();
+      expect(() =>
+        t.create({
+          workspaceId: ws.id,
+          goal: "g",
+          plan: [
+            step("a", "implementer", "claude"),
+            step("r", "reviewer", "claude", { depends_on: ["a"] }),
+          ],
+        }),
+      ).toThrow(/different agent/);
+      expect(() =>
+        t.create({
+          workspaceId: ws.id,
+          goal: "g",
+          plan: [
+            step("a", "implementer", "claude"),
+            step("r", "reviewer", "codex", { depends_on: ["a"] }),
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    it("refuses parallel steps that own the same path, but not ordered ones", () => {
+      const ws = workspaces.list()[0]!;
+      const t = team();
+      const make = (a: object, b: object) =>
+        t.create({
+          workspaceId: ws.id,
+          goal: "g",
+          plan: [step("a", "implementer", "claude", a), step("b", "implementer", "codex", b)],
+        });
+      expect(() => make({ owns: ["src/api/"] }, { owns: ["src/api/users.ts"] })).toThrow(
+        /both own/,
+      );
+      expect(() => make({ owns: ["src/api"] }, { owns: ["src/ui"] })).not.toThrow();
+      expect(() =>
+        make({ owns: ["src/api"] }, { owns: ["src/api"], depends_on: ["a"] }),
+      ).not.toThrow();
+    });
+
+    it("sends work back when the reviewer asks for changes, then passes it", async () => {
+      const ws = workspaces.list()[0]!;
+      const t = team();
+      jobsRef = (id) => t.get(id)!;
+      const id = t.create({
+        workspaceId: ws.id,
+        goal: "g",
+        plan: [
+          step("a", "implementer", "claude"),
+          step("r", "reviewer", "codex", { depends_on: ["a"] }),
+        ],
+      });
+      await t.approve(id);
+      host.completeTask(taskOf(id, "a")!.id, "built the feature");
+      await settle();
+
+      // The reviewer starts with its rules and the branch it must check.
+      const first = taskOf(id, "r")!;
+      expect(first.prompt).toContain("You are the REVIEWER");
+      expect(first.prompt).toContain(`malves/${id}/a`);
+      host.completeTask(first.id, "CHANGES REQUESTED\nmissing a null check in users.ts");
+      await settle();
+
+      // The implementer runs again with the review notes.
+      const again = taskOf(id, "a")!;
+      expect(again.prompt).toContain("[REVIEW, round 1/2]");
+      expect(again.prompt).toContain("missing a null check");
+      host.completeTask(again.id, "fixed");
+      await settle();
+      host.completeTask(taskOf(id, "r")!.id, "APPROVED\nlooks right");
+      await settle();
+      expect(t.get(id)?.state).toBe("awaiting_pr");
+    });
+
+    it("stops and asks after two rounds of changes", async () => {
+      const ws = workspaces.list()[0]!;
+      const t = team();
+      jobsRef = (id) => t.get(id)!;
+      const id = t.create({
+        workspaceId: ws.id,
+        goal: "g",
+        plan: [
+          step("a", "implementer", "claude"),
+          step("r", "reviewer", "codex", { depends_on: ["a"] }),
+        ],
+      });
+      await t.approve(id);
+      for (let round = 0; round < 3; round++) {
+        host.completeTask(taskOf(id, "a")!.id, "attempt");
+        await settle();
+        host.completeTask(taskOf(id, "r")!.id, "CHANGES REQUESTED\nstill wrong");
+        await settle();
+      }
+      const job = t.get(id);
+      expect(job?.state).toBe("failed");
+      expect(job?.reason).toContain("still asks for changes after 2 rounds");
+    });
+
+    it("fails the job when a reviewer left changes in its worktree", async () => {
+      const ws = workspaces.list()[0]!;
+      const t = team();
+      jobsRef = (id) => t.get(id)!;
+      const id = t.create({
+        workspaceId: ws.id,
+        goal: "g",
+        plan: [
+          step("a", "implementer", "claude"),
+          step("r", "reviewer", "codex", { depends_on: ["a"] }),
+        ],
+      });
+      await t.approve(id);
+      host.completeTask(taskOf(id, "a")!.id, "done");
+      await settle();
+      provisioner.changedSteps.add("r");
+      host.completeTask(taskOf(id, "r")!.id, "APPROVED");
+      await settle();
+      expect(t.get(id)?.state).toBe("failed");
+      expect(t.get(id)?.reason).toContain("must never do");
+    });
   });
 });

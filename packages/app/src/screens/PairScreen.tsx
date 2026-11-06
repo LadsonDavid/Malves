@@ -8,10 +8,13 @@ type Props = {
   /** Why the last pairing attempt failed, if it did. */
   error: string | undefined;
   onOffer: (offer: PairingOffer) => void;
+  /** Pairing the standby copy on the server instead of the computer. */
+  standby?: boolean;
+  onCancel?: () => void;
 };
 
 /** Scan the QR code `malves serve` shows, or paste its text (for emulators). */
-export function PairScreen({ error, onOffer }: Props) {
+export function PairScreen({ error, onOffer, standby, onCancel }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [pasted, setPasted] = useState("");
   const [problem, setProblem] = useState<string>();
@@ -30,11 +33,21 @@ export function PairScreen({ error, onOffer }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Title eyebrow="malves">Pair with your computer</Title>
-      <Text style={styles.body}>
-        On your computer, run <Text style={styles.mono}>malves serve</Text> and scan the code it
-        shows. Codes last two minutes.
-      </Text>
+      <Title eyebrow="malves">
+        {standby ? "Pair your standby copy" : "Pair with your computer"}
+      </Title>
+      {standby ? (
+        <Text style={styles.body}>
+          On your server, run{" "}
+          <Text style={styles.mono}>node packages/runner/dist/main.js console pair</Text> and scan
+          the code it shows. This copy answers when your computer is off.
+        </Text>
+      ) : (
+        <Text style={styles.body}>
+          On your computer, run <Text style={styles.mono}>malves serve</Text> and scan the code it
+          shows. Codes last two minutes.
+        </Text>
+      )}
       {error ? <Banner tone="bad">{error}</Banner> : null}
 
       {permission?.granted ? (
@@ -64,6 +77,7 @@ export function PairScreen({ error, onOffer }: Props) {
       />
       <Button title="Connect" disabled={pasted.trim() === ""} onPress={() => read(pasted.trim())} />
       {problem ? <Banner tone="bad">{problem}</Banner> : null}
+      {onCancel ? <Button title="Cancel" kind="plain" onPress={onCancel} /> : null}
     </ScrollView>
   );
 }

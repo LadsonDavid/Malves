@@ -68,6 +68,12 @@ export class GitWorktrees implements WorkspaceProvisioner {
     }
   }
 
+  async hasChanges(worktree: string): Promise<boolean> {
+    const res = await git(worktree, ["status", "--porcelain"]);
+    if (res.code !== 0) throw new Error(`git status failed: ${res.stderr || res.stdout}`);
+    return res.stdout.trim().length > 0;
+  }
+
   async merge(
     workspacePath: string,
     sourceBranch: string,

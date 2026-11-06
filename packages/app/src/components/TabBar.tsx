@@ -1,17 +1,18 @@
 import { Pressable, Text, View } from "react-native";
-import { Home, type Icon, Leads, Settings, Tasks } from "../icons";
+import { Conversation, Home, type Icon, Leads, Settings, Tasks } from "../icons";
 import { color, font } from "../ui";
 
-export type Tab = "home" | "tasks" | "leads" | "settings";
+export type Tab = "home" | "chat" | "tasks" | "leads" | "settings";
 
 const TABS: Array<{ tab: Tab; label: string; icon: Icon }> = [
   { tab: "home", label: "Home", icon: Home },
+  { tab: "chat", label: "Chat", icon: Conversation },
   { tab: "tasks", label: "Work", icon: Tasks },
   { tab: "leads", label: "Leads", icon: Leads },
   { tab: "settings", label: "Settings", icon: Settings },
 ];
 
-/** The four places in the app, always one tap away. A badge counts what's waiting. */
+/** The five places in the app, always one tap away. A badge counts what's waiting. */
 export function TabBar({
   current,
   onChange,

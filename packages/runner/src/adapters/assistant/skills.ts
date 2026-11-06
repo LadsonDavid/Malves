@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -24,6 +24,8 @@ type Entry = {
 /** Routers and tool workflows: indexes or Claude Code procedures, not advice. */
 const SKIP_NAME = /^(gsd-|gstack|ios-|seedance-|_)/;
 const SKIP_DESCRIPTION = /\b(entry point|router|dispatcher)\b|\(gstack\)/i;
+const NAME = /^[a-z0-9][a-z0-9-]{0,60}$/;
+const MAX_IMPORT = 60_000;
 /** Each skill's text is cut to this much. */
 const BODY_CHARS = 6000;
 
@@ -35,7 +37,10 @@ export class SkillLibrary {
 
   constructor(
     private readonly o: {
-      root: string;
+      /** One skills folder, or several (~/.claude/skills, ~/.codex/skills, ~/.agents/skills). */
+      root: string | string[];
+      /** Where skills imported from the app are kept (also searched; listed last, so his own folders win). */
+      importRoot?: string | undefined;
       dataDir: string;
       embed: (texts: string[]) => Promise<number[][]>;
     },
@@ -56,29 +61,35 @@ export class SkillLibrary {
     } else cached = this.entries;
     const known = new Map(cached.map((e) => [e.file, e]));
     const out: Entry[] = [];
-    let dirs: string[];
-    try {
-      dirs = readdirSync(this.o.root);
-    } catch {
-      dirs = [];
-    }
-    for (const dir of dirs) {
-      if (SKIP_NAME.test(dir)) continue;
-      const file = path.join(this.o.root, dir, "SKILL.md");
-      let mtime: number;
+    // Several folders (Claude, Codex, .agents): the first one to define a name wins.
+    const names = new Set<string>();
+    for (const root of [this.o.root, this.o.importRoot ?? []].flat()) {
+      let dirs: string[];
       try {
-        mtime = statSync(file).mtimeMs;
+        dirs = readdirSync(root);
       } catch {
-        continue;
+        dirs = [];
       }
-      const old = known.get(file);
-      if (old && old.mtime === mtime) {
-        out.push(old);
-        continue;
+      for (const dir of dirs) {
+        if (SKIP_NAME.test(dir)) continue;
+        const file = path.join(root, dir, "SKILL.md");
+        let mtime: number;
+        try {
+          mtime = statSync(file).mtimeMs;
+        } catch {
+          continue;
+        }
+        const old = known.get(file);
+        let entry = old && old.mtime === mtime ? old : undefined;
+        if (!entry) {
+          const meta = frontMatter(readFileSync(file, "utf8"));
+          if (!meta.description || SKIP_DESCRIPTION.test(meta.description)) continue;
+          entry = { file, mtime, name: meta.name || dir, description: meta.description };
+        }
+        if (names.has(entry.name)) continue;
+        names.add(entry.name);
+        out.push(entry);
       }
-      const meta = frontMatter(readFileSync(file, "utf8"));
-      if (!meta.description || SKIP_DESCRIPTION.test(meta.description)) continue;
-      out.push({ file, mtime, name: meta.name || dir, description: meta.description });
     }
     this.entries = out;
   }
@@ -125,6 +136,55 @@ export class SkillLibrary {
     return e
       ? { name: e.name, description: e.description, body: readBody(e.file).slice(0, BODY_CHARS) }
       : undefined;
+  }
+
+  /** Every skill, for the app's skill list. */
+  list(): Array<{ name: string; description: string; imported: boolean }> {
+    this.scan();
+    const root = this.o.importRoot;
+    return this.entries.map((e) => ({
+      name: e.name,
+      description: (e.description.match(/^[^.]*\./)?.[0] ?? e.description).slice(0, 200),
+      imported: root !== undefined && e.file.startsWith(root),
+    }));
+  }
+
+  /**
+   * Imports a SKILL.md pasted in the app. It stays read-only knowledge like the
+   * rest of the library: Malves reads it for advice and never follows it as orders.
+   */
+  add(text: string): { name: string } {
+    const root = this.o.importRoot;
+    if (!root) throw new Error("Importing skills isn't set up.");
+    if (text.length > MAX_IMPORT)
+      throw new Error("That skill is too long (60,000 characters at most).");
+    const meta = frontMatter(text);
+    if (!NAME.test(meta.name))
+      throw new Error("The skill needs a name: line in lowercase letters, digits and dashes.");
+    if (SKIP_NAME.test(meta.name))
+      throw new Error(
+        "Names starting with gsd-, gstack, ios- or seedance- are tool workflows, not advice.",
+      );
+    if (!meta.description) throw new Error("The skill needs a description: line.");
+    mkdirSync(path.join(root, meta.name), { recursive: true });
+    writeFileSync(path.join(root, meta.name, "SKILL.md"), text, "utf8");
+    this.scan();
+    return { name: meta.name };
+  }
+
+  /** Removes an imported skill; his own folders are never touched. */
+  remove(name: string): boolean {
+    const root = this.o.importRoot;
+    if (!root || !NAME.test(name)) return false;
+    const dir = path.join(root, name);
+    try {
+      statSync(path.join(dir, "SKILL.md"));
+    } catch {
+      return false;
+    }
+    rmSync(dir, { recursive: true, force: true });
+    this.scan();
+    return true;
   }
 
   /** How many skills are indexed (for the start-up line). */

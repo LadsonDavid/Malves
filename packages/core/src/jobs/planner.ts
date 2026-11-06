@@ -77,7 +77,64 @@ export function validatePlan(input: unknown, availableAgents: string[]): JobStep
     throw new Error("Cycle detected in plan dependencies");
   }
 
+  // A reviewer is only independent if it is not the agent whose work it checks.
+  if (agentsSet.size > 1) {
+    for (const step of parsedSteps.filter((s) => s.role === "reviewer")) {
+      for (const dep of step.depends_on) {
+        const checked = parsedSteps.find((s) => s.id === dep);
+        if (checked?.role === "implementer" && checked.agent === step.agent) {
+          throw new Error(
+            `Reviewer "${step.id}" must be a different agent than "${checked.id}" (both are ${step.agent})`,
+          );
+        }
+      }
+    }
+  }
+
+  // Steps that can run at the same time must not own the same paths.
+  const before = new Map<string, Set<string>>();
+  const ancestors = (id: string): Set<string> => {
+    const known = before.get(id);
+    if (known) return known;
+    const out = new Set<string>();
+    before.set(id, out);
+    for (const dep of parsedSteps.find((s) => s.id === id)?.depends_on ?? []) {
+      out.add(dep);
+      for (const up of ancestors(dep)) out.add(up);
+    }
+    return out;
+  };
+  for (let i = 0; i < parsedSteps.length; i++) {
+    for (let j = i + 1; j < parsedSteps.length; j++) {
+      const a = parsedSteps[i];
+      const b = parsedSteps[j];
+      if (!a || !b || ancestors(a.id).has(b.id) || ancestors(b.id).has(a.id)) continue;
+      const clash = overlap(a.owns, b.owns);
+      if (clash) {
+        throw new Error(`Steps "${a.id}" and "${b.id}" run in parallel but both own ${clash}`);
+      }
+    }
+  }
+
   return parsedSteps;
+}
+
+const clean = (p: string) =>
+  p
+    .trim()
+    .replace(/^[.][/]/, "")
+    .replace(/[/]+$/, "");
+
+/** The first path two owner lists share (one inside the other counts), or undefined. */
+export function overlap(a: string[], b: string[]): string | undefined {
+  for (const x of a.map(clean)) {
+    for (const y of b.map(clean)) {
+      const whole = x === "" || x === "." || y === "" || y === ".";
+      if (whole || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`))
+        return x || y || "the whole repo";
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -119,7 +176,7 @@ Allowed roles:
 ${roles}
 - implementer: writes or updates code in its designated scope.
 - tester: creates or updates tests to verify the changes.
-- reviewer: audits the changes, diffs, and security boundaries.
+- reviewer: audits the changes, diffs, and security boundaries. It never edits files, depends on the implementer it checks, and must be a different agent from that implementer.
 - verifier: runs test commands and linting.
 - integrator: resolves merge conflicts between step branches.
 
@@ -136,7 +193,9 @@ Rules:
     "role": "implementer",
     "agent": "${agents[0] ?? "claude"}",
     "prompt": "clear instructions for this step",
-    "depends_on": []
+    "depends_on": [],
+    "owns": ["src/feature/"]
   }
-]`;
+]
+6. "owns" lists the paths a step may change. Steps that run in parallel must own different paths.`;
 }

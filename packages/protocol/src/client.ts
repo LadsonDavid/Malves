@@ -94,6 +94,8 @@ export type LinkClientOptions = {
     note?: string | undefined;
   }) => void;
   onProgress?: (commandId: string, text: string) => void;
+  /** A piece of Malves' reply as it is written (`assistantSay` with `stream`). */
+  onDelta?: (commandId: string, text: string) => void;
   /** Handover mode started or ended. */
   onHandover?: (state: HandoverState) => void;
   /** This week's leads arrived (after `refreshLeads`). */
@@ -244,12 +246,14 @@ export class LinkClient {
     commandId?: string,
     where?: string,
     focus?: SessionFocus,
+    stream = false,
   ): Promise<Ack> {
     return this.send(
       {
         type: "assistant.say",
         conversation_id: conversationId,
         text,
+        ...(stream ? { stream } : {}),
         ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
         ...(speak ? { speak } : {}),
         ...(where ? { where: where.slice(0, 500) } : {}),
@@ -311,6 +315,44 @@ export class LinkClient {
       },
       commandId,
     );
+  }
+
+  /** His chats, newest first, in `ack.chats`. */
+  chatList(): Promise<Ack> {
+    return this.send({ type: "chat.list" });
+  }
+
+  /** Starts a chat; a temp one is never written down. The chat is in `ack.chats`. */
+  chatNew(temp: boolean): Promise<Ack> {
+    return this.send({ type: "chat.new", temp });
+  }
+
+  /** One chat's messages, in `ack.chat_lines`. */
+  chatOpen(chatId: string): Promise<Ack> {
+    return this.send({ type: "chat.open", chat_id: chatId });
+  }
+
+  /** Turns a temp chat into a normal one, which Malves then remembers. */
+  chatSave(chatId: string): Promise<Ack> {
+    return this.send({ type: "chat.save", chat_id: chatId });
+  }
+
+  chatDelete(chatId: string): Promise<Ack> {
+    return this.send({ type: "chat.delete", chat_id: chatId });
+  }
+
+  /** His skills, in `ack.skill_items`. */
+  skillsList(): Promise<Ack> {
+    return this.send({ type: "skills.list" });
+  }
+
+  /** Imports a pasted SKILL.md; the new skill list is in `ack.skill_items`. */
+  skillsAdd(text: string): Promise<Ack> {
+    return this.send({ type: "skills.add", text });
+  }
+
+  skillsRemove(name: string): Promise<Ack> {
+    return this.send({ type: "skills.remove", name });
   }
 
   /** What Malves remembers, in `ack.memories`. */
@@ -566,6 +608,9 @@ export class LinkClient {
         break;
       case "assistant.progress":
         this.o.onProgress?.(message.command_id, message.text);
+        break;
+      case "assistant.delta":
+        this.o.onDelta?.(message.command_id, message.text);
         break;
       case "assistant.audio":
         this.o.onAudio?.({

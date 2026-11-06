@@ -29,43 +29,82 @@ const RING_MS = 45_000;
 let answered: string | undefined;
 const listeners = new Set<(callId: string) => void>();
 
-/** The call id from a push, whichever way Android delivered it. */
-function callIdOf(payload: unknown): string | undefined {
+/** The fields of a push, whichever way Android delivered it. */
+function fieldsOf(payload: unknown): Record<string, unknown> | undefined {
   const data = (payload as { data?: Record<string, unknown> } | undefined)?.data ?? {};
-  let fields: Record<string, unknown> = data;
-  if (typeof data.dataString === "string") {
-    try {
-      fields = JSON.parse(data.dataString) as Record<string, unknown>;
-    } catch {
-      return undefined;
+  if (typeof data.dataString !== "string") return data;
+  try {
+    return JSON.parse(data.dataString) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The call id from a push, if it is a call. */
+function callIdOf(payload: unknown): string | undefined {
+  const fields = fieldsOf(payload);
+  return fields?.type === "call" && typeof fields.call_id === "string" ? fields.call_id : undefined;
+}
+
+/**
+ * Malves' own notifications: the computer sends a data push (type "note") with a
+ * title and a link, and this shows it as an Android notification. Tapping it
+ * opens the link (App.tsx). The question or task text is never in the push.
+ */
+const NOTE_CHANNEL = "malves-notes";
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
+
+async function showNote(fields: Record<string, unknown>): Promise<void> {
+  const title = typeof fields.title === "string" ? fields.title.slice(0, 80) : "Malves";
+  const body = typeof fields.body === "string" ? fields.body.slice(0, 140) : "Tap to open malves.";
+  // Only our own links: a push can't send you anywhere else.
+  const link =
+    typeof fields.link === "string" && fields.link.startsWith("malves://")
+      ? fields.link
+      : "malves://home";
+  await Notifications.setNotificationChannelAsync(NOTE_CHANNEL, {
+    name: "Malves",
+    importance: Notifications.AndroidImportance.HIGH,
+  }).catch(() => {});
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body, data: { link } },
+    trigger: { channelId: NOTE_CHANNEL },
+  });
+}
+
+TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ data }) => {
+  if (data && !("actionIdentifier" in data)) {
+    const fields = fieldsOf(data);
+    if (fields?.type === "note") await showNote(fields).catch(() => {});
+    const callId = callIdOf(data);
+    if (callId && callScreen) {
+      callScreen.displayNotification(callId, null, RING_MS, {
+        // A new id: Android fixes a channel's sound when it is first created.
+        channelId: "malves-calls-ring",
+        channelName: "Malves calling",
+        notificationIcon: "ic_launcher",
+        notificationTitle: "Malves",
+        notificationBody: "Malves is calling",
+        answerText: "Answer",
+        declineText: "Decline",
+        // No notificationColor: the library wants a colour *resource name*; a hex
+        // value isn't found and its ringing service crashes the app.
+      });
     }
   }
-  return fields.type === "call" && typeof fields.call_id === "string" ? fields.call_id : undefined;
-}
+  return Notifications.BackgroundNotificationTaskResult.NoData;
+});
+void Notifications.registerTaskAsync(TASK).catch(() => {});
 
 if (callScreen) {
   const screen = callScreen;
-  TaskManager.defineTask<Notifications.NotificationTaskPayload>(TASK, async ({ data }) => {
-    if (data && !("actionIdentifier" in data)) {
-      const callId = callIdOf(data);
-      if (callId) {
-        screen.displayNotification(callId, null, RING_MS, {
-          // A new id: Android fixes a channel's sound when it is first created.
-          channelId: "malves-calls-ring",
-          channelName: "Malves calling",
-          notificationIcon: "ic_launcher",
-          notificationTitle: "Malves",
-          notificationBody: "Malves is calling",
-          answerText: "Answer",
-          declineText: "Decline",
-          // No notificationColor: the library wants a colour *resource name*; a hex
-          // value isn't found and its ringing service crashes the app.
-        });
-      }
-    }
-    return Notifications.BackgroundNotificationTaskResult.NoData;
-  });
-  void Notifications.registerTaskAsync(TASK).catch(() => {});
   screen.addEventListener("answer", (event) => {
     screen.backToApp();
     answered = event.callUUID;
