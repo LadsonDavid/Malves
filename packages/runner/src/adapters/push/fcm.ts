@@ -7,7 +7,11 @@ import { readFileSync } from "node:fs";
  * over the sealed link once you answer. Signed with your Firebase project's
  * service-account key (MALVES_FCM_KEY, a JSON file kept out of git).
  */
-export type FcmSend = (token: string, data: Record<string, string>) => Promise<void>;
+export type FcmSend = (
+  token: string,
+  data: Record<string, string>,
+  options?: { ttl?: string },
+) => Promise<void>;
 
 type ServiceAccount = {
   project_id: string;
@@ -58,7 +62,7 @@ export function fcmSender(keyFile: string): FcmSend {
     return access.token;
   };
 
-  return async (token, data) => {
+  return async (token, data, options) => {
     const response = await fetch(
       `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`,
       {
@@ -67,10 +71,11 @@ export function fcmSender(keyFile: string): FcmSend {
           authorization: `Bearer ${await accessToken()}`,
           "content-type": "application/json",
         },
-        // Data only (so the app shows its own call screen), high priority, and
-        // useless after a minute: a call that rings late is worse than none.
+        // Data only (so the app shows its own screen), high priority. A call is
+        // useless after a minute (one that rings late is worse than none); a
+        // notification sets its own lifetime.
         body: JSON.stringify({
-          message: { token, data, android: { priority: "HIGH", ttl: "60s" } },
+          message: { token, data, android: { priority: "HIGH", ttl: options?.ttl ?? "60s" } },
         }),
         signal: AbortSignal.timeout(15_000),
       },

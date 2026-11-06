@@ -785,12 +785,64 @@ Each step ends in something demoable:
 
 ### His skill library
 
-`~/.claude/skills` is read, never changed. Each skill's description is embedded
+`~/.claude/skills`, `~/.codex/skills` and `~/.agents/skills` (or `MALVES_SKILLS`) are
+read, never changed; the first folder to define a name wins. Each skill's description is embedded
 once (again only when it changes, cached in `skill-index.json`). Similarity alone
 can't tell a command from a question (bge-m3 scores both 0.45-0.57), so the five
 closest are only *offered* to the brain by name; it reads one (`read_skill`) for
 advice, reviews or judgments, as data it must never act on. The phone shows
 "From your library: …". Routers and Claude Code workflows are left out.
+
+### His book library
+
+`MALVES_BOOKS` names folders of PDFs and Markdown notes (`adapters/assistant/books.ts`).
+Text is cut into ~2000-character chunks that keep their page range (notes keep their
+heading), stored in SQLite with an FTS5 index, and embedded with bge-m3 in small
+background rounds; search merges both rankings by reciprocal rank. A file is read
+again only when its size or time changes and a chunk with unchanged text keeps its
+vector. `search_books` hands the brain the passages as data; the citation line
+("From your books: Atomic habits (page 20)") is added by code from the stored page
+range, so the brain cannot invent one. PDF text comes from poppler's `pdftotext`;
+scanned PDFs are listed as unreadable (no OCR yet). Embedding sends text to the
+embedding model, so `MALVES_BOOKS_EMBED=0` keeps everything local with word search only.
+Designed with Open Notebook (MIT) and NotebookLM as references; no code copied.
+Ceiling: brute-force int8 vector scan, about 200k chunks.
+
+### Chats, temp chats and automatic memory
+
+The app's Chat tab talks to the same assistant as the voice screen (`chat.*` commands,
+`assistant.say` with `stream`, so the words appear as they are written). A normal chat
+is a Markdown file in the vault (`Chats/…md`, `adapters/assistant/chats.ts`), and after
+each turn `AutoMemory` reads **only what he said** and saves lasting facts, preferences,
+people and projects as notes (shown in Settings → Memory, where he can delete them).
+Agent output, web pages and book passages are never read for memories, because they could
+carry someone else's instructions. A **temp chat** lives only in the runner's memory: no
+chat file, no conversation log, no memory, and `remember`, `learn` and `update_profile`
+are refused; it still reads memory, books and skills. "Save chat" turns it into a normal
+chat, and only then is it written and remembered. The voice conversation is a normal chat. When the laptop is off, a standby copy on the
+server (`MALVES_STANDBY=1`: talking, memory, books and skills only) answers; see
+[docs/standby.md](docs/standby.md).
+
+### Team jobs, the heartbeat, skills and Gmail
+
+- **Team jobs** (`core/src/jobs`): a plan has roles. A **reviewer** must be a different agent
+  from the implementer it checks, starts with read-only rules and the branches to inspect,
+  and must leave no changes in its worktree (checked with `git status`). It answers
+  `APPROVED` or `CHANGES REQUESTED`; the second sends the implementer back with its notes,
+  at most twice, then the job stops and asks. Steps that run in parallel declare `owns`
+  paths and may not overlap. One job gets 12 step runs in total.
+- **Heartbeat** (`heartbeat.ts`): every five minutes, cheap rules and no model: a running task
+  silent for 45 minutes, and the reminders in the vault note `Heartbeat.md`
+  (`- at 09:00 remind: …`, `- every 2h remind: …`). Not on the server copy.
+- **Skill import**: Settings → Skills pastes a SKILL.md into `imported-skills/` (read-only
+  knowledge like the rest; only imported ones can be removed).
+- **Gmail** (`gmail.ts`): several accounts, read and save drafts only; no code path sends.
+  Refresh tokens are AES-GCM encrypted with a separate key file. `malves gmail add`.
+
+### Her character
+
+`Persona.md` in the vault (seeded once from `character.ts`, then yours to edit) is added to
+the persona after the voice and safety rules. It cannot override them or his confirmations.
 
 ### His screen from the phone
 

@@ -172,8 +172,8 @@ describe("Malves, the assistant", () => {
       { calls: [["start_task", { agent: "claude", request: "First" }]] },
       { calls: [["start_task", { agent: "claude", request: "Second" }]] },
     ]);
-    const first = await s.assistant.say("confirm-race", "Start the first task");
-    const second = await s.assistant.say("confirm-race", "Actually start the second task");
+    const first = await s.assistant.say("confirm-race", "Start the first CLI task");
+    const second = await s.assistant.say("confirm-race", "Actually start the second CLI task");
     await s.assistant.confirm("confirm-race", first.pending?.id ?? "", true);
     await s.assistant.confirm("confirm-race", second.pending?.id ?? "", true);
     expect(s.core.tasks.list()).toHaveLength(1);
@@ -377,6 +377,110 @@ describe("Malves, the assistant", () => {
     );
     expect(s.core.tasks.list()).toEqual([]);
   });
+  it("never routes a browser request into Claude even without desktop connectors", async () => {
+    const s = setup([{ calls: [["start_task", { agent: "claude", request: "Search Chrome" }]] }]);
+    const reply = await s.assistant.say(
+      "browser",
+      "Open my browser then search my repository in Chrome",
+    );
+    expect(reply.pending).toBeUndefined();
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("invalidates chat confirmation on leaving the focused desktop chat", async () => {
+    const sent: string[] = [];
+    const chat = {
+      tool: "codex" as const,
+      id: "a",
+      title: "A",
+      how: "resume" as const,
+      desktop: "codex-queue" as const,
+      updatedAt: 1,
+    };
+    const s = setup(
+      [
+        { calls: [["desktop_read_chat", { tool: "codex", session_id: "a" }]] },
+        { calls: [["desktop_send_chat", { message: "Old message" }]] },
+      ],
+      undefined,
+      {
+        desktopChats: {
+          list: async () => [chat],
+          read: async () => [],
+          changes: async () => "",
+          send: async (_tool, id) => {
+            sent.push(id);
+            return { result: "sent" };
+          },
+        },
+      },
+    );
+    const asked = await s.assistant.say(
+      "focus",
+      "Send to this chat",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { tool: "codex", session_id: "a" },
+    );
+    expect(asked.pending).toBeDefined();
+    await s.assistant.say("focus", "yes");
+    expect(sent).toEqual([]);
+  });
+  it("refuses a model-selected chat different from the phone's focused chat", async () => {
+    const read: string[] = [];
+    const s = setup(
+      [{ calls: [["desktop_read_chat", { tool: "codex", session_id: "b" }]] }],
+      undefined,
+      {
+        desktopChats: {
+          list: async () => [],
+          read: async (_tool, id) => {
+            read.push(id);
+            return [];
+          },
+          changes: async () => "",
+          send: async () => ({ result: "must not send" }),
+        },
+      },
+    );
+    const result = await s.assistant.say(
+      "focus",
+      "Read this chat",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { tool: "codex", session_id: "a" },
+    );
+    expect(result.reply).toContain("not the desktop chat selected");
+    expect(read).toEqual([]);
+  });
+  it("requires an agent choice and never substitutes a different project", async () => {
+    const s = setup([
+      { calls: [["start_task", { request: "Run tests" }]] },
+      { calls: [["start_task", { request: "Run tests", agent: "codex", project: "nonexistent" }]] },
+    ]);
+    expect((await s.assistant.say("a", "Start a CLI task")).pending).toBeUndefined();
+    expect((await s.assistant.say("b", "Use Codex CLI in nonexistent")).pending).toBeUndefined();
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("never redirects an invalid task id to another conversation's task", async () => {
+    const s = setup([
+      { calls: [["stop_task", { task_id: "missing" }]] },
+      { calls: [["reply_to_task", { task_id: "missing", message: "Do it" }]] },
+      { calls: [["run_again", { task_id: "missing" }]] },
+    ]);
+    const task = s.core.tasks.create({
+      workspaceId: s.ws.id,
+      agent: "codex",
+      prompt: "Other chat",
+    });
+    for (const conversation of ["stop", "reply", "rerun"])
+      expect((await s.assistant.say(conversation, "Do that")).pending).toBeUndefined();
+    expect(s.core.tasks.get(task)?.state).toBe("running");
+    expect(s.core.tasks.list()).toHaveLength(1);
+  });
   it("stops a repeated observation loop instead of retrying blindly", async () => {
     const s = setup([{ calls: [["list_tasks", {}]] }, { calls: [["list_tasks", {}]] }]);
     expect((await s.assistant.say("repeat", "Check work")).reply).toContain(
@@ -541,7 +645,7 @@ describe("Malves, the assistant", () => {
       undefined,
       { handover: h },
     );
-    const ask = await s.assistant.say("c1", "start Claude");
+    const ask = await s.assistant.say("c1", "start Claude CLI");
     expect(ask.pending).toBeDefined();
     h.control(true);
     h.control(false);
@@ -610,29 +714,26 @@ describe("Malves, the assistant", () => {
     handover.stop("test over");
   });
 
-  it("opens the newest task that changed files, not just the newest task", async () => {
+  it("opens only the explicitly selected task's changes", async () => {
     const opened: string[] = [];
     const ide = { id: "ide1", app: "Visual Studio Code", projects: [] };
-    const s = setup(
-      [{ calls: [["open_changes_in_ide", {}]] }, { calls: [["open_changes_in_ide", {}]] }],
-      undefined,
-      {
-        ides: () => [ide],
-        ide: {
-          list: () => [ide],
-          onChange: () => () => {},
-          agent: async () => "",
-          resume: async () => "",
-          openChanges: async (_ide: string, taskId: string) => {
-            if (taskId !== withChanges) {
-              throw new Error("This task has no recorded changes to open.");
-            }
-            opened.push(taskId);
-            return "Opened 2 files.";
-          },
-        } as unknown as AssistantDeps["ide"],
-      },
-    );
+    const script: Turn[] = [];
+    const s = setup(script, undefined, {
+      ides: () => [ide],
+      ide: {
+        list: () => [ide],
+        onChange: () => () => {},
+        agent: async () => "",
+        resume: async () => "",
+        openChanges: async (_ide: string, taskId: string) => {
+          if (taskId !== withChanges) {
+            throw new Error("This task has no recorded changes to open.");
+          }
+          opened.push(taskId);
+          return "Opened 2 files.";
+        },
+      } as unknown as AssistantDeps["ide"],
+    });
     const withChanges = s.core.tasks.create({
       workspaceId: s.ws.id,
       agent: "claude",
@@ -646,6 +747,7 @@ describe("Malves, the assistant", () => {
     });
     await s.core.tasks.stop(noChanges);
 
+    script.push({ calls: [["open_changes_in_ide", { task_id: withChanges, ide_id: ide.id }]] });
     const reply = await s.assistant.say("c1", "open changes in vs code");
     expect(opened).toEqual([withChanges]);
     expect(reply.did[0]).toContain('"fix the footer" in Visual Studio Code');
@@ -697,7 +799,7 @@ describe("Malves, the assistant", () => {
     ]);
     const first = await s.assistant.say(
       "c1",
-      "uh can cloud like fix that footer thing in the malves one",
+      "uh can cloud CLI like fix that footer thing in the malves one",
     );
     expect(first.reply).toBe('Start "Fix the footer" in malves with Claude? Shall I go ahead?');
     expect(first.pending?.summary).toBe('Start "Fix the footer" in malves with Claude?');
@@ -713,8 +815,8 @@ describe("Malves, the assistant", () => {
   });
 
   it("'no' (in any language) cancels, and nothing happens", async () => {
-    const s = setup([{ calls: [["start_task", { request: "Delete the logs" }]] }]);
-    await s.assistant.say("c1", "delete the logs");
+    const s = setup([{ calls: [["start_task", { request: "Delete the logs", agent: "claude" }]] }]);
+    await s.assistant.say("c1", "use Claude CLI to delete the logs");
     expect((await s.assistant.say("c1", "வேண்டாம்")).reply).toBe("Okay, cancelled.");
     expect(s.core.tasks.list()).toEqual([]);
   });
@@ -768,7 +870,7 @@ describe("Malves, the assistant", () => {
         { name: "codex", label: "Codex", state: "needs_sign_in" },
       ],
     );
-    const reply = await s.assistant.say("c1", "ask codex to add tests");
+    const reply = await s.assistant.say("c1", "ask codex CLI to add tests");
     expect(reply.pending).toBeUndefined();
     expect(reply.reply).toBe("Codex isn't ready on the computer (needs sign-in).");
   });
@@ -856,12 +958,12 @@ describe("Malves, the assistant", () => {
     const s = setup([
       {
         calls: [
-          ["start_task", { request: "Fix the footer" }],
-          ["start_task", { request: "Add a test" }],
+          ["start_task", { request: "Fix the footer", agent: "claude" }],
+          ["start_task", { request: "Add a test", agent: "claude" }],
         ],
       },
     ]);
-    const reply = await s.assistant.say("c1", "fix the footer and add a test");
+    const reply = await s.assistant.say("c1", "use Claude CLI to fix the footer and add a test");
     expect(reply.reply).toContain('Start "Fix the footer"');
     expect(reply.reply).toContain("ask me again for the rest");
   });
@@ -1165,6 +1267,7 @@ describe("a fooled brain still changes nothing without his yes", () => {
   const rows: Row[] = [
     {
       name: "start a task",
+      heard: "Use Claude CLI to delete the logs",
       call: () => [
         "start_task",
         { request: "Delete the logs", agent: "claude", project: "malves" },

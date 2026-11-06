@@ -26,6 +26,7 @@ import {
   seal,
 } from "@malves/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import type { ChatLine, ChatMeta } from "../assistant/chats.js";
 import { humanizeSentence } from "../assistant/humanize.js";
 import { langOf, sentences, splitSentences, type Voice } from "../assistant/voice.js";
 import type { LeadSource } from "../leads/signalstack.js";
@@ -125,7 +126,25 @@ export interface SessionsPort {
   workspaceFor(folder: string): Promise<string>;
 }
 
+/** His chats with Malves (see `ChatStore`). */
+export interface ChatPort {
+  list(): ChatMeta[];
+  create(temp: boolean): ChatMeta;
+  open(id: string): { meta: ChatMeta; lines: ChatLine[] } | undefined;
+  save(id: string): ChatMeta | undefined;
+  remove(id: string): boolean;
+}
+
+/** His skill library (see `SkillLibrary`). */
+export interface SkillsPort {
+  list(): Array<{ name: string; description: string; imported: boolean }>;
+  add(text: string): { name: string };
+  remove(name: string): boolean;
+}
+
 export interface AssistantPort {
+  chats?: ChatPort;
+  skills?: SkillsPort;
   cancel?(conversationId: string): void;
   say(
     conversationId: string,
@@ -673,13 +692,24 @@ export class LinkServer {
           const speaker = command.speak
             ? this.speaker(command.command_id, command.speak)
             : undefined;
+          // The chat screen asks for the words as they are written.
+          const stream = command.type === "assistant.say" && command.stream === true;
+          const onText =
+            speaker || stream
+              ? (delta: string) => {
+                  speaker?.text(delta);
+                  if (stream)
+                    for (const session of this.sessions)
+                      session.delta(command.command_id, delta.slice(0, 2000));
+                }
+              : undefined;
           const answer =
             command.type === "assistant.say"
               ? await assistant.say(
                   command.conversation_id,
                   command.text,
                   command.alternatives ?? [],
-                  speaker?.text,
+                  onText,
                   command.where,
                   (text) => {
                     for (const session of this.sessions)
@@ -690,6 +720,43 @@ export class LinkServer {
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
           speaker?.finish(answer.reply, answer.pending !== undefined);
           return ack(true, { assistant: answer });
+        }
+        case "chat.list":
+        case "chat.new":
+        case "chat.open":
+        case "chat.save":
+        case "chat.delete": {
+          const chats = this.o.assistant?.chats;
+          if (!chats) return ack(false, { error: "Chats aren't set up on this computer." });
+          if (command.type === "chat.list") return ack(true, { chats: chats.list().slice(0, 500) });
+          if (command.type === "chat.new")
+            return ack(true, { chats: [chats.create(command.temp)] });
+          if (command.type === "chat.delete")
+            return chats.remove(command.chat_id)
+              ? ack(true)
+              : ack(false, { error: "That chat is already gone." });
+          if (command.type === "chat.save") {
+            const saved = chats.save(command.chat_id);
+            return saved ? ack(true, { chats: [saved] }) : ack(false, { error: "No such chat." });
+          }
+          const chat = chats.open(command.chat_id);
+          return chat
+            ? ack(true, { chats: [chat.meta], chat_lines: chat.lines.slice(-400) })
+            : ack(false, { error: "No such chat." });
+        }
+        case "skills.list":
+        case "skills.add":
+        case "skills.remove": {
+          const skills = this.o.assistant?.skills;
+          if (!skills) return ack(false, { error: "Skills aren't set up on this computer." });
+          try {
+            if (command.type === "skills.add") skills.add(command.text);
+            else if (command.type === "skills.remove" && !skills.remove(command.name))
+              return ack(false, { error: "Only skills you imported here can be removed." });
+            return ack(true, { skill_items: skills.list().slice(0, 2000) });
+          } catch (error) {
+            return ack(false, { error: error instanceof Error ? error.message : String(error) });
+          }
         }
         case "memory.list":
           if (!this.o.assistant) return ack(false, { error: ASSISTANT_OFF });
@@ -819,6 +886,9 @@ export class LinkServer {
 /** One phone's connection, after a successful handshake. */
 class Session {
   private progressEnabled = false;
+  delta(commandId: string, text: string): void {
+    this.send({ type: "assistant.delta", command_id: commandId, text });
+  }
   progress(commandId: string, text: string): void {
     if (this.progressEnabled)
       this.send({ type: "assistant.progress", command_id: commandId, text });

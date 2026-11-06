@@ -1,0 +1,21 @@
+# Malves standby: the always-on copy that answers when the laptop is off.
+# Copy to /etc/systemd/system/, fix User and the paths, then:
+#   sudo systemctl enable --now malves-standby
+# See docs/standby.md.
+[Unit]
+Description=Malves standby (always-on copy)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/malves
+EnvironmentFile=/home/ubuntu/malves/.env.standby
+ExecStart=/usr/bin/node packages/runner/dist/main.js serve
+Restart=on-failure
+RestartSec=5
+# serve waits for Tailscale itself (up to 90 s) and restarts itself once it is up.
+
+[Install]
+WantedBy=multi-user.target

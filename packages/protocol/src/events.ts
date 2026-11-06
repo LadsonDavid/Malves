@@ -380,6 +380,8 @@ export const JobStep = z.object({
   agent: z.string().min(1),
   prompt: z.string().min(1),
   depends_on: z.array(z.string()).default([]),
+  /** Paths this step may change; parallel steps must not share any (checked when the plan is made). */
+  owns: z.array(z.string().max(200)).max(20).default([]),
   branch: z.string().optional(),
   worktree: z.string().optional(),
   task_id: z.string().optional(),

@@ -20,6 +20,8 @@ export type Job = {
   state: JobState;
   plan: JobStep[];
   returnCount: number;
+  /** How many times a reviewer has sent the work back. */
+  reviewRounds: number;
   prUrl?: string | undefined;
   reason?: string | undefined;
 };
@@ -38,11 +40,23 @@ export type JobsOptions = {
   maxConcurrentSteps?: number | undefined;
 };
 
+/** A reviewer may send the work back this many times before the job stops and asks. */
+export const MAX_REVIEW_ROUNDS = 2;
+/** Step runs allowed in one job (retries and re-runs included): a loop can't spend without end. */
+export const MAX_STEP_RUNS = 12;
+
+const REVIEWER_RULES = [
+  "You are the REVIEWER. You must not edit, create or delete any file, and you must not commit.",
+  "Look at the work with git (for example: git diff HEAD...<branch>) and run read-only checks.",
+  "Your reply must start with exactly APPROVED or CHANGES REQUESTED on its own line, then your reasons: file, line, what is wrong.",
+].join("\n");
+
 export class Jobs {
   private readonly jobs = new Map<string, Job>();
   private readonly taskToStep = new Map<string, { jobId: string; stepId: string }>();
   private readonly maxConcurrentSteps: number;
   private readonly stepRetries = new Map<string, number>();
+  private readonly stepRuns = new Map<string, number>();
 
   constructor(private readonly o: JobsOptions) {
     this.maxConcurrentSteps = o.maxConcurrentSteps ?? 3;
@@ -56,6 +70,7 @@ export class Jobs {
             state: "planning",
             plan: [],
             returnCount: 0,
+            reviewRounds: 0,
           });
           break;
         }
@@ -242,6 +257,19 @@ export class Jobs {
       const depsMet = step.depends_on.every((d) => doneIds.has(d));
       if (!depsMet) continue;
 
+      const runs = (this.stepRuns.get(jobId) ?? 0) + 1;
+      if (runs > MAX_STEP_RUNS) {
+        this.o.log.append({
+          type: "job.finished",
+          data: {
+            job_id: jobId,
+            state: "failed",
+            reason: `Stopped: this job used its ${MAX_STEP_RUNS} step runs. Look at the branches and decide.`,
+          },
+        });
+        return;
+      }
+      this.stepRuns.set(jobId, runs);
       step.state = "running";
       slots--;
 
@@ -252,7 +280,7 @@ export class Jobs {
       const taskId = this.o.tasks.create({
         workspaceId: job.workspaceId,
         agent: step.agent,
-        prompt: step.prompt,
+        prompt: this.promptFor(job, step),
         root,
       });
       step.task_id = taskId;
@@ -288,6 +316,7 @@ export class Jobs {
       const task = this.o.tasks.get(taskId);
       step.state = "done";
       step.summary = task?.result ?? "Completed";
+      if (step.role === "reviewer" && (await this.reviewOutcome(job, step))) return;
       this.o.log.append({
         type: "job.step.updated",
         data: {
@@ -316,6 +345,75 @@ export class Jobs {
         });
       }
     }
+  }
+
+  /** What a step is told. A reviewer gets its rules and the branches it must check. */
+  private promptFor(job: Job, step: JobStep): string {
+    if (step.role !== "reviewer") return step.prompt;
+    const checked = step.depends_on
+      .map((id) => job.plan.find((s) => s.id === id))
+      .filter((s): s is JobStep => s !== undefined && s.branch !== undefined)
+      .map((s) => `- branch ${s.branch}: ${(s.summary ?? "").slice(0, 600)}`);
+    return [
+      REVIEWER_RULES,
+      checked.length ? `Work to review:\n${checked.join("\n")}` : "",
+      step.prompt,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  /**
+   * After a reviewer finishes: it must have left no changes, and if it asked
+   * for changes the implementers it checked run again with its notes, up to
+   * MAX_REVIEW_ROUNDS times. Returns true when it handled the step (the job
+   * went back, or stopped), false when the review passed.
+   */
+  private async reviewOutcome(job: Job, step: JobStep): Promise<boolean> {
+    if (step.worktree && this.o.provisioner.hasChanges) {
+      const changed = await this.o.provisioner.hasChanges(step.worktree).catch(() => false);
+      if (changed) {
+        this.finishFailed(
+          job,
+          `Reviewer "${step.id}" changed files, which a reviewer must never do`,
+        );
+        return true;
+      }
+    }
+    if (!/^\s*CHANGES REQUESTED/i.test(step.summary ?? "")) return false;
+    job.reviewRounds++;
+    if (job.reviewRounds > MAX_REVIEW_ROUNDS) {
+      this.finishFailed(
+        job,
+        `The reviewer still asks for changes after ${MAX_REVIEW_ROUNDS} rounds. Look at the branches yourself.`,
+      );
+      return true;
+    }
+    const notes = `\n\n[REVIEW, round ${job.reviewRounds}/${MAX_REVIEW_ROUNDS}] The reviewer asked for changes:\n${(step.summary ?? "").slice(0, 3000)}`;
+    for (const id of step.depends_on) {
+      const implementer = job.plan.find((s) => s.id === id && s.role === "implementer");
+      if (!implementer) continue;
+      implementer.state = "pending";
+      implementer.prompt += notes;
+      this.o.log.append({
+        type: "job.step.updated",
+        data: { job_id: job.id, step_id: implementer.id, state: "pending" },
+      });
+    }
+    step.state = "pending";
+    this.o.log.append({
+      type: "job.step.updated",
+      data: { job_id: job.id, step_id: step.id, state: "pending" },
+    });
+    await this.advance(job.id);
+    return true;
+  }
+
+  private finishFailed(job: Job, reason: string): void {
+    this.o.log.append({
+      type: "job.finished",
+      data: { job_id: job.id, state: "failed", reason },
+    });
   }
 
   private async runVerification(jobId: string): Promise<void> {

@@ -3,8 +3,9 @@ import { Geist_400Regular, Geist_500Medium, Geist_600SemiBold } from "@expo-goog
 import { GeistMono_400Regular, GeistMono_500Medium } from "@expo-google-fonts/geist-mono";
 import { generateKeyPair, type KeyPair, type PairingOffer } from "@malves/protocol";
 import { useFonts } from "expo-font";
+import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   BackHandler,
@@ -17,7 +18,9 @@ import {
 } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Tab, TabBar } from "./src/components/TabBar";
+import { activeSide, FAILOVER_AFTER_MS } from "./src/failover";
 import { needsYou, parseLink, running, type Target } from "./src/model";
+import { ChatsScreen, ChatThread } from "./src/screens/ChatsScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { IdeScreen } from "./src/screens/IdeScreen";
 import { LeadsScreen } from "./src/screens/LeadsScreen";
@@ -30,8 +33,16 @@ import type { SessionRow } from "./src/screens/SessionsList";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { TaskScreen } from "./src/screens/TaskScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
-import { forgetPairing, loadPairing, type Pairing, savePairing } from "./src/storage";
-import { applyScheme, Button, color, font, isDark, styles } from "./src/ui";
+import {
+  forgetPairing,
+  forgetStandby,
+  loadPairing,
+  loadStandby,
+  type Pairing,
+  savePairing,
+  saveStandby,
+} from "./src/storage";
+import { applyScheme, Banner, Button, color, font, isDark, styles } from "./src/ui";
 import { type Connection, useLink } from "./src/useLink";
 import { FloatingMic } from "./src/voice/FloatingMic";
 import { VoiceProvider } from "./src/voice/VoiceProvider";
@@ -43,6 +54,7 @@ type Overlay =
   | { kind: "task"; id: string }
   | { kind: "ide"; id: string }
   | { kind: "malves" }
+  | { kind: "chat"; id: string }
   | { kind: "screen" }
   | { kind: "session"; session: SessionRow };
 
@@ -109,6 +121,85 @@ function Main() {
 
   const link = useLink(connection, onWelcome);
 
+  // The standby copy on the server: it answers when the computer is off or out of reach.
+  const [standby, setStandby] = useState<Pairing | null>(null);
+  const [scanningStandby, setScanningStandby] = useState(false);
+  const [standbyTrying, setStandbyTrying] = useState<{
+    offer: PairingOffer;
+    keys: KeyPair;
+  } | null>(null);
+  const [standbyError, setStandbyError] = useState<string>();
+  const [failover, setFailover] = useState(false);
+  useEffect(() => {
+    void loadStandby().then(setStandby);
+  }, []);
+  const onStandbyWelcome = useCallback(() => {
+    if (!standbyTrying) return;
+    const saved: Pairing = {
+      url: standbyTrying.offer.url,
+      runnerKey: standbyTrying.offer.runner,
+      computer: standbyTrying.offer.computer,
+      keys: standbyTrying.keys,
+    };
+    void saveStandby(saved);
+    setStandby(saved);
+    setStandbyTrying(null);
+    setScanningStandby(false);
+  }, [standbyTrying]);
+  // Connected only while pairing it, or after the computer has been unreachable for a few seconds.
+  const standbyConnection = useMemo<Connection | null>(
+    () =>
+      standbyTrying
+        ? {
+            url: standbyTrying.offer.url,
+            runnerKey: standbyTrying.offer.runner,
+            keys: standbyTrying.keys,
+            pair: { code: standbyTrying.offer.code, name: phoneName() },
+          }
+        : failover && standby
+          ? { url: standby.url, runnerKey: standby.runnerKey, keys: standby.keys }
+          : null,
+    [standbyTrying, failover, standby],
+  );
+  const standbyLink = useLink(standbyConnection, onStandbyWelcome);
+  useEffect(() => {
+    if (standbyLink.status !== "rejected" || !standbyTrying) return;
+    setStandbyTrying(null);
+    setStandbyError(standbyLink.detail ?? "The server refused the pairing code.");
+  }, [standbyLink.status, standbyLink.detail, standbyTrying]);
+  const primaryOnline = link.status === "online";
+  const primaryRejected = link.status === "rejected";
+  useEffect(() => {
+    if (screen !== "app" || !standby || primaryOnline || primaryRejected) {
+      setFailover(false);
+      return;
+    }
+    const timer = setTimeout(() => setFailover(true), FAILOVER_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [screen, standby, primaryOnline, primaryRejected]);
+  const side = activeSide({
+    primary: link.status,
+    standby: standbyLink.status,
+    failover,
+    hasStandby: standby !== null,
+  });
+  const active = side === "standby" ? standbyLink : link;
+  const startStandbyPairing = (offer: PairingOffer) => {
+    if (offer.runner === connection?.runnerKey) {
+      setStandbyError(
+        "That is the computer you are already paired with. Scan the code from your server.",
+      );
+      return;
+    }
+    setStandbyError(undefined);
+    setStandbyTrying({ offer, keys: generateKeyPair() });
+  };
+  const cancelStandbyPairing = useCallback(() => {
+    setStandbyTrying(null);
+    setScanningStandby(false);
+    setStandbyError(undefined);
+  }, []);
+
   // A refused pairing (wrong or expired code) goes back to the scanner.
   useEffect(() => {
     if (link.status !== "rejected" || !pending.current) return;
@@ -134,6 +225,10 @@ function Main() {
   // Android's back button: close the top screen, then go to Home, then leave the app.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (scanningStandby) {
+        cancelStandbyPairing();
+        return true;
+      }
       if (stack.length > 0) {
         back();
         return true;
@@ -145,7 +240,7 @@ function Main() {
       return false;
     });
     return () => sub.remove();
-  }, [stack.length, screen, tab, back]);
+  }, [stack.length, screen, tab, back, scanningStandby, cancelStandbyPairing]);
 
   // Set below, once `startPairing` exists: a pairing link calls it after you agree.
   const startPairingRef = useRef<(offer: PairingOffer) => void>(() => {});
@@ -168,6 +263,22 @@ function Main() {
     } else if ("malves" in target) setStack([{ kind: "malves" }]);
     else setStack([{ kind: "task", id: target.taskId }]);
   }, []);
+  // Tapping one of malves' own notifications (Firebase) opens the screen it links to.
+  useEffect(() => {
+    const open = (response: Notifications.NotificationResponse | null) => {
+      const link = (response?.notification.request.content.data as { link?: unknown } | undefined)
+        ?.link;
+      if (typeof link === "string") go(parseLink(link));
+    };
+    void Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        open(response);
+        if (response) void Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      })
+      .catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [go]);
   useEffect(() => {
     void Linking.getInitialURL().then((url) => go(parseLink(url)));
     const sub = Linking.addEventListener("url", ({ url }) => go(parseLink(url)));
@@ -192,6 +303,7 @@ function Main() {
   const unpair = () => {
     pending.current = undefined;
     void forgetPairing();
+    setFailover(false);
     setConnection(null);
     setStack([]);
     setTab("home");
@@ -199,7 +311,7 @@ function Main() {
   };
 
   const top = stack.at(-1);
-  const { model, status, client } = link;
+  const { model, status, client } = active;
   // One line for Malves: which screen this is, so "stop this one" makes sense.
   const where = (() => {
     if (top?.kind === "task") {
@@ -214,8 +326,10 @@ function Main() {
     if (top?.kind === "ide") return `The IDE window ${top.id}`;
     if (top?.kind === "new") return "The New task form";
     if (top?.kind === "malves") return "The conversation with Malves";
+    if (top?.kind === "chat") return "A text chat with Malves";
     return {
       home: "Home",
+      chat: "The list of chats with Malves",
       tasks: "Work: sessions and tasks",
       leads: "Leads",
       settings: "Settings",
@@ -235,6 +349,25 @@ function Main() {
         <Text style={styles.muted}>Status: {status}</Text>
         <Button title="Cancel" kind="plain" onPress={unpair} />
       </ScrollView>
+    ) : scanningStandby ? (
+      standbyTrying ? (
+        <ScrollView contentContainerStyle={styles.page}>
+          <Text style={styles.title}>Connecting…</Text>
+          <Text style={styles.body}>
+            Pairing with your standby copy on {standbyTrying.offer.computer}. Your phone needs to
+            reach it over Tailscale.
+          </Text>
+          <Text style={styles.muted}>Status: {standbyLink.status}</Text>
+          <Button title="Cancel" kind="plain" onPress={cancelStandbyPairing} />
+        </ScrollView>
+      ) : (
+        <PairScreen
+          standby
+          error={standbyError}
+          onOffer={startStandbyPairing}
+          onCancel={cancelStandbyPairing}
+        />
+      )
     ) : top?.kind === "new" ? (
       <NewTaskScreen
         model={model}
@@ -272,6 +405,15 @@ function Main() {
       <ScreenScreen model={model} client={client} status={status} onBack={back} />
     ) : top?.kind === "malves" ? (
       <MalvesScreen onBack={back} />
+    ) : top?.kind === "chat" ? (
+      <ChatThread
+        key={top.id}
+        chatId={top.id}
+        client={client}
+        status={status}
+        onBack={back}
+        onVoice={() => open({ kind: "malves" })}
+      />
     ) : top?.kind === "ide" ? (
       <IdeScreen
         key={top.id}
@@ -283,6 +425,8 @@ function Main() {
         onOpenTask={openTask}
         say={say}
       />
+    ) : tab === "chat" ? (
+      <ChatsScreen client={client} status={status} onOpen={(id) => open({ kind: "chat", id })} />
     ) : tab === "tasks" ? (
       <TasksScreen
         model={model}
@@ -300,6 +444,19 @@ function Main() {
         lastOnline={link.lastOnline}
         client={client}
         onUnpair={unpair}
+        standby={{
+          name: standby?.computer,
+          active: side === "standby",
+          onPair: () => {
+            setStandbyError(undefined);
+            setScanningStandby(true);
+          },
+          onForget: () => {
+            void forgetStandby();
+            setStandby(null);
+            setFailover(false);
+          },
+        }}
         say={say}
       />
     ) : (
@@ -334,6 +491,14 @@ function Main() {
       <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
         <StatusBar style={isDark ? "light" : "dark"} />
         <View key={scheme ?? "light"} style={{ flex: 1 }}>
+          {side === "standby" ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+              <Banner tone="info">
+                Your computer is off or out of reach. You are talking to your server copy: chat,
+                memory, books and skills. Tasks and the desktop wait.
+              </Banner>
+            </View>
+          ) : null}
           {content}
         </View>
         {notice ? (
@@ -354,7 +519,10 @@ function Main() {
             </Text>
           </View>
         ) : null}
-        {screen === "app" && top?.kind !== "malves" && (top || tab !== "home") ? (
+        {screen === "app" &&
+        top?.kind !== "malves" &&
+        top?.kind !== "chat" &&
+        (top || tab !== "home") ? (
           <FloatingMic
             bottom={(top ? 16 : 72) + insets.bottom}
             onOpen={() => open({ kind: "malves" })}

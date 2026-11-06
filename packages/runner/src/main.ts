@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { samePath, type Workspace } from "@malves/core";
 import { DEFAULT_PORT } from "@malves/protocol";
 import { backupKey, backupNow, restoreVault } from "./adapters/assistant/backup.js";
+import { gmailCommand } from "./adapters/assistant/gmail-cli.js";
 import { guardFromEnv } from "./adapters/budget/guard.js";
 import { console_ } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -31,6 +32,7 @@ const USAGE = `malves — run coding agents and answer their questions
   malves audit                           who watched or controlled this computer, and when
   malves autostart on|off|status|start   start serve when you log in to Windows
   malves console [command]               type serve's commands while it runs in the background
+  malves gmail add|list|remove <email>   connect Gmail accounts (read and drafts only)
   malves backup now                      back up Malves' memory to MALVES_BACKUP_SSH now
   malves backup restore <file> --to <folder>   open a backup into a new folder
 
@@ -76,6 +78,7 @@ async function main(argv: string[]): Promise<number> {
   // Before opening the runner: it must not take the lock a running serve holds.
   if (cmd === "autostart") return sub === "start" ? startNow() : autostart(sub, dir);
   if (cmd === "backup") return backup(sub, rest[0], values.to, dir);
+  if (cmd === "gmail") return gmailCommand(sub, rest[0], dir);
   if (cmd === "console")
     return console_(
       controlToken(dir),
@@ -144,7 +147,7 @@ async function backup(
   if (sub === "now") {
     const target = process.env.MALVES_BACKUP_SSH;
     if (!vault || !target) {
-      console.error("Set MALVES_VAULT and MALVES_BACKUP_SSH (e.g. ubuntu@100.69.0.115) first.");
+      console.error("Set MALVES_VAULT and MALVES_BACKUP_SSH (e.g. ubuntu@100.x.y.z) first.");
       return 1;
     }
     const name = await backupNow({

@@ -1,11 +1,13 @@
 import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Notifier } from "@malves/core";
 import { type AgentInfo, pairingLink } from "@malves/protocol";
 import qrcode from "qrcode-terminal";
 import { startBackups } from "./adapters/assistant/backup.js";
 import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
+import { Heartbeat } from "./adapters/assistant/heartbeat.js";
 import { rollUpWeeks, startJournal } from "./adapters/assistant/journal.js";
 import { humanHasControl, saveControlOwner } from "./adapters/assistant/ownership.js";
 import { startProfileReview } from "./adapters/assistant/profile.js";
@@ -26,6 +28,7 @@ import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
 import { fcmSender } from "./adapters/push/fcm.js";
+import { FcmPush } from "./adapters/push/fcm-push.js";
 import { NtfyPush } from "./adapters/push/ntfy.js";
 import { Outbox } from "./adapters/push/outbox.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
@@ -114,6 +117,11 @@ export async function serve(
           outbox: new Outbox({ file: path.join(dir, "notifications.json") }),
         })
       : undefined;
+  // How notifications reach the phone: "ntfy" (the ntfy app, default), "fcm" (malves' own, through
+  // Firebase) or "both". The notifiers that are on are gathered in `hub` once they have started.
+  const pushMode = (process.env.MALVES_PUSH ?? "ntfy").toLowerCase();
+  type Hub = Notifier & { notify: (title: string, message: string, click?: string) => void };
+  let hub: Hub | undefined;
   const relayUrl = o.relay ?? process.env.MALVES_RELAY_URL;
   const relayToken = process.env.MALVES_RELAY_TOKEN ?? "";
   if (relayUrl && (!/^wss?:\/\/\S+$/.test(relayUrl) || relayToken.length < 24)) {
@@ -201,8 +209,8 @@ export async function serve(
             },
       );
       say(state.active ? "Malves has the computer (handover)." : `Handover ended: ${state.reason}`);
-      if (!state.active && pushOn)
-        push?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
+      if (!state.active)
+        hub?.notify("Malves handed the computer back", state.reason ?? "", "malves://home");
     },
   });
   // The live screen video runs in its own process, so a busy serve can't make it miss its moment.
@@ -227,9 +235,10 @@ export async function serve(
       : undefined;
   // Malves ringing the phone: Google's push (Firebase) carries only a call id.
   const fcmKey = process.env.MALVES_FCM_KEY;
-  const caller = fcmKey
+  const fcmSend = fcmKey ? fcmSender(fcmKey) : undefined;
+  const caller = fcmSend
     ? new Caller({
-        send: fcmSender(fcmKey),
+        send: fcmSend,
         dataDir: dir,
         paired: () => runner.devices.list().map((d) => d.id),
         quietHours: process.env.MALVES_QUIET_HOURS,
@@ -371,16 +380,40 @@ export async function serve(
     for (const listener of hearing) listener(line);
   };
   let pushOn = false;
-  if (push) {
+  if (push && pushMode !== "fcm") {
     try {
       await push.start();
-      runner.usePush(push);
       pushOn = true;
     } catch (error) {
       say(
         `Notifications couldn't start: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+  // Malves' own notifications through Firebase need the Firebase key and a phone that has registered.
+  const fcmPush =
+    fcmSend && caller && pushMode !== "ntfy"
+      ? new FcmPush({
+          send: fcmSend,
+          phones: () => caller.phones(),
+          text: process.env.MALVES_PUSH_TEXT === "1",
+          onError: (message) => say(`Firebase notification failed: ${message}`),
+        })
+      : undefined;
+  const channels: Hub[] = [...(pushOn && push ? [push] : []), ...(fcmPush ? [fcmPush] : [])];
+  if (channels.length > 0) {
+    hub = {
+      questionOpened: async (q) => {
+        await Promise.all(channels.map((c) => c.questionOpened(q)));
+      },
+      questionReminder: async (q, n) => {
+        await Promise.all(channels.map((c) => c.questionReminder?.(q, n)));
+      },
+      notify: (title, message, click) => {
+        for (const c of channels) c.notify(title, message, click);
+      },
+    };
+    runner.usePush(hub);
   }
   // A revoked phone may still have the ntfy app subscribed: cut it off too.
   const stopRenewing = runner.log.subscribe((event) => {
@@ -391,18 +424,30 @@ export async function serve(
   const stopActivity = runner.onActivity((taskId, text) => server.activity(taskId, text));
   relay?.start();
   const stopDigest =
-    leads && pushOn && push
-      ? startDigest({ leads, dir, notify: (title, message) => push.notify(title, message) })
+    leads && hub
+      ? startDigest({ leads, dir, notify: (title, message) => hub.notify(title, message) })
       : () => {};
-  const stopWatcher =
-    pushOn && push
-      ? startWatcher({
+  const stopWatcher = hub
+    ? startWatcher({
+        subscribe: (listener) => runner.log.subscribe(listener),
+        task: (id) => runner.tasks.get(id),
+        label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
+        notify: (title, message, click) => hub.notify(title, message, click),
+        quietHours: process.env.MALVES_QUIET_HOURS,
+      })
+    : () => {};
+  // The heartbeat: cheap rules every few minutes (stuck tasks, his reminders); not on the server copy.
+  const stopHeartbeat =
+    hub && process.env.MALVES_VAULT && process.env.MALVES_STANDBY !== "1"
+      ? new Heartbeat({
+          vault: process.env.MALVES_VAULT,
+          dataDir: dir,
           subscribe: (listener) => runner.log.subscribe(listener),
-          task: (id) => runner.tasks.get(id),
+          running: () => runner.tasks.list().filter((t) => t.state === "running"),
           label: (agent) => runner.agents.list().find((a) => a.name === agent)?.label ?? agent,
-          notify: (title, message, click) => push.notify(title, message, click),
+          notify: (title, message, click) => hub.notify(title, message, click),
           quietHours: process.env.MALVES_QUIET_HOURS,
-        })
+        }).start()
       : () => {};
   const stopCalls = caller
     ? caller.follow({
@@ -412,11 +457,11 @@ export async function serve(
       })
     : () => {};
   const stopProfileReview =
-    malves && pushOn && push
+    malves && hub
       ? startProfileReview({
           dataDir: dir,
           review: () => malves.reviewProfile(),
-          notify: (title, message, click) => push.notify(title, message, click),
+          notify: (title, message, click) => hub.notify(title, message, click),
         })
       : () => {};
   const backupTarget = process.env.MALVES_BACKUP_SSH;
@@ -462,9 +507,13 @@ export async function serve(
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
   else say("Leads: embedded local engine active.");
   say(
-    pushOn
-      ? "Notifications: on (type `push` to set up the phone)."
-      : "Notifications: off (they need Tailscale).",
+    pushOn && fcmPush
+      ? "Notifications: ntfy and malves' own (Firebase) are on."
+      : fcmPush
+        ? "Notifications: malves' own (Firebase). The phone must have opened malves once."
+        : pushOn
+          ? "Notifications: on (type `push` to set up the phone)."
+          : "Notifications: off (ntfy needs Tailscale; Firebase needs MALVES_PUSH=fcm and MALVES_FCM_KEY).",
   );
   if (host === "127.0.0.1") {
     say("\nOnly this computer can reach it. For your phone:");
@@ -702,6 +751,7 @@ ${link}`);
   stopActivity();
   stopDigest();
   stopWatcher();
+  stopHeartbeat();
   stopProfileReview();
   stopJournal();
   stopLagMonitor();

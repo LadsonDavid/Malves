@@ -14,9 +14,14 @@ export type Pairing = {
 };
 
 const KEY = "malves.pairing";
+/** The standby copy on the server: answers when the computer is off. */
+const STANDBY_KEY = "malves.standby";
 
-export async function loadPairing(): Promise<Pairing | null> {
-  const raw = await SecureStore.getItemAsync(KEY);
+export const loadPairing = (): Promise<Pairing | null> => read(KEY);
+export const loadStandby = (): Promise<Pairing | null> => read(STANDBY_KEY);
+
+async function read(key: string): Promise<Pairing | null> {
+  const raw = await SecureStore.getItemAsync(key);
   if (!raw) return null;
   try {
     const p = JSON.parse(raw) as Partial<Pairing>;
@@ -33,12 +38,21 @@ export async function loadPairing(): Promise<Pairing | null> {
   } catch {
     // Unreadable: fall through and pair again.
   }
-  await forgetPairing();
+  await SecureStore.deleteItemAsync(key);
+  if (key === KEY) await SecureStore.deleteItemAsync(PUSH_KEY);
   return null;
 }
 
 export function savePairing(pairing: Pairing): Promise<void> {
   return SecureStore.setItemAsync(KEY, JSON.stringify(pairing));
+}
+
+export function saveStandby(pairing: Pairing): Promise<void> {
+  return SecureStore.setItemAsync(STANDBY_KEY, JSON.stringify(pairing));
+}
+
+export function forgetStandby(): Promise<void> {
+  return SecureStore.deleteItemAsync(STANDBY_KEY);
 }
 
 export async function forgetPairing(): Promise<void> {
