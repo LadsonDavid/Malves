@@ -13,6 +13,7 @@ import type {
   Command,
   Decision,
 } from "@malves/core";
+import type { ToolProgress } from "@malves/protocol";
 
 export type AcpHostOptions = {
   /** Progress the agent reports (tool calls), for display only. Not logged. */
@@ -215,16 +216,48 @@ export class AcpHost implements AgentHost {
     const inWorkspace = async (requested: string) => realConfine(callbacks, requested);
     let sessionId = "";
     let replaying = false;
+    const tools = new Map<string, ToolProgress>();
 
     return acp
       .client({ name: "malves" })
       .onNotification(acp.methods.client.session.update, ({ params }) => {
-        if (replaying || params.sessionId !== sessionId) return;
+        if (isStopped() || replaying || params.sessionId !== sessionId) return;
         const update = params.update;
         if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
           callbacks.output(update.content.text);
-        } else if (update.sessionUpdate === "tool_call") {
-          this.options.onActivity?.(run.taskId, update.title);
+        } else if (
+          update.sessionUpdate === "tool_call" ||
+          update.sessionUpdate === "tool_call_update"
+        ) {
+          const previous = tools.get(update.toolCallId);
+          const text =
+            update.content == null
+              ? previous?.text
+              : update.content
+                  .flatMap((block) =>
+                    block.type === "content" && block.content.type === "text"
+                      ? [block.content.text]
+                      : [],
+                  )
+                  .join("\n")
+                  .slice(-16_000);
+          const progress: ToolProgress = {
+            kind:
+              update.kind === "read" || update.kind === "search"
+                ? update.kind
+                : update.kind === "execute"
+                  ? "command"
+                  : update.kind === "edit" || update.kind === "delete" || update.kind === "move"
+                    ? "edit"
+                    : (previous?.kind ?? "other"),
+            id: update.toolCallId,
+            title: (update.title ?? previous?.title ?? "Agent tool").slice(0, 500),
+            status: update.status ?? previous?.status ?? "pending",
+            ...(text === undefined ? {} : { text }),
+          };
+          tools.set(progress.id, progress);
+          callbacks.tool?.(progress);
+          this.options.onActivity?.(run.taskId, `${progress.title} (${progress.status})`);
         }
       })
       .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {

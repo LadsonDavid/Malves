@@ -1,6 +1,4 @@
 {
-  "plans": [
-    "docs/jarvis-plan.md"
-  ],
+  "plans": ["docs/jarvis-plan.md"],
   "exec": true
 }

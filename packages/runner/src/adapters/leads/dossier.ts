@@ -77,9 +77,10 @@ export async function buildDossier(options: BuildDossierOptions): Promise<LeadDo
   }
 
   // Generate summary
-  const summary = siteText.length > 0
-    ? `${companyName} (${domain}): ${siteText.slice(0, 300)}...`
-    : `${companyName} is an active target with ${signals.length} tracked signals.`;
+  const summary =
+    siteText.length > 0
+      ? `${companyName} (${domain}): ${siteText.slice(0, 300)}...`
+      : `${companyName} is an active target with ${signals.length} tracked signals.`;
 
   return {
     domain,

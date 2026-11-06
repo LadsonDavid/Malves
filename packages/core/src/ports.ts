@@ -7,6 +7,7 @@ import type {
   MonitorSource,
   QuestionKind,
   Risk,
+  ToolProgress,
 } from "@malves/protocol";
 import type { Command } from "./command.js";
 import type { Action } from "./policy/types.js";
@@ -50,6 +51,8 @@ export interface Notifier {
 
 /** Something an agent needs a person to decide. */
 export type Decision = {
+  /** Only agent clarifications may accept text through this explicitly named choice. */
+  textChoiceId?: string;
   kind: QuestionKind;
   text: string;
   choices: Choice[];
@@ -86,6 +89,8 @@ export type AgentCallbacks = {
   session(id: string): void;
   /** Text the agent wants to show the user. */
   output(text: string): void;
+  /** Display-only tool status/results, never an authorization to execute. */
+  tool?(progress: ToolProgress): void;
   /** Resolves a path the agent asked for, or throws if it is outside the workspace. */
   confine(path: string): string;
 };
@@ -133,7 +138,11 @@ export interface Delivery {
 
 export interface WorkspaceProvisioner {
   /** Creates an isolated worktree and branch for one step in a job. */
-  create(workspacePath: string, jobId: string, stepId: string): Promise<{ root: string; branch: string }>;
+  create(
+    workspacePath: string,
+    jobId: string,
+    stepId: string,
+  ): Promise<{ root: string; branch: string }>;
   /** Removes one step's worktree. */
   remove(workspacePath: string, jobId: string, stepId: string): Promise<void>;
   /** Merges sourceBranch into targetBranch in the workspace or integration worktree. */
@@ -160,4 +169,3 @@ export interface PullRequestOpener {
     body: string,
   ): Promise<{ url: string }>;
 }
-

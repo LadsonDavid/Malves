@@ -1,6 +1,6 @@
-import type { AutomationRule } from "@malves/protocol";
-import type { Suggestions } from "@malves/core";
 import { createHash } from "node:crypto";
+import type { Suggestions } from "@malves/core";
+import type { AutomationRule } from "@malves/protocol";
 import { modelForRole } from "./llm.js";
 
 export const DEFAULT_REVIEWER_MODEL = modelForRole("reviewer");
@@ -50,7 +50,11 @@ export async function reviewFinishedTask(options: {
   task: TaskSummaryForReview;
   reviewerModel?: ReviewerModel | undefined;
   suggestions?: Pick<Suggestions, "offer"> | undefined;
-}): Promise<{ offered: boolean; suggestionId?: string | undefined; review?: ReviewSuggestion | undefined }> {
+}): Promise<{
+  offered: boolean;
+  suggestionId?: string | undefined;
+  review?: ReviewSuggestion | undefined;
+}> {
   const { task, reviewerModel, suggestions } = options;
 
   let review: ReviewSuggestion | null = null;

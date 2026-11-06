@@ -1,19 +1,16 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
-import { reviewFinishedTask } from "../src/adapters/assistant/review.js";
-import { SearchIndex } from "../src/adapters/sqlite/search.js";
 import {
   consolidateDailyJournal,
   loadProjectNotes,
   undoConsolidation,
 } from "../src/adapters/assistant/consolidation.js";
-import {
-  executeBargeIn,
-  PresenceMonitor,
-} from "../src/adapters/assistant/presence.js";
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { executeBargeIn, PresenceMonitor } from "../src/adapters/assistant/presence.js";
+import { reviewFinishedTask } from "../src/adapters/assistant/review.js";
+import { SearchIndex } from "../src/adapters/sqlite/search.js";
 
 describe("learning loop - background reviewer", () => {
   it("proposes a skill when reviewer detects a reusable pattern", async () => {
@@ -80,14 +77,16 @@ describe("search - SQLite FTS5 search index", () => {
       sourceId: "note_1",
       kind: "vault",
       title: "Authentication Retry Strategy",
-      content: "We decided to use exponential backoff with jitter for the OAuth refresh token endpoint.",
+      content:
+        "We decided to use exponential backoff with jitter for the OAuth refresh token endpoint.",
     });
 
     index.indexDocument({
       sourceId: "session_2",
       kind: "session",
       title: "Stripe Webhook Bug",
-      content: "The signature verification failed because raw body parsing was disabled in Express.",
+      content:
+        "The signature verification failed because raw body parsing was disabled in Express.",
     });
 
     const results = index.search("exponential jitter");

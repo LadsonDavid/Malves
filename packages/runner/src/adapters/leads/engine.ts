@@ -1,9 +1,9 @@
 import type { Lead } from "@malves/protocol";
-import type { LeadSource } from "./signalstack.js";
+import type { HnHiringPost } from "./collectors/hackernews.js";
+import type { CollectedJob } from "./collectors/hiring.js";
 import { type DbAccount, type DbSignal, LeadsDatabase } from "./db.js";
 import { rankLeads } from "./scoring.js";
-import type { CollectedJob } from "./collectors/hiring.js";
-import type { HnHiringPost } from "./collectors/hackernews.js";
+import type { LeadSource } from "./signalstack.js";
 
 export type LocalLeadEngineOptions = {
   db: LeadsDatabase | string;

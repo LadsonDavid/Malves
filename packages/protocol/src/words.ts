@@ -83,6 +83,41 @@ export function saysAny(text: string, words: readonly string[]): boolean {
 /** "yes", "no", or undefined when it's neither. Any no word makes it a no. */
 export function yesOrNo(text: string): "yes" | "no" | undefined {
   if (saysAny(text, NO_WORDS)) return "no";
-  if (saysAny(text, YES_WORDS)) return "yes";
+  // A new instruction containing "start", "right" or "yes" must not approve an
+  // older action. Accept affirmative phrases only when no other instruction remains.
+  if (standaloneSpeech(text, YES_WORDS)) return "yes";
   return undefined;
+}
+
+/** Match a complete choice/confirmation, allowing only polite filler around it. */
+export function standaloneSpeech(text: string, phrases: readonly string[]): boolean {
+  const words = phrases.map((phrase) => normalizeSpeech(phrase).trim()).filter(Boolean);
+  if (!saysAny(text, words)) return false;
+  let rest = normalizeSpeech(text);
+  for (const phrase of [
+    ...words,
+    "please",
+    "thank you",
+    "thanks",
+    "malves",
+    "now",
+    "and",
+    "it",
+  ].sort((a, b) => b.length - a.length)) {
+    while (rest.includes(` ${phrase} `)) rest = rest.replace(` ${phrase} `, " ");
+  }
+  return !rest.trim();
+}
+
+export function explicitlyRequestsRunner(text: string): boolean {
+  return saysAny(text, [
+    "cli",
+    "command line",
+    "headless",
+    "acp",
+    "runner task",
+    "கமாண்ட் லைன்",
+    "சிஎல்ஐ",
+    "சி எல் ஐ",
+  ]);
 }

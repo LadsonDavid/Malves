@@ -11,7 +11,14 @@ const SECRETS: Array<[string, string]> = [
   ["Google key", ["AIzaSyA-", "abcdefghijklmnopqrstuvwxyz012345"].join("")],
   ["Groq key", ["gsk_", "abcdefghijklmnopqrstuvwxyz0123456789"].join("")],
   ["Cartesia style key", ["sk_car_", "abcdefghijklmnopqrstuvwxyz"].join("")],
-  ["JWT", ["eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.", "abcdefghijklmnopqrstuvwxyz0123"].join("")],
+  [
+    "JWT",
+    [
+      "eyJhbGciOiJIUzI1NiJ9.",
+      "eyJzdWIiOiIxMjM0NTY3ODkwIn0.",
+      "abcdefghijklmnopqrstuvwxyz0123",
+    ].join(""),
+  ],
 ];
 
 describe("redact", () => {

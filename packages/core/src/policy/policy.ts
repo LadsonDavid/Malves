@@ -123,7 +123,12 @@ export class Policy {
     const until = this.yes.get(key);
     if (mode === "trusting" && rememberable(action) && until !== undefined) {
       if (this.o.clock.now() < until) {
-        return { outcome: "allow", tier: 3, why: `${found.why} (you said yes a moment ago)`, remembered: true };
+        return {
+          outcome: "allow",
+          tier: 3,
+          why: `${found.why} (you said yes a moment ago)`,
+          remembered: true,
+        };
       }
       this.yes.delete(key);
     }
@@ -147,7 +152,8 @@ export class Policy {
     const globs = [...DEFAULT_DENY, ...(this.o.denyGlobs?.() ?? [])];
     const words = (action.command ?? "").split(/\s+/).filter(Boolean);
     const paths = [...(action.paths ?? []), ...words];
-    if (action.command && matchesText(globs, action.command)) return `"${clip(action.command, 80)}"`;
+    if (action.command && matchesText(globs, action.command))
+      return `"${clip(action.command, 80)}"`;
     const hit = paths.find((p) => matchesPath(globs, p));
     return hit ? `"${clip(hit, 80)}"` : undefined;
   }
@@ -197,7 +203,8 @@ export class Policy {
   private browser(action: Action): Classification {
     if (!this.hostAllowed(action.url)) return t3("It uses a site you haven't approved.");
     const op = (action.command ?? "").toLowerCase();
-    if (op === "read" || op === "snapshot" || op === "extract") return t1("It reads a site you approved.");
+    if (op === "read" || op === "snapshot" || op === "extract")
+      return t1("It reads a site you approved.");
     if (op === "click" || op === "scroll" || op === "navigate") {
       return t2("A click inside an approved site is logged.");
     }
@@ -210,7 +217,10 @@ export class Policy {
     if (op === "look" || op === "move") return t1("Looking and moving change nothing.");
     const app = (action.app ?? "").toLowerCase();
     const allowed = (this.o.allowedApps?.() ?? []).some((a) => a.toLowerCase() === app);
-    if (["click", "double", "right", "type", "keys", "scroll", "drag", "wait"].includes(op) && allowed) {
+    if (
+      ["click", "double", "right", "type", "keys", "scroll", "drag", "wait"].includes(op) &&
+      allowed
+    ) {
       return t2("Clicks and typing in an allowed app are logged.");
     }
     return t3("Send, delete, install, pay and confirm, and any app not on the list, always ask.");
@@ -234,7 +244,9 @@ function rememberable(action: Action): boolean {
 }
 
 function keyOf(action: Action, ctx: PolicyContext): string {
-  return [ctx.root, action.source, action.kind, action.command ?? "", ...(action.paths ?? [])].join("\u0000");
+  return [ctx.root, action.source, action.kind, action.command ?? "", ...(action.paths ?? [])].join(
+    "\u0000",
+  );
 }
 
 const t1 = (why: string): Classification => ({ tier: 1 as Tier, why });

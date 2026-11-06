@@ -1,14 +1,14 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { LeadsDatabase } from "../src/adapters/leads/db.js";
-import { LocalLeadEngine } from "../src/adapters/leads/engine.js";
-import { rankLeads, scoreAccount } from "../src/adapters/leads/scoring.js";
+import { parseHnComment } from "../src/adapters/leads/collectors/hackernews.js";
 import {
   collectAshbyJobs,
   collectGreenhouseJobs,
   collectLeverJobs,
 } from "../src/adapters/leads/collectors/hiring.js";
-import { parseHnComment } from "../src/adapters/leads/collectors/hackernews.js";
+import { LeadsDatabase } from "../src/adapters/leads/db.js";
+import { LocalLeadEngine } from "../src/adapters/leads/engine.js";
+import { rankLeads, scoreAccount } from "../src/adapters/leads/scoring.js";
 
 describe("Pillar D: Local Leads Engine (D1 & D2)", () => {
   it("stores accounts and append-only signals in SQLite", () => {
@@ -117,8 +117,12 @@ describe("Pillar D: Local Leads Engine (D1 & D2)", () => {
       { domain: "b.com", name: "B", created_at: now },
     ];
     const signalsMap = new Map();
-    signalsMap.set("a.com", [{ id: "1", domain: "a.com", type: "hiring", weight: 0.2, summary: "hire", timestamp: now }]);
-    signalsMap.set("b.com", [{ id: "2", domain: "b.com", type: "hiring", weight: 1.5, summary: "hire", timestamp: now }]);
+    signalsMap.set("a.com", [
+      { id: "1", domain: "a.com", type: "hiring", weight: 0.2, summary: "hire", timestamp: now },
+    ]);
+    signalsMap.set("b.com", [
+      { id: "2", domain: "b.com", type: "hiring", weight: 1.5, summary: "hire", timestamp: now },
+    ]);
 
     const ranked = rankLeads(accounts, signalsMap, undefined, { now });
     expect(ranked[0]!.domain).toBe("b.com");
@@ -193,7 +197,8 @@ describe("Pillar D: Local Leads Engine (D1 & D2)", () => {
     });
 
     it("parses Hacker News hiring comment", () => {
-      const hnText = "Vercel | Frontend Infrastructure Lead | Remote | https://vercel.com/careers<p>We are looking for...";
+      const hnText =
+        "Vercel | Frontend Infrastructure Lead | Remote | https://vercel.com/careers<p>We are looking for...";
       const parsed = parseHnComment(42001, hnText);
       expect(parsed).toBeDefined();
       expect(parsed?.companyName).toBe("Vercel");

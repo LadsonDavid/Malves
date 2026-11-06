@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHmac,
-  randomBytes,
-} from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { registerRedaction } from "../../redact.js";
 
@@ -57,7 +52,7 @@ export function generateTotp(
   const key = base32Decode(secret);
   const hmac = createHmac("sha1", key).update(buf).digest();
   const offset = hmac[hmac.length - 1]! & 0x0f;
-  const code = (hmac.readUInt32BE(offset) & 0x7fffffff) % Math.pow(10, digits);
+  const code = (hmac.readUInt32BE(offset) & 0x7fffffff) % 10 ** digits;
   return code.toString().padStart(digits, "0");
 }
 

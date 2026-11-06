@@ -29,7 +29,12 @@ export class Suggestions {
       switch (event.type) {
         case "suggestion.offered": {
           const d = event.data;
-          this.pending.set(d.suggestion_id, { id: d.suggestion_id, key: d.key, text: d.text, rule: d.rule });
+          this.pending.set(d.suggestion_id, {
+            id: d.suggestion_id,
+            key: d.key,
+            text: d.text,
+            rule: d.rule,
+          });
           break;
         }
         case "suggestion.accepted": {
@@ -71,7 +76,10 @@ export class Suggestions {
   dismiss(id: string): boolean {
     const suggestion = this.pending.get(id);
     if (!suggestion) return false;
-    this.log.append({ type: "suggestion.dismissed", data: { suggestion_id: id, key: suggestion.key } });
+    this.log.append({
+      type: "suggestion.dismissed",
+      data: { suggestion_id: id, key: suggestion.key },
+    });
     return true;
   }
 

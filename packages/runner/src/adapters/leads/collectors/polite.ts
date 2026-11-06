@@ -1,4 +1,5 @@
-export const USER_AGENT = "Malves/1.0 (+https://github.com/LadsonDavid/Malves; automated polite collector)";
+export const USER_AGENT =
+  "Malves/1.0 (+https://github.com/LadsonDavid/Malves; automated polite collector)";
 
 export type FetchOptions = {
   headers?: Record<string, string>;

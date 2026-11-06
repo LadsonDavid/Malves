@@ -71,7 +71,9 @@ export type BargeInOptions = {
  * 1. Stops the running task step immediately.
  * 2. Optionally provides spoken feedback on PC speakers.
  */
-export async function executeBargeIn(options: BargeInOptions): Promise<{ stopped: boolean; spoken: boolean }> {
+export async function executeBargeIn(
+  options: BargeInOptions,
+): Promise<{ stopped: boolean; spoken: boolean }> {
   await options.stopActiveStep();
   let spoken = false;
   if (options.speak) {

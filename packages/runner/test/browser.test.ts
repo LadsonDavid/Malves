@@ -212,7 +212,11 @@ describe("browser tools, through the phone gate", () => {
 
   it("lists vault handles without revealing secrets", async () => {
     const h = await harness();
-    await h.vault.add({ handle: "shop", origin: "https://shop.example", secret: "super-secret-pass-123" });
+    await h.vault.add({
+      handle: "shop",
+      origin: "https://shop.example",
+      secret: "super-secret-pass-123",
+    });
     const res = await h.call("browser_list_vault");
     expect(h.textOf(res)).toContain("shop (https://shop.example)");
     expect(h.textOf(res)).not.toContain("super-secret-pass-123");
@@ -220,7 +224,11 @@ describe("browser tools, through the phone gate", () => {
 
   it("fills secret on matching origin with phone approval and redacts secret bytes", async () => {
     const h = await harness();
-    await h.vault.add({ handle: "shop", origin: "https://shop.example", secret: "super-secret-pass-123" });
+    await h.vault.add({
+      handle: "shop",
+      origin: "https://shop.example",
+      secret: "super-secret-pass-123",
+    });
     const snap = h.call("browser_snapshot");
     await h.answer("allow");
     await snap;
@@ -239,7 +247,11 @@ describe("browser tools, through the phone gate", () => {
 
   it("refuses to fill secret on mismatched origin without asking phone", async () => {
     const h = await harness();
-    await h.vault.add({ handle: "stripe", origin: "https://stripe.com", secret: "stripe-secret-token" });
+    await h.vault.add({
+      handle: "stripe",
+      origin: "https://stripe.com",
+      secret: "stripe-secret-token",
+    });
     const res = await h.call("browser_fill_secret", { ref: "e2", handle: "stripe" });
     expect(h.textOf(res)).toMatch(/Refused: secret "stripe" is bound to "https:\/\/stripe.com"/);
     expect(h.core.questions.pending()).toHaveLength(0);
@@ -247,7 +259,10 @@ describe("browser tools, through the phone gate", () => {
 
   it("waits for condition on page", async () => {
     const h = await harness();
-    const waitRes = await h.call("browser_wait_for", { condition: "text_present", target: "1 item" });
+    const waitRes = await h.call("browser_wait_for", {
+      condition: "text_present",
+      target: "1 item",
+    });
     expect(h.textOf(waitRes)).toContain('Condition met: text "1 item" is present.');
   });
 

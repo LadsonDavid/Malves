@@ -35,7 +35,10 @@ export class ProjectVerifier implements JobVerifier {
       }
     }
     if (fs.existsSync(path.join(root, "Cargo.toml"))) return "cargo test";
-    if (fs.existsSync(path.join(root, "pyproject.toml")) || fs.existsSync(path.join(root, "pytest.ini"))) {
+    if (
+      fs.existsSync(path.join(root, "pyproject.toml")) ||
+      fs.existsSync(path.join(root, "pytest.ini"))
+    ) {
       return "pytest";
     }
     return undefined;

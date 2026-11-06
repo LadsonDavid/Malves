@@ -255,4 +255,3 @@ export function fillSecret(
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { filled: true };
 }
-

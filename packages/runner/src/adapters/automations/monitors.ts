@@ -16,7 +16,9 @@ export class SystemMonitors implements MonitorRunner {
   async read(source: MonitorSource): Promise<string> {
     switch (source.kind) {
       case "command": {
-        const cwd = (source.workspace_id ? this.resolveWorkspace?.(source.workspace_id) : undefined) ?? process.cwd();
+        const cwd =
+          (source.workspace_id ? this.resolveWorkspace?.(source.workspace_id) : undefined) ??
+          process.cwd();
         const out = await runCommand(source.command, cwd, this.timeoutMs);
         return out;
       }

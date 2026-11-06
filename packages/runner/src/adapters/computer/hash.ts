@@ -6,11 +6,7 @@ import type { Rect } from "./types.js";
  * If raw RGBA bytes are provided: computes average hash (aHash).
  * If a string (e.g. base64 JPEG or UI element state): hashes normalized tokens.
  */
-export function perceptualHash(
-  data: Uint8Array | string,
-  rect?: Rect,
-  gridSize = 8,
-): string {
+export function perceptualHash(data: Uint8Array | string, rect?: Rect, gridSize = 8): string {
   if (typeof data === "string") {
     // For string/base64 representations, compute sample block hash
     const block = rect

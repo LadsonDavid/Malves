@@ -90,7 +90,7 @@ describe("Jobs orchestrator", () => {
   let verifier: JobVerifier;
   let prOpener: PullRequestOpener;
   let jobs: Jobs;
-  let now = 1000;
+  const now = 1000;
   let seq = 0;
 
   const ids = { next: (prefix: string) => `${prefix}-${++seq}` };
@@ -105,6 +105,7 @@ describe("Jobs orchestrator", () => {
     host = new FakeHost();
     tasks = new Tasks({
       log,
+      clock,
       ids,
       questions,
       workspaces,
@@ -137,7 +138,13 @@ describe("Jobs orchestrator", () => {
     const ws = workspaces.list()[0]!;
     const plan = [
       { id: "s1", role: "implementer" as const, agent: "claude", prompt: "Step 1", depends_on: [] },
-      { id: "s2", role: "implementer" as const, agent: "claude", prompt: "Step 2", depends_on: ["s1"] },
+      {
+        id: "s2",
+        role: "implementer" as const,
+        agent: "claude",
+        prompt: "Step 2",
+        depends_on: ["s1"],
+      },
     ];
 
     const jobId = jobs.create({
@@ -207,7 +214,8 @@ describe("Jobs orchestrator", () => {
     expect(provisioner.created).toHaveLength(2);
 
     // Complete one step
-    const s1Task = jobs.get(jobId)?.plan.find((s) => s.id === "s1")?.task_id!;
+    const s1Task = jobs.get(jobId)?.plan.find((s) => s.id === "s1")?.task_id;
+    if (!s1Task) throw new Error("Expected the first step to have a task");
     host.completeTask(s1Task);
     await new Promise((r) => setTimeout(r, 10));
 

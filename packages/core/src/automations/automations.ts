@@ -2,7 +2,7 @@ import { AutomationRule } from "@malves/protocol";
 import type { EventLog } from "../events/log.js";
 import type { Clock, Delivery, Ids, MonitorRunner, MonitorState } from "../ports.js";
 import type { Task, Tasks } from "../tasks/tasks.js";
-import { parseSchedule, nextDue } from "./schedule.js";
+import { nextDue, parseSchedule } from "./schedule.js";
 import { clip, fingerprint, lineDiff, render } from "./text.js";
 
 export type Rule = AutomationRule & { id: string };
@@ -159,7 +159,12 @@ export class Automations {
     const rule = this.rules.get(id);
     if (!rule || !this.timed(rule)) return;
     const now = this.o.clock.now();
-    const text = rule.trigger.kind === "schedule" ? rule.trigger.schedule : rule.trigger.kind === "monitor" ? rule.trigger.every : "";
+    const text =
+      rule.trigger.kind === "schedule"
+        ? rule.trigger.schedule
+        : rule.trigger.kind === "monitor"
+          ? rule.trigger.every
+          : "";
     const when = parseSchedule(text);
     const first = !this.nextAt.has(id) && rule.trigger.kind === "monitor";
     this.nextAt.set(id, first ? now : nextDue(when, now));
@@ -193,7 +198,9 @@ export class Automations {
     const before = this.o.state.get(rule.id);
     // Unchanged: no model call, no message, not even an event.
     if (before?.hash === hash) return;
-    const diff = before ? lineDiff(before.text, output, MAX_DIFF_CHARS) : clip(output, MAX_DIFF_CHARS);
+    const diff = before
+      ? lineDiff(before.text, output, MAX_DIFF_CHARS)
+      : clip(output, MAX_DIFF_CHARS);
     this.o.state.set(rule.id, { hash, text: clip(output, 8_000) });
     const vars = { name: rule.name, diff, output: clip(output, MAX_DIFF_CHARS) };
     await this.fire(rule, "monitor", vars);
@@ -220,8 +227,8 @@ export class Automations {
       const last = this.lastEventFire.get(rule.id);
       if (last !== undefined && now - last < gap) continue;
       this.lastEventFire.set(rule.id, now);
-      void this.fire(rule, "event", { ...vars, name: rule.name, source: vars.name ?? "" }).catch((error: unknown) =>
-        this.failed(rule, error),
+      void this.fire(rule, "event", { ...vars, name: rule.name, source: vars.name ?? "" }).catch(
+        (error: unknown) => this.failed(rule, error),
       );
     }
   }
@@ -239,7 +246,8 @@ export class Automations {
       });
       this.ownTasks.add(taskId);
       const task = await this.o.tasks.whenFinished(taskId);
-      text = task.result?.trim() || `The task ${task.state}${task.reason ? `: ${task.reason}` : "."}`;
+      text =
+        task.result?.trim() || `The task ${task.state}${task.reason ? `: ${task.reason}` : "."}`;
     }
     text = clip(text, 4_000);
     this.o.log.append({
@@ -263,7 +271,10 @@ export class Automations {
       type: "error",
       data: {
         code,
-        message: clip(`${rule.name}: ${error instanceof Error ? error.message : String(error)}`, 300),
+        message: clip(
+          `${rule.name}: ${error instanceof Error ? error.message : String(error)}`,
+          300,
+        ),
       },
     });
   }

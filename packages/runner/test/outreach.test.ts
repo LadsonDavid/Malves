@@ -1,9 +1,9 @@
+import type { Lead } from "@malves/protocol";
+import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { LeadsDatabase } from "../src/adapters/leads/db.js";
 import { buildDossier } from "../src/adapters/leads/dossier.js";
 import { draftOutreach, handleLeadReply, sendOutreach } from "../src/adapters/leads/outreach.js";
-import type { Lead } from "@malves/protocol";
-import Database from "better-sqlite3";
 
 describe("leads - stage D3: dossier", () => {
   it("builds a company dossier from website and signals", async () => {

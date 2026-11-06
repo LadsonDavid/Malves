@@ -38,7 +38,8 @@ export class SqliteStore implements Store {
   }
 
   get monitorState(): MonitorState {
-    return (this._monitorState ??= new SqliteMonitorState(this.db));
+    this._monitorState ??= new SqliteMonitorState(this.db);
+    return this._monitorState;
   }
 
   append(body: EventBody, at: number): LoggedEvent {
@@ -94,4 +95,3 @@ export class SqliteMonitorState implements MonitorState {
     this.deleteStmt.run(ruleId);
   }
 }
-

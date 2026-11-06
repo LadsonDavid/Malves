@@ -1,6 +1,6 @@
-import type { Lead, LeadDossier, OutreachDraft } from "@malves/protocol";
-import type { LeadsDatabase, LeadStatus } from "./db.js";
 import type { EventLog } from "@malves/core";
+import type { Lead, LeadDossier, OutreachDraft } from "@malves/protocol";
+import type { LeadStatus, LeadsDatabase } from "./db.js";
 
 export type OutreachSender = (
   draft: OutreachDraft,

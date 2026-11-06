@@ -1,8 +1,50 @@
 import { describe, expect, it } from "vitest";
 import type { Desktop } from "../src/adapters/assistant/desktop.js";
-import { commandRisk, Handover, type HandoverState } from "../src/adapters/assistant/handover.js";
+import {
+  commandRisk,
+  Handover,
+  type HandoverState,
+  runCommand,
+} from "../src/adapters/assistant/handover.js";
 
 describe("handover", () => {
+  it("cancels a real running handover command on explicit human control", async () => {
+    const h = new Handover({ onChange: () => {} });
+    h.start();
+    const quoted =
+      process.platform === "win32"
+        ? `& '${process.execPath.replaceAll("'", "''")}' -e 'setInterval(()=>{},1000)'`
+        : `'${process.execPath.replaceAll("'", "'\\''")}' -e 'setInterval(()=>{},1000)'`;
+    const operation = h.command(quoted, process.cwd());
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    h.control(true);
+    expect(await operation).toContain("Command stopped");
+    await h.commandsIdle();
+    h.stop("test done");
+  }, 10000);
+  it("does not start a command after cancellation", async () => {
+    const control = new AbortController();
+    control.abort();
+    expect(await runCommand("must not execute", process.cwd(), 1000, control.signal)).toContain(
+      "No command started",
+    );
+  });
+  it("invalidates single-use screen references when ownership, window, or screenshot changes", () => {
+    const h = new Handover({ onChange: () => {} });
+    h.start();
+    const ref = h.observe("Editor", "frame1");
+    expect(h.consumeObservation(ref, "Other window", "frame1")).toBe(false);
+    expect(h.consumeObservation(ref, "Editor", "changed")).toBe(false);
+    expect(h.consumeObservation(ref, "Editor", "frame1")).toBe(true);
+    expect(h.consumeObservation(ref, "Editor", "frame1")).toBe(false);
+    const old = h.observe("Editor", "frame2");
+    h.control(true);
+    expect(h.state.paused).toBe(true);
+    expect(() => h.observe("Editor", "frame2")).toThrow();
+    h.control(false);
+    expect(h.consumeObservation(old, "Editor", "frame2")).toBe(false);
+    h.stop("done");
+  });
   it("sorts commands: looking and tests/builds run alone, everything else asks", () => {
     expect(commandRisk("git status")).toBe("look");
     expect(commandRisk("git diff --stat")).toBe("look");

@@ -25,7 +25,7 @@ export function scoreAccount(
   let intentSum = 0;
   for (const s of signals) {
     const age = Math.max(0, now - s.timestamp);
-    const decay = Math.pow(0.5, age / halfLife);
+    const decay = 0.5 ** (age / halfLife);
     intentSum += s.weight * decay;
   }
   // Clamp intent to [0, 2.0]
@@ -102,7 +102,9 @@ export function scoreAccount(
     opener,
     contact: null,
     signals: signals.length,
-    last_signal: newestSignal ? new Date(newestSignal.timestamp).toISOString() : new Date(account.created_at).toISOString(),
+    last_signal: newestSignal
+      ? new Date(newestSignal.timestamp).toISOString()
+      : new Date(account.created_at).toISOString(),
   };
 }
 

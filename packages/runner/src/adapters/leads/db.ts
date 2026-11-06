@@ -168,7 +168,9 @@ export class LeadsDatabase {
   }
 
   getIcp(): DbIcp | undefined {
-    const row = this.getIcpStmt.get() as { id: string; ideal_customer: string; keywords: string; updated_at: number } | undefined;
+    const row = this.getIcpStmt.get() as
+      | { id: string; ideal_customer: string; keywords: string; updated_at: number }
+      | undefined;
     if (!row) return undefined;
     return {
       id: row.id,

@@ -1,8 +1,13 @@
-import { type TaskState, TERMINAL_STATES } from "@malves/protocol";
+import {
+  appendTaskOutput,
+  MAX_TASK_OUTPUT_CHARS,
+  type TaskState,
+  TERMINAL_STATES,
+} from "@malves/protocol";
 import type { Command } from "../command.js";
 import type { EventLog } from "../events/log.js";
 import type { Policy } from "../policy/policy.js";
-import type { AgentEnd, AgentHost, AgentSession, Decision, Ids } from "../ports.js";
+import type { AgentEnd, AgentHost, AgentSession, Clock, Decision, Ids } from "../ports.js";
 import type { Answer, Questions } from "../questions/questions.js";
 import { confine, type Workspaces } from "../workspaces/workspaces.js";
 
@@ -21,7 +26,7 @@ export type Task = {
 };
 
 /** The result keeps at most this much of the agent's text: the end, where the summary is. */
-export const MAX_RESULT_CHARS = 100_000;
+export const MAX_RESULT_CHARS = MAX_TASK_OUTPUT_CHARS;
 
 export const STOPPED_WAITING = "Stopped waiting. Nothing changed after the question.";
 export const STOPPED_BY_USER = "Stopped by you.";
@@ -38,6 +43,7 @@ const ALLOWED: Record<TaskState, readonly TaskState[]> = {
 
 export type TasksOptions = {
   log: EventLog;
+  clock: Clock;
   ids: Ids;
   questions: Questions;
   workspaces: Workspaces;
@@ -51,11 +57,17 @@ export type TasksOptions = {
 
 /** queued → running ⇄ waiting → done | failed | stopped (§3). */
 export class Tasks {
+  private inputBlock: string | undefined;
+  /** Covers every producer, including background automations and jobs. */
+  blockInput(reason?: string): void {
+    this.inputBlock = reason;
+  }
   private readonly tasks = new Map<string, Task>();
   private readonly sessions = new Map<string, AgentSession>();
   private readonly finished = new Map<string, Array<(task: Task) => void>>();
   /** Questions each task is waiting on. An agent may ask several at once. */
   private readonly asking = new Map<string, number>();
+  private readonly streaming = new Map<string, { text: string; cancel: () => void }>();
 
   constructor(private readonly o: TasksOptions) {
     o.log.subscribe((event) => {
@@ -90,6 +102,11 @@ export class Tasks {
           }
           break;
         }
+        case "task.output": {
+          const task = this.tasks.get(event.data.task_id);
+          if (task) task.result = appendTaskOutput(task.result ?? "", event.data.text);
+          break;
+        }
         case "task.result": {
           const task = this.tasks.get(event.data.task_id);
           if (task) task.result = event.data.text;
@@ -110,6 +127,7 @@ export class Tasks {
     resume?: string | undefined;
     root?: string | undefined;
   }): string {
+    if (this.inputBlock) throw new Error(this.inputBlock);
     const workspace = this.o.workspaces.get(input.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${input.workspaceId}`);
     const agentCommand = this.o.agents.get(input.agent);
@@ -233,22 +251,54 @@ export class Tasks {
             }
           },
           output: (text) => {
+            if (!this.isActive(taskId) || !text) return;
             output += text;
             if (output.length > 2 * MAX_RESULT_CHARS) output = output.slice(-MAX_RESULT_CHARS);
+            this.streamOutput(taskId, text);
+          },
+          tool: (tool) => {
+            if (this.isActive(taskId))
+              this.o.log.append({ type: "task.tool", data: { task_id: taskId, tool } });
           },
           confine: (path) => this.confine(taskId, root, path),
         },
       );
       this.sessions.set(taskId, session);
       const end = await session.finished;
+      this.flushOutput(taskId);
       if (this.isActive(taskId)) this.finish(taskId, end, output);
     } catch (error) {
       if (this.isActive(taskId)) {
         this.transition(taskId, "failed", error instanceof Error ? error.message : String(error));
       }
     } finally {
+      this.flushOutput(taskId);
       this.sessions.delete(taskId);
     }
+  }
+
+  /** Batch tokens to avoid a synchronous SQLite write for every model token. */
+  private streamOutput(taskId: string, text: string): void {
+    let pending = this.streaming.get(taskId);
+    if (!pending) {
+      pending = { text: "", cancel: this.o.clock.schedule(250, () => this.flushOutput(taskId)) };
+      this.streaming.set(taskId, pending);
+    }
+    pending.text += text;
+    while (pending.text.length >= 8000) {
+      const chunk = pending.text.slice(0, 8000);
+      pending.text = pending.text.slice(8000);
+      this.o.log.append({ type: "task.output", data: { task_id: taskId, text: chunk } });
+    }
+  }
+
+  private flushOutput(taskId: string): void {
+    const pending = this.streaming.get(taskId);
+    if (!pending) return;
+    this.streaming.delete(taskId);
+    pending.cancel();
+    if (pending.text)
+      this.o.log.append({ type: "task.output", data: { task_id: taskId, text: pending.text } });
   }
 
   /**
@@ -262,9 +312,7 @@ export class Tasks {
     const { policy } = this.o;
     const task = this.tasks.get(taskId);
     const workspace = task && this.o.workspaces.get(task.workspaceId);
-    const ctx = workspace
-      ? { root: workspace.path, workspaceId: workspace.id, taskId }
-      : undefined;
+    const ctx = workspace ? { root: workspace.path, workspaceId: workspace.id, taskId } : undefined;
     if (policy && decision.action && ctx) {
       const verdict = await policy.evaluate(decision.action, ctx);
       if (!this.isActive(taskId)) return null;
@@ -296,7 +344,7 @@ export class Tasks {
       if (policy && decision.action && ctx && answer.choiceId === decision.allowChoice) {
         policy.rememberYes(decision.action, ctx);
       }
-      return answer.choiceId;
+      return answer.text ?? answer.choiceId;
     }
     // Silence never means yes (R3): the agent is stopped before it hears back.
     if (answer.outcome === "timed_out") await this.halt(taskId, "stopped", STOPPED_WAITING);
@@ -355,6 +403,7 @@ export class Tasks {
     if (!ALLOWED[task.state].includes(to)) {
       throw new Error(`Task ${taskId} cannot go from ${task.state} to ${to}`);
     }
+    if (isTerminal(to)) this.flushOutput(taskId);
     this.o.log.append({
       type: "task.updated",
       data: { task_id: taskId, state: to, ...(reason === undefined ? {} : { reason }) },

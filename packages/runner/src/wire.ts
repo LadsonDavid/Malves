@@ -5,10 +5,11 @@ import type { AgentSessionInfo } from "@malves/protocol";
 import { AcpHost, type Launch } from "./adapters/acp/host.js";
 import type { Caller } from "./adapters/assistant/caller.js";
 import { openAiCompatible } from "./adapters/assistant/llm.js";
+import { humanHasControl } from "./adapters/assistant/ownership.js";
 import { RunnerDelivery } from "./adapters/automations/delivery.js";
 import { SystemMonitors } from "./adapters/automations/monitors.js";
 import { type BrowserTools, TOOL_SERVER_NAME } from "./adapters/browser/tools.js";
-import { BudgetGuard } from "./adapters/budget/guard.js";
+import type { BudgetGuard } from "./adapters/budget/guard.js";
 import { GitChanges } from "./adapters/git/changes.js";
 import { GitHubPrOpener } from "./adapters/git/pr.js";
 import { ProjectVerifier } from "./adapters/git/verifier.js";
@@ -150,6 +151,8 @@ export function openRunner(o: RunnerOptions): Runner {
         prOpener,
       },
     });
+    if (humanHasControl(o.dir))
+      core.tasks.blockInput("You have desktop control. Return control before starting agent work.");
     const changes = new GitChanges(core, { questionTimeoutMs: o.questionTimeoutMs });
     const opened = store;
     return {

@@ -105,7 +105,7 @@ public issue before it's decided, not after.
 
 | Piece | State |
 |---|---|
-| Desktop runner | Works. Runs Claude Code, Codex, Antigravity and Cursor through ACP (Cursor: once its CLI is installed). Each agent's sign-in is checked at startup, and "needs sign-in" shows on the phone |
+| Desktop runner | Runs separate agent sessions through ACP. This does not attach to the conversation currently running in a desktop app. Each agent's sign-in is checked at startup; full workflows still need real-device verification |
 | Android app | Home, Work, Leads and Settings tabs, in the Malveon blueprint design (paper and navy, Geist and Fraunces, light and dark following the phone). Answer questions with a live countdown; start, stop, reply to and re-run tasks; watch what a running agent is doing; read full results and changes, and commit; continue an earlier conversation; open a pre-filled email to a lead's contact; stop everything from Settings. **Voice:** English (India or US) or Tamil; hands-free mode reads questions aloud as they arrive. Listening needs the APK |
 | Malves, the assistant | Talk naturally (sloppy, mixed English and Tamil is fine). It starts and checks on tasks, answers questions, reads leads, and asks your IDE's agent; anything risky is read back in its own words and needs your yes (said, or the Confirm button). Its brain runs on freellmapi on a free cloud server, not your laptop |
 | Memory and learning | Remembers what you tell it as notes in your Obsidian vault (you can read, edit or delete them; Settings shows them). Proposes lessons and reusable skills, saved only on your yes. Backed up nightly, encrypted, to your own server |
@@ -116,7 +116,7 @@ public issue before it's decided, not after.
 | Your screen | Watch your computer's screen from the phone any time, and click, scroll and type on it. Windows only. The computer shows a notice when it's watched or controlled |
 | Malves calls you | "Call me when Codex finishes": your phone rings with Android's call screen. Needs your own Firebase project (see [Configuration](#configuration)). Answer and talk it through |
 | Natural voice | Malves speaks in a natural voice as soon as its first sentence is written (Cartesia, then ElevenLabs, then Piper on your server; the phone's voice if all fail). Tamil and English voices to pick from; talk over it to stop it |
-| Sessions | Every Claude Code, Codex, Cursor and Antigravity session on your computer in one list (Work → Sessions), readable from the phone. Claude Code and Codex conversations continue in the same session. Cursor's continue only through its Desktop Bridge (Beta). Antigravity's start a new session with the story so far |
+| Sessions | Work → Sessions defaults to Desktop app. Desktop continuation never falls back to a CLI session. Cursor can receive messages through its Desktop Bridge (Beta). Codex can queue messages in an existing chat when `MALVES_CODEX_DESKTOP_BIN` is configured; keep the desktop chat open and refresh to see its reply. This worked with the real desktop through an encrypted local client; Android remains untested. Structured native questions and edit review remain unavailable; the computer screen provides human control. CLI continuation is a separate explicit choice |
 | Desktop IDEs | One extension for VS Code, Cursor, Antigravity and Windsurf. Connects in VS Code and Antigravity; the phone side awaits a real test. From the phone: start the IDE's own agent (VS Code starts it; Cursor pre-fills it, and you press Enter at the desk), open a task's changes, reopen Claude Code or Codex conversations. Agent questions also appear in the IDE |
 | Notifications | Through the free [ntfy](https://ntfy.sh) app, straight from your computer over Tailscale: questions with answer buttons on the lock screen, and "task finished / couldn't finish" (with quiet hours) |
 | Browser automation | Chrome extension, loaded unpacked. Every new site, click and form entry asks your phone first |
@@ -327,6 +327,29 @@ means yes.
 Codex, Cursor and Antigravity sessions from the computer. Open one and type
 what's next.
 
+**Review a desktop workspace.** In an existing conversation, tap **View workspace
+changes** to read its folder's current tracked Git edits, then refresh for a new
+snapshot. These may include your edits or other chats' work; they are not
+attributed to the selected chat. Known sensitive paths and `ladson.md` are
+excluded, and untracked contents are omitted. This does not accept, reject or
+commit anything. A repository without commits shows staged edits only. Automated
+Git and encrypted-link tests pass; Android verification is still outstanding.
+
+Desktop transcripts now refresh while the phone is active. Work → Questions
+collects runner questions and supports typed clarification when explicitly
+requested. Command output and individual file patches can be expanded. The
+screen has explicit Take/Return control buttons. See the
+[nine-operation implementation status](docs/mobile-desktop-progress.md) for
+what is built, what still needs native integration, and real-phone checks.
+
+**Voice desktop partner.** Ask Malves to read an existing desktop chat, explain
+its workspace changes, or propose a message to it. It can perform several bounded
+observation steps in one voice turn and stops for your confirmation. Desktop apps
+are the default; starting a CLI task requires an explicit request. For on-screen
+work, explicitly start handover. The semantic provider then discovers real app and
+window identities and uses fresh controls. Voice Stop cancels planning and owned
+handover operations; already-dispatched native agent work may continue.
+
 **Talk to Malves.** Tap the mic on Home, or the floating mic on any other
 screen, and just say it: "what's running?", "stop this one", "why did it
 fail?". Anything that changes something is read back first, and waits for your
@@ -427,6 +450,9 @@ has the same list with a line of explanation for each.
 | `MALVES_FCM_KEY` | Path to your Firebase service-account JSON, kept outside the repo. The phone build also needs `packages/app/google-services.json` (git-ignored) |
 | `MALVES_BACKUP_SSH`, `MALVES_BACKUP_SSH_KEY` | Nightly encrypted backup target (`user@host`) and the key file to log in with |
 | `MALVES_HOME` | The data folder (default `~/.malves`) |
+| `MALVES_CODEX_DESKTOP_BIN` | Absolute path to the installed Codex executable supporting `queue`. Enables existing desktop chat messages; no implicit resume. Keep that chat open and refresh its transcript. Native approvals and edit review are not connected |
+| Local desktop manifests | `codex-desktop.json` and `desktop-provider.json` in the Malves data folder can pin verified native executables and SHA-256 hashes. Explicit environment paths override them. A changed executable is refused until re-verified |
+| `MALVES_AGENT_DESKTOP_BIN` | Optional absolute native Agent Desktop executable using JSON envelope 2.6. Enables semantic window/element references only during explicit handover; clicks and field replacements still require confirmation. Install separately; no automatic download or antivirus changes |
 
 `MALVES_DEMO_*` configure the demo agent that the tests use. You don't need them.
 

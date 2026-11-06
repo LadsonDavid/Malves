@@ -20,7 +20,9 @@ export class RunnerDelivery implements Delivery {
       try {
         await c.call(`${alert.name}: ${alert.text}`);
       } catch (error) {
-        console.warn(`Automation delivery call failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Automation delivery call failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
@@ -28,7 +30,9 @@ export class RunnerDelivery implements Delivery {
       try {
         p.notify(alert.name, alert.text);
       } catch (error) {
-        console.warn(`Automation delivery push failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Automation delivery push failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     } else {
       console.log(`[Alert: ${alert.importance}] ${alert.name}: ${alert.text}`);

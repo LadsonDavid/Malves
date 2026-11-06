@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import type { WorkspaceProvisioner } from "@malves/core";
 
-function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+function git(
+  cwd: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
     execFile("git", args, { cwd, windowsHide: true }, (error, stdout, stderr) => {
       resolve({
@@ -27,7 +30,11 @@ export class GitWorktrees implements WorkspaceProvisioner {
     return path.join(parent, `${repoName}-malves`, `${jobId}-${stepId}`);
   }
 
-  async create(workspacePath: string, jobId: string, stepId: string): Promise<{ root: string; branch: string }> {
+  async create(
+    workspacePath: string,
+    jobId: string,
+    stepId: string,
+  ): Promise<{ root: string; branch: string }> {
     const branch = `malves/${jobId}/${stepId}`;
     const root = this.worktreePath(workspacePath, jobId, stepId);
 
@@ -130,7 +137,10 @@ export class GitWorktrees implements WorkspaceProvisioner {
       await git(workspacePath, ["branch", "-D", b]);
     }
 
-    const parentFolder = path.join(path.dirname(workspacePath), `${path.basename(workspacePath)}-malves`);
+    const parentFolder = path.join(
+      path.dirname(workspacePath),
+      `${path.basename(workspacePath)}-malves`,
+    );
     try {
       if (fs.existsSync(parentFolder) && fs.readdirSync(parentFolder).length === 0) {
         fs.rmdirSync(parentFolder);

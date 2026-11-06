@@ -1,4 +1,4 @@
-import type { Choice } from "@malves/protocol";
+import { type Choice, standaloneSpeech, yesOrNo } from "@malves/protocol";
 
 /**
  * What a spoken sentence means to malves. Plain rules, no model: the same words
@@ -138,8 +138,9 @@ export function interpret(text: string, ctx: Context): Intent {
     }
   }
   if (ctx.awaiting === "confirm") {
-    if (has(said, NO)) return { kind: "cancel" };
-    if (has(said, YES)) return { kind: "confirm" };
+    const decision = yesOrNo(text);
+    if (decision === "no") return { kind: "cancel" };
+    if (decision === "yes") return { kind: "confirm" };
     return command(said, text, ctx);
   }
   if (ctx.awaiting === "answer" && ctx.choices?.length) {
@@ -164,19 +165,24 @@ function answerFrom(said: string, choices: Choice[]): Intent | undefined {
   const byLabel = [...choices]
     .filter((c) => !no || NO_LABEL.test(c.label))
     .sort((a, b) => b.label.length - a.label.length)
-    .find((c) => normalize(c.label).trim() !== "" && said.includes(normalize(c.label)));
+    .find((c) => normalize(c.label).trim() !== "" && standaloneSpeech(said, [c.label]));
   if (byLabel) return pick(byLabel);
   if (no) return pick(choices.find((c) => NO_LABEL.test(c.label)));
   // "option two", "number 2", "the second one", or just "two" — never inside a longer sentence.
-  const short = said.trim().split(" ").length <= 3;
   const ordinal = said.replace(/ (first|second|third) one /, " $1 ");
-  if (short || /option|number|choice|எண்/.test(said)) {
-    for (const [n, words] of ORDINALS) {
-      if (n <= choices.length && has(ordinal, words)) return pick(choices[n - 1]);
-    }
+  for (const [n, words] of ORDINALS) {
+    const phrases = words.flatMap((word) => [
+      word,
+      `option ${word}`,
+      `number ${word}`,
+      `choice ${word}`,
+      `the ${word}`,
+      `எண் ${word}`,
+    ]);
+    if (n <= choices.length && standaloneSpeech(ordinal, phrases)) return pick(choices[n - 1]);
   }
   if (has(said, NO)) return pick(choices.find((c) => NO_LABEL.test(c.label)));
-  if (has(said, ALLOW)) return pick(choices.find((c) => !NO_LABEL.test(c.label)));
+  if (standaloneSpeech(said, ALLOW)) return pick(choices.find((c) => !NO_LABEL.test(c.label)));
   return undefined;
 }
 

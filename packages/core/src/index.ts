@@ -48,6 +48,7 @@ export {
 export { classifyCommand, insideRoot, isSecretPath } from "./policy/command.js";
 export { DEFAULT_DENY, Policy, type PolicyOptions } from "./policy/policy.js";
 export type { Action, Classification, PolicyContext, Verdict } from "./policy/types.js";
+export type * from "./ports.js";
 export type {
   AgentCallbacks,
   AgentEnd,
@@ -68,7 +69,6 @@ export type {
   Store,
   WorkspaceProvisioner,
 } from "./ports.js";
-export type * from "./ports.js";
 export {
   type Answer,
   type AnswerResult,
@@ -162,6 +162,7 @@ export function createCore(o: CoreOptions): Core {
     : undefined;
   const tasks = new Tasks({
     log,
+    clock: o.clock,
     ids: o.ids,
     questions,
     workspaces,

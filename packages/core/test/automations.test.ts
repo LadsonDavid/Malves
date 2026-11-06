@@ -2,12 +2,12 @@ import path from "node:path";
 import {
   type Alert,
   type Delivery,
-  lineDiff,
   fingerprint,
+  lineDiff,
+  MAX_PENDING,
   type MonitorRunner,
   type MonitorSnapshot,
   type MonitorState,
-  MAX_PENDING,
   nextDue,
   parseSchedule,
 } from "@malves/core";
@@ -42,7 +42,9 @@ describe("schedule grammar", () => {
 
   it("named days, daily and weekends", () => {
     expect(nextDue(parseSchedule("mon,wed 09:00"), at(26, 10))).toBe(at(28, 9));
-    expect(nextDue(parseSchedule("monday 09:00"), at(26, 10))).toBe(new Date(2026, 10, 2, 9).getTime());
+    expect(nextDue(parseSchedule("monday 09:00"), at(26, 10))).toBe(
+      new Date(2026, 10, 2, 9).getTime(),
+    );
     expect(nextDue(parseSchedule("daily 06:15"), at(25, 7))).toBe(at(26, 6, 15));
     expect(nextDue(parseSchedule("weekends 10:00"), at(26, 9))).toBe(at(31, 10)); // Saturday
   });
@@ -128,7 +130,11 @@ async function advanceBy(c: { clock: { advance(ms: number): void } }, ms: number
   }
 }
 
-const notify = (name: string, trigger: AutomationRule["trigger"], over: Partial<AutomationRule> = {}): AutomationRule => ({
+const notify = (
+  name: string,
+  trigger: AutomationRule["trigger"],
+  over: Partial<AutomationRule> = {},
+): AutomationRule => ({
   name,
   trigger,
   action: { kind: "notify", template: `${name}: {{diff}}` },
@@ -145,10 +151,16 @@ const fired = (c: { store: { events: Array<{ type: string }> } }) =>
 describe("automations: rules", () => {
   it("rejects a bad schedule before anything is written", () => {
     const w = world();
-    expect(() => w.automations.create(notify("x", { kind: "schedule", schedule: "whenever" }))).toThrow(/isn't a schedule/);
+    expect(() =>
+      w.automations.create(notify("x", { kind: "schedule", schedule: "whenever" })),
+    ).toThrow(/isn't a schedule/);
     expect(() =>
       w.automations.create(
-        notify("x", { kind: "monitor", every: "every 1s", source: { kind: "port", host: "h", port: 1 } }),
+        notify("x", {
+          kind: "monitor",
+          every: "every 1s",
+          source: { kind: "port", host: "h", port: 1 },
+        }),
       ),
     ).toThrow(/too often/);
     expect(w.store.events.filter((e) => e.type.startsWith("automation"))).toEqual([]);
@@ -162,7 +174,11 @@ describe("automations: rules", () => {
     w.automations.remove(b.id);
     const again = setup({
       store: w.store,
-      automations: { monitors: new FakeMonitors(), state: new MemoryState(), delivery: new RecordingDelivery() },
+      automations: {
+        monitors: new FakeMonitors(),
+        state: new MemoryState(),
+        delivery: new RecordingDelivery(),
+      },
     });
     expect(again.automations?.list().map((r) => [r.name, r.enabled])).toEqual([["a", false]]);
   });
@@ -185,8 +201,12 @@ describe("automations: schedules", () => {
 
   it("log-only rules leave an event and tell nobody; a call is handed over as a call", async () => {
     const w = world();
-    w.automations.create(notify("quiet", { kind: "schedule", schedule: "every 1m" }, { importance: "log" }));
-    w.automations.create(notify("loud", { kind: "schedule", schedule: "every 1m" }, { importance: "call" }));
+    w.automations.create(
+      notify("quiet", { kind: "schedule", schedule: "every 1m" }, { importance: "log" }),
+    );
+    w.automations.create(
+      notify("loud", { kind: "schedule", schedule: "every 1m" }, { importance: "call" }),
+    );
     w.automations.start();
     await advanceBy(w, 60_000);
     expect(fired(w)).toHaveLength(2);
@@ -196,7 +216,9 @@ describe("automations: schedules", () => {
 
   it("a disabled rule never fires", async () => {
     const w = world();
-    w.automations.create(notify("off", { kind: "schedule", schedule: "every 1m" }, { enabled: false }));
+    w.automations.create(
+      notify("off", { kind: "schedule", schedule: "every 1m" }, { enabled: false }),
+    );
     w.automations.start();
     await advanceBy(w, 5 * 60_000);
     expect(fired(w)).toHaveLength(0);
@@ -210,14 +232,24 @@ describe("automations: schedules", () => {
     w.automations.start();
     await advanceBy(w, 2 * 60_000);
     expect(fired(w).length).toBeGreaterThanOrEqual(2);
-    expect(w.store.events.some((e) => e.type === "error" && e.data.code === "delivery_failed")).toBe(true);
+    expect(
+      w.store.events.some((e) => e.type === "error" && e.data.code === "delivery_failed"),
+    ).toBe(true);
     w.automations.stop();
   });
 });
 
 describe("automations: monitors hash before they think", () => {
   const rule = (over: Partial<AutomationRule> = {}) =>
-    notify("ci", { kind: "monitor", every: "every 1m", source: { kind: "command", command: "gh run list", workspace_id: "ws1" } }, over);
+    notify(
+      "ci",
+      {
+        kind: "monitor",
+        every: "every 1m",
+        source: { kind: "command", command: "gh run list", workspace_id: "ws1" },
+      },
+      over,
+    );
 
   it("the first reading speaks, unchanged readings say nothing, one change speaks once with its diff", async () => {
     const w = world();
@@ -247,7 +279,9 @@ describe("automations: monitors hash before they think", () => {
   it("unchanged means no model call: a task rule starts no task while the output stays the same", async () => {
     const w = world();
     w.automations.create(
-      rule({ action: { kind: "task", workspace_id: w.ws.id, agent: "demo", prompt: "Explain: {{diff}}" } }),
+      rule({
+        action: { kind: "task", workspace_id: w.ws.id, agent: "demo", prompt: "Explain: {{diff}}" },
+      }),
     );
     w.host.script = async ({ callbacks }) => {
       callbacks.output("Looks like the build broke.");
@@ -306,14 +340,22 @@ describe("automations: monitors hash before they think", () => {
     w.clock.advance(0);
     await flush();
     await flush();
-    expect(w.monitors.last).toEqual({ kind: "command", command: "gh run list", workspace_id: "ws1" });
+    expect(w.monitors.last).toEqual({
+      kind: "command",
+      command: "gh run list",
+      workspace_id: "ws1",
+    });
     w.automations.stop();
   });
 });
 
 describe("automations: reacting to events", () => {
   const onFailure = (over: Partial<AutomationRule> = {}) =>
-    notify("failed", { kind: "event", on: "task.failed" }, { action: { kind: "notify", template: "{{task}} — {{reason}}" }, ...over });
+    notify(
+      "failed",
+      { kind: "event", on: "task.failed" },
+      { action: { kind: "notify", template: "{{task}} — {{reason}}" }, ...over },
+    );
 
   it("a failed task fires the rule, and only once per gap", async () => {
     const w = world(60_000);
@@ -322,16 +364,22 @@ describe("automations: reacting to events", () => {
     w.host.script = async () => {
       throw new Error("agent crashed");
     };
-    await w.tasks.whenFinished(w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "build it" }));
+    await w.tasks.whenFinished(
+      w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "build it" }),
+    );
     await flush();
     expect(w.delivery.sent.map((a) => a.text)).toEqual(["build it — agent crashed"]);
 
-    await w.tasks.whenFinished(w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "again" }));
+    await w.tasks.whenFinished(
+      w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "again" }),
+    );
     await flush();
     expect(w.delivery.sent).toHaveLength(1);
 
     w.clock.advance(61_000);
-    await w.tasks.whenFinished(w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "third" }));
+    await w.tasks.whenFinished(
+      w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "third" }),
+    );
     await flush();
     expect(w.delivery.sent).toHaveLength(2);
     w.automations.stop();
@@ -340,13 +388,22 @@ describe("automations: reacting to events", () => {
   it("a rule that starts a task can't feed itself: its own task's failure triggers nothing", async () => {
     const w = world(0);
     w.automations.create(
-      onFailure({ action: { kind: "task", workspace_id: w.ws.id, agent: "demo", prompt: "investigate {{task}}" } }),
+      onFailure({
+        action: {
+          kind: "task",
+          workspace_id: w.ws.id,
+          agent: "demo",
+          prompt: "investigate {{task}}",
+        },
+      }),
     );
     w.automations.start();
     w.host.script = async () => {
       throw new Error("still broken");
     };
-    await w.tasks.whenFinished(w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "build it" }));
+    await w.tasks.whenFinished(
+      w.tasks.create({ workspaceId: w.ws.id, agent: "demo", prompt: "build it" }),
+    );
     await flush();
     await flush();
     await flush();
@@ -356,8 +413,24 @@ describe("automations: reacting to events", () => {
 
   it("monitor.changed rules hear about a monitor's change", async () => {
     const w = world();
-    w.automations.create(notify("watch", { kind: "monitor", every: "every 1m", source: { kind: "port", host: "localhost", port: 3000 } }, { importance: "log" }));
-    w.automations.create(notify("heard", { kind: "event", on: "monitor.changed" }, { action: { kind: "notify", template: "{{source}} changed" } }));
+    w.automations.create(
+      notify(
+        "watch",
+        {
+          kind: "monitor",
+          every: "every 1m",
+          source: { kind: "port", host: "localhost", port: 3000 },
+        },
+        { importance: "log" },
+      ),
+    );
+    w.automations.create(
+      notify(
+        "heard",
+        { kind: "event", on: "monitor.changed" },
+        { action: { kind: "notify", template: "{{source}} changed" } },
+      ),
+    );
     w.automations.start();
     w.clock.advance(0);
     await flush();
@@ -388,7 +461,9 @@ describe("suggestions", () => {
 
   it(`at most ${MAX_PENDING} wait at once`, () => {
     const w = world();
-    const ids = Array.from({ length: MAX_PENDING + 2 }, (_, i) => w.suggestions.offer(proposal(`k${i}`)));
+    const ids = Array.from({ length: MAX_PENDING + 2 }, (_, i) =>
+      w.suggestions.offer(proposal(`k${i}`)),
+    );
     expect(ids.filter(Boolean)).toHaveLength(MAX_PENDING);
     w.suggestions.dismiss(ids[0] ?? "");
     expect(w.suggestions.offer(proposal("k-new"))).toBeDefined();
@@ -401,7 +476,11 @@ describe("suggestions", () => {
     expect(w.suggestions.offer(proposal("ci"))).toBeUndefined();
     const again = setup({
       store: w.store,
-      automations: { monitors: new FakeMonitors(), state: new MemoryState(), delivery: new RecordingDelivery() },
+      automations: {
+        monitors: new FakeMonitors(),
+        state: new MemoryState(),
+        delivery: new RecordingDelivery(),
+      },
     });
     expect(again.suggestions?.offer(proposal("ci"))).toBeUndefined();
     expect(again.suggestions?.list()).toEqual([]);

@@ -21,6 +21,63 @@ function withWorkspace() {
 }
 
 describe("tasks", () => {
+  it("blocks every task producer during manual desktop ownership until explicitly released", () => {
+    const c = withWorkspace();
+    c.tasks.blockInput("Human has control");
+    expect(() =>
+      c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "background work" }),
+    ).toThrow("Human has control");
+    expect(c.tasks.list()).toEqual([]);
+    c.tasks.blockInput();
+    expect(
+      c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "explicitly resumed" }),
+    ).toBeTruthy();
+  });
+  it("batches tokens, splits oversized chunks for the link, and flushes on failure", async () => {
+    const c = withWorkspace();
+    c.host.script = async ({ callbacks }) => {
+      callbacks.output("x".repeat(17_000));
+      callbacks.output(" tail");
+      throw new Error("agent disconnected");
+    };
+    const id = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    expect((await c.tasks.whenFinished(id)).state).toBe("failed");
+    const chunks = c.store.events.flatMap((e) => (e.type === "task.output" ? [e.data.text] : []));
+    expect(chunks.map((text) => text.length)).toEqual([8000, 8000, 1005]);
+    expect(c.tasks.get(id)?.result).toBe(`${"x".repeat(17_000)} tail`);
+    const count = c.store.events.length;
+    c.clock.advance(1000);
+    expect(c.store.events).toHaveLength(count);
+  });
+  it("publishes the agent's text while it waits, and keeps it after stopping and replay", async () => {
+    const c = withWorkspace();
+    c.host.script = async ({ callbacks }) => {
+      callbacks.output("Here is the plan. ");
+      callbacks.output("First, inspect the test.");
+      await callbacks.decide({ kind: "permission", text: "Continue?", choices, risk: "high" });
+      callbacks.output("late output must be ignored");
+      return "completed";
+    };
+    const id = c.tasks.create({ workspaceId: c.ws.id, agent: "demo", prompt: "x" });
+    await flush();
+    c.clock.advance(250);
+    expect(c.store.events.filter((e) => e.type === "task.output").map((e) => e.data)).toEqual([
+      { task_id: id, text: "Here is the plan. First, inspect the test." },
+    ]);
+    await c.tasks.stop(id);
+    await flush();
+    expect(c.tasks.get(id)?.result).toBe("Here is the plan. First, inspect the test.");
+    const replayed = createCore({
+      store: c.store,
+      clock: c.clock,
+      ids: c.ids,
+      notifier: c.notifier,
+      host: c.host,
+      agents: new Map(),
+      questionTimeoutMs: TIMEOUT,
+    });
+    expect(replayed.tasks.get(id)?.result).toBe("Here is the plan. First, inspect the test.");
+  });
   it("runs a task to done and keeps the agent's text as the result", async () => {
     const c = withWorkspace();
     c.host.script = async ({ callbacks }) => {

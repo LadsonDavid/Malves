@@ -1,4 +1,10 @@
-import { type LinkClient, type LinkStatus, randomToken } from "@malves/protocol";
+import {
+  explicitlyRequestsRunner,
+  type LinkClient,
+  type LinkStatus,
+  randomToken,
+  type SessionFocus,
+} from "@malves/protocol";
 import {
   createContext,
   type ReactNode,
@@ -17,6 +23,7 @@ import {
   running,
   workspaceName,
 } from "../model";
+import { watchProgress } from "../progress";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
 import { callHandled, onAnsweredCall, registerForCalls, whenUnlocked } from "./calls";
@@ -136,6 +143,7 @@ export function VoiceProvider({
   lastAgent,
   onCall,
   where,
+  focus,
   children,
 }: {
   model: Model;
@@ -146,6 +154,7 @@ export function VoiceProvider({
   onCall: () => void;
   /** What's on the screen now, so Malves knows what "this one" is. */
   where?: string | undefined;
+  focus?: SessionFocus | undefined;
   children: ReactNode;
 }) {
   const [settings, setSettingsState] = useState<VoiceSettings>(DEFAULT_VOICE);
@@ -180,6 +189,7 @@ export function VoiceProvider({
     brainPending: undefined as { id: string; summary: string } | undefined,
     lastSaid: "",
     where: undefined as string | undefined,
+    focus: undefined as SessionFocus | undefined,
     /** Malves was talked over: listen next, whatever the mode. */
     interrupted: false,
     /** Skills the reply being said drew on. */
@@ -192,7 +202,7 @@ export function VoiceProvider({
     modeSince: Date.now(),
     announced: new Set<string>(),
   });
-  Object.assign(live.current, { model, client, status, lastAgent, settings, where });
+  Object.assign(live.current, { model, client, status, lastAgent, settings, where, focus });
 
   useEffect(() => {
     void loadVoiceSettings().then(setSettingsState);
@@ -311,6 +321,18 @@ export function VoiceProvider({
     live.current.brainPending = next;
     setPendingState(next);
   };
+  const previousFocus = useRef("");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: latest client/state are read from live; only a chat change invalidates the selection
+  useEffect(() => {
+    const next = focus ? `${focus.tool}:${focus.session_id}` : "";
+    if (previousFocus.current !== next) {
+      setBrainPending(undefined);
+      const L = live.current;
+      if (L.client && L.status === "online" && L.model.assistantCancel)
+        void L.client.cancelAssistant(conversationId).catch(() => {});
+    }
+    previousFocus.current = next;
+  }, [focus?.tool, focus?.session_id]);
 
   /** Malves' brain is there to talk to. */
   const brainOn = () =>
@@ -346,20 +368,26 @@ export function VoiceProvider({
     }, 1500);
     let reply: Awaited<ReturnType<LinkClient["assistantSay"]>>["assistant"];
     const voice = startReply(id);
+    const commandId = voice.commandId ?? randomToken(12);
+    const unwatchProgress = watchProgress(commandId, (text) => {
+      if (id === live.current.turn) note("malves", text);
+    });
     try {
       const ack = await c.assistantSay(
         conversationId,
         text,
         alternatives,
         speakAs(),
-        voice.commandId,
+        commandId,
         live.current.where,
+        live.current.focus,
       );
       reply = ack.ok ? ack.assistant : undefined;
     } catch {
       reply = undefined;
     } finally {
       clearTimeout(slow);
+      unwatchProgress();
     }
     if (id !== live.current.turn || !reply || reply.offline) voice.cancel();
     if (id !== live.current.turn) return true;
@@ -471,6 +499,18 @@ export function VoiceProvider({
       const alternatives = result.alternatives.filter((a) => a !== text);
       if (text !== result.text) alternatives.unshift(result.text);
       if (await think(text, alternatives, id)) return afterThink(id);
+    }
+    const needsRunnerConsent =
+      intent.kind === "newTask" &&
+      awaiting !== "prompt" &&
+      live.current.where !== "The New task form";
+    const desktopWouldFallback =
+      !!live.current.focus && ["runAgain", "reply", "stopTask"].includes(intent.kind);
+    if ((needsRunnerConsent || desktopWouldFallback) && !explicitlyRequestsRunner(text)) {
+      await sayIt(
+        "Desktop work needs its desktop connection or explicit handover. No CLI action was taken. Say CLI or runner task if that is what you intend.",
+      );
+      return next(id);
     }
     await act(intent, awaiting, question, id);
   };
@@ -879,6 +919,10 @@ export function VoiceProvider({
   };
 
   const hush = () => {
+    const L = live.current;
+    if (L.client && L.status === "online" && L.model.assistantCancel)
+      void L.client.cancelAssistant(conversationId).catch(() => {});
+    setBrainPending(undefined);
     fresh();
     if (live.current.mode) void stopMode(false);
     setPhase("idle");

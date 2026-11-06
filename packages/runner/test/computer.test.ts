@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { perceptualHash, hashDistance } from "../src/adapters/computer/hash.js";
-import { ComputerOperator } from "../src/adapters/computer/operator.js";
 import type { Desktop } from "../src/adapters/assistant/desktop.js";
+import { hashDistance, perceptualHash } from "../src/adapters/computer/hash.js";
+import { ComputerOperator } from "../src/adapters/computer/operator.js";
 
 describe("computer operator - hash", () => {
   it("computes perceptual hash and hamming distance", () => {

@@ -86,13 +86,18 @@ export function validatePlan(input: unknown, availableAgents: string[]): JobStep
 export function parsePlan(rawText: string, availableAgents: string[]): JobStep[] {
   let cleaned = rawText.trim();
   if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```[a-z0-9_-]*\n?/i, "").replace(/```$/, "").trim();
+    cleaned = cleaned
+      .replace(/^```[a-z0-9_-]*\n?/i, "")
+      .replace(/```$/, "")
+      .trim();
   }
   let json: unknown;
   try {
     json = JSON.parse(cleaned);
   } catch (error) {
-    throw new Error(`Could not parse plan JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Could not parse plan JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   return validatePlan(json, availableAgents);
 }

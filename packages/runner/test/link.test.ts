@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +36,7 @@ import {
   LinkServer,
   type LinkServerOptions,
 } from "../src/adapters/link/server.js";
+import { codexSessions } from "../src/adapters/sessions/codex.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { Health } from "../src/health.js";
 import { randomIds, systemClock } from "../src/system.js";
@@ -43,6 +52,7 @@ const cleanup: Array<() => unknown> = [];
 
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
+  delete process.env.MALVES_DEMO_PROGRESS;
 });
 
 /** Stands in for AgentStatus: a list of agents whose states the test controls. */
@@ -108,6 +118,7 @@ async function runner(
 }
 
 type Phone = {
+  progress: string[];
   client: LinkClient;
   keys: KeyPair;
   events: LoggedEvent[];
@@ -140,6 +151,7 @@ function phone(
 ): Phone {
   const keys = options.keys ?? generateKeyPair();
   const p: Phone = {
+    progress: [],
     keys,
     events: [],
     statuses: [],
@@ -167,6 +179,7 @@ function phone(
     onLeads: (leads) => p.leads.push(leads),
     onActivity: (taskId, text) => p.activity.push(`${taskId}: ${text}`),
     onAudio: (piece) => p.audio.push(piece),
+    onProgress: (_id, text) => p.progress.push(text),
     maxBackoffMs: 200,
   });
   p.client.connect();
@@ -193,6 +206,250 @@ async function pairedPhone(r: Awaited<ReturnType<typeof runner>>, extra = {}) {
 }
 
 describe("phone link, end to end", () => {
+  it("routes the phone's exact chat focus and assistant cancellation over the sealed link", async () => {
+    const seen: unknown[] = [];
+    const reply = { reply: "Ready", did: [] };
+    const r = await runner(undefined, undefined, undefined, {
+      assistant: {
+        say: async (_c, _t, _a, _text, _where, _progress, focus) => {
+          seen.push(focus);
+          return reply;
+        },
+        cancel: (id) => seen.push(id),
+        confirm: async () => reply,
+        look: async () => reply,
+        memories: async () => [],
+        forget: () => false,
+      },
+    });
+    const p = await pairedPhone(r);
+    expect(p.welcome?.assistant_cancel).toBe(true);
+    await p.client.assistantSay("voice-chat", "Read this chat", [], false, undefined, undefined, {
+      tool: "codex",
+      session_id: "exact-native",
+    });
+    expect(await p.client.cancelAssistant("voice-chat")).toMatchObject({ ok: true });
+    expect(seen).toEqual([{ tool: "codex", session_id: "exact-native" }, "voice-chat"]);
+  });
+  it("recovers native recorded operations on a fresh phone client without starting an agent", async () => {
+    const folder = realpathSync.native(
+      mkdtempSync(path.join(tmpdir(), "malves-native-recording-")),
+    );
+    cleanup.push(() => rmSync(folder, { recursive: true, force: true }));
+    const file = path.join(folder, "rollout-native.jsonl");
+    writeFileSync(
+      file,
+      [
+        { type: "session_meta", payload: { id: "native-chat", cwd: folder } },
+        {
+          type: "response_item",
+          payload: {
+            type: "function_call",
+            call_id: "read-one",
+            name: "exec_command",
+            arguments: JSON.stringify({ cmd: "rg TODO src" }),
+          },
+        },
+        {
+          type: "response_item",
+          payload: {
+            type: "function_call_output",
+            call_id: "read-one",
+            output: "Process exited with code 0\nFound TODO",
+          },
+        },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+    const source = codexSessions(folder);
+    const inspect = source.inspect;
+    if (!inspect) throw new Error("Recorded inspection must be available.");
+    const r = await runner(undefined, undefined, undefined, {
+      sessions: {
+        list: async () => [],
+        folders: async () => [],
+        read: (_tool, id) => source.read(id, 40),
+        inspect: (_tool, id) => inspect(id),
+        continue: async () => {
+          throw new Error("must not start");
+        },
+        workspaceFor: async () => "unused",
+      },
+    });
+    const first = await pairedPhone(r);
+    const initial = await first.client.inspectSession("codex", "native-chat");
+    first.client.close();
+    const restarted = phone(r, { keys: first.keys });
+    await waitFor(isOnline(restarted), "fresh phone client");
+    expect((await restarted.client.inspectSession("codex", "native-chat")).recording).toEqual(
+      initial.recording,
+    );
+    expect(initial.recording?.operations[0]).toMatchObject({
+      kind: "search",
+      status: "completed",
+      text: expect.stringContaining("Found TODO"),
+    });
+    expect(r.core.tasks.list()).toEqual([]);
+  });
+  it("delivers research progress before the final answer over the sealed link", async () => {
+    const reply = { reply: "Done", did: [] };
+    const r = await runner(undefined, undefined, undefined, {
+      assistant: {
+        say: async (_c, _t, _a, _onText, _where, progress) => {
+          progress?.("Reading source one");
+          return reply;
+        },
+        confirm: async () => reply,
+        look: async () => reply,
+        memories: async () => [],
+        forget: () => false,
+      },
+    });
+    const p = await pairedPhone(r);
+    const ack = await p.client.assistantSay("conversation", "research this");
+    expect(ack.assistant?.reply).toBe("Done");
+    expect(p.progress).toEqual(["Reading source one"]);
+  });
+  it("blocks new agent input during explicit human control while permitting read-only review", async () => {
+    const r = await runner();
+    const p = await pairedPhone(r);
+    r.server.setHandover({ active: true, paused: true });
+    expect(
+      await p.client.createTask({ workspaceId: r.ws.id, agent: "demo", prompt: "must not run" }),
+    ).toMatchObject({ ok: false });
+    expect(
+      await p.client.continueSession("codex", "existing", "must not send", "desktop"),
+    ).toMatchObject({ ok: false });
+    expect(r.core.tasks.list()).toEqual([]);
+    r.server.setHandover({ active: true, paused: false });
+    expect(
+      await p.client.createTask({ workspaceId: r.ws.id, agent: "demo", prompt: "resume input" }),
+    ).toMatchObject({ ok: true });
+  });
+  it("delivers a typed clarification to its exact question over the sealed link", async () => {
+    const r = await runner();
+    const p = await pairedPhone(r);
+    const answer = r.core.questions.ask({
+      taskId: "clarify",
+      kind: "agent_question",
+      text: "Which file?",
+      choices: [{ id: "text", label: "Send answer" }],
+      textChoiceId: "text",
+      risk: "low",
+      timeoutMs: 10000,
+    });
+    const q = r.core.questions.pending()[0]!;
+    expect(
+      await p.client.answerText({ questionId: q.question_id, choiceId: "text", text: "index.ts" }),
+    ).toMatchObject({ ok: true });
+    await expect(answer).resolves.toMatchObject({ text: "index.ts", choiceId: "text" });
+  });
+  it("reads session workspace changes over the encrypted link without creating a task", async () => {
+    const received: unknown[] = [];
+    const r = await runner(undefined, undefined, undefined, {
+      sessions: {
+        list: async () => [],
+        folders: async () => [],
+        read: async () => [],
+        workspaceFor: async () => "unused",
+        continue: async () => {
+          throw new Error("must not continue");
+        },
+        changes: async (tool, id) => {
+          received.push({ tool, id });
+          return "Workspace changes\n+example";
+        },
+      },
+    });
+    const p = await pairedPhone(r);
+    expect(await p.client.sessionChanges("codex", "existing-chat")).toMatchObject({
+      ok: true,
+      result: "Workspace changes\n+example",
+    });
+    expect(received).toEqual([{ tool: "codex", id: "existing-chat" }]);
+    expect(r.core.tasks.list()).toEqual([]);
+  });
+  it("preserves the desktop continuation target over the sealed phone link", async () => {
+    const received: unknown[] = [];
+    const r = await runner(undefined, undefined, undefined, {
+      sessions: {
+        list: async () => [],
+        folders: async () => [],
+        read: async () => [],
+        workspaceFor: async () => "unused",
+        continue: async (tool, id, text, target, commandId) => {
+          received.push({ tool, id, text, target, commandId });
+          return { result: "Sent to desktop." };
+        },
+      },
+    });
+    const p = await pairedPhone(r);
+    const ack = await p.client.continueSession(
+      "cursor",
+      "desktop-chat",
+      "Review the edit",
+      "desktop",
+    );
+    expect(ack).toMatchObject({ ok: true, result: "Sent to desktop." });
+    expect(received).toEqual([
+      {
+        tool: "cursor",
+        id: "desktop-chat",
+        text: "Review the edit",
+        target: "desktop",
+        commandId: ack.command_id,
+      },
+    ]);
+    expect(r.core.tasks.list()).toEqual([]);
+  });
+  it("streams ACP output before permission, replays it on reconnect, and retains the tool result", async () => {
+    process.env.MALVES_DEMO_PROGRESS = "1";
+    const r = await runner();
+    const p = await pairedPhone(r);
+    const created = await p.client.createTask({
+      workspaceId: r.ws.id,
+      agent: "demo",
+      prompt: "write a demo file",
+    });
+    const id = created.result!;
+    await waitFor(
+      () => p.events.some((e) => e.type === "task.output"),
+      "live text before approval",
+    );
+    expect(r.core.tasks.get(id)?.state).toBe("waiting");
+    expect(existsSync(path.join(r.site, "malves-demo.txt"))).toBe(false);
+    const question = r.core.questions.pending()[0]!;
+    const seq = p.client.lastSeq;
+    p.client.close();
+    const allowed = r.core.questions.answer({
+      questionId: question.question_id,
+      choiceId: "allow",
+      commandId: "desktop-answer",
+    });
+    expect(allowed).toBe("applied");
+    expect((await r.core.tasks.whenFinished(id)).state).toBe("done");
+    const resumed = phone(r, { keys: p.keys, sinceSeq: seq });
+    await waitFor(
+      () => resumed.events.some((e) => e.type === "task.updated" && e.data.state === "done"),
+      "completion replay",
+    );
+    const tool = resumed.events.find(
+      (e) => e.type === "task.tool" && e.data.tool.status === "completed",
+    );
+    expect(tool?.data).toMatchObject({
+      task_id: id,
+      tool: { id: "write-1", title: "Write malves-demo.txt", text: "Saved malves-demo.txt." },
+    });
+    const reopened = phone(r, { keys: p.keys });
+    await waitFor(
+      () => reopened.events.some((e) => e.type === "task.updated" && e.data.state === "done"),
+      "full history replay",
+    );
+    expect(
+      reopened.events.some((e) => e.type === "task.output" && e.data.text.includes("Inspecting")),
+    ).toBe(true);
+  });
   it("writes who watched or controlled the screen to the log, once per burst", async () => {
     let now = 1_000_000;
     const screen = {

@@ -1,6 +1,7 @@
 import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { RefreshControl, ScrollView, Text } from "react-native";
+import { QuestionCard } from "../components/QuestionCard";
 import { TaskRow } from "../components/TaskRow";
 import { history, type Model, type TaskFilter } from "../model";
 import { Choices, List, styles, Title } from "../ui";
@@ -20,7 +21,7 @@ const EMPTY: Record<TaskFilter, string> = {
   unfinished: "Nothing failed or was stopped.",
 };
 
-type View = "sessions" | "tasks";
+type View = "sessions" | "tasks" | "questions";
 
 /**
  * Your work: every session on the computer (Claude Code, Codex, Cursor,
@@ -59,11 +60,18 @@ export function TasksScreen({
         />
       }
     >
-      <Title eyebrow="Your work">{view === "sessions" ? "Sessions" : "malves tasks"}</Title>
+      <Title eyebrow="Your work">
+        {view === "sessions"
+          ? "Sessions"
+          : view === "questions"
+            ? "Waiting for you"
+            : "malves tasks"}
+      </Title>
       <Choices<View>
         options={[
           { value: "sessions", label: "Sessions" },
           { value: "tasks", label: "malves tasks" },
+          { value: "questions", label: `Questions (${Object.keys(model.questions).length})` },
         ]}
         value={view}
         onChange={setView}
@@ -75,6 +83,27 @@ export function TasksScreen({
           onOpen={onOpenSession}
           refreshKey={refreshKey}
         />
+      ) : view === "questions" ? (
+        <>
+          <Text style={styles.muted}>
+            Questions from Malves runner tasks. Native desktop app questions are not connected.
+          </Text>
+          {Object.keys(model.questions).length === 0 ? (
+            <Text style={styles.muted}>Nothing is waiting for your answer.</Text>
+          ) : null}
+          {Object.values(model.questions)
+            .sort((a, b) => a.expiresAt - b.expiresAt)
+            .map((question) => (
+              <QuestionCard
+                key={question.id}
+                question={question}
+                model={model}
+                client={client}
+                status={status}
+                onOpenTask={() => onOpenTask(question.taskId)}
+              />
+            ))}
+        </>
       ) : (
         <>
           <Choices options={FILTERS} value={filter} onChange={setFilter} />

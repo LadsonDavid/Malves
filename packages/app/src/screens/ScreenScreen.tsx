@@ -321,6 +321,29 @@ export function ScreenScreen({
           />
         ) : null}
       </BackBar>
+      {model.handover.control_supported ? (
+        <Button
+          title={
+            model.handover.paused ? "Return control to Malves" : "Take control · stop runner tasks"
+          }
+          kind="plain"
+          disabled={!online}
+          onPress={() =>
+            void client
+              ?.desktopControl(model.handover.paused ? "malves" : "human")
+              .then((ack) => {
+                if (!ack.ok) setProblem(ack.error ?? "Couldn't change control.");
+              })
+              .catch(() => setProblem("Control change is unconfirmed. Check before acting."))
+          }
+        />
+      ) : null}
+      {model.handover.paused ? (
+        <Banner tone="info">
+          You have control. New Malves agent input is blocked. Native desktop agents may still run;
+          pause them in their own app.
+        </Banner>
+      ) : null}
       <View style={{ gap: space.xs }}>
         <Text style={styles.eyebrow}>Your screen</Text>
         <Text style={styles.meta}>

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkAcyclic,
-  parsePlan,
-  plannerPrompt,
-  validatePlan,
-} from "../src/jobs/planner.js";
+import { checkAcyclic, parsePlan, plannerPrompt, validatePlan } from "../src/jobs/planner.js";
 
 const AGENTS = ["claude", "codex", "assistant"];
 

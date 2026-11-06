@@ -5,6 +5,23 @@ projects. Each entry is also listed in the dissertation's declaration of
 original work. Dependencies installed from npm keep their own licence files and
 are not copied into this repository.
 
+## Optional Agent Desktop executable
+
+- Source: https://github.com/vercel-labs/agent-desktop
+- Licence: Apache-2.0 (retained by the separately installed executable).
+- Malves' original `semantic-desktop.ts` adapter calls the public CLI as a
+  separate process during explicit handover. No upstream source is copied or
+  bundled. The adapter checks JSON envelope version 2.6 and preserves delivery
+  and retry dispositions. This does not provide native Codex approval access.
+
+## Desktop partner design references (no copied code)
+
+OpenBot's `toolkit/tests/last-step.test.ts` and `turn-settle.test.ts` were read as
+behavioural references for bounded observation loops and stopping at human
+decisions (MIT, Copyright 2026 CopilotKit). Malves' voice loop, cancellation,
+conversation binding and tests are original implementations; no OpenBot source
+was copied. Keep this distinction in the dissertation contribution statement.
+
 ## Agent Client Protocol TypeScript SDK
 
 - Source: https://github.com/agentclientprotocol/typescript-sdk (version 1.5.1,

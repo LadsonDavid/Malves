@@ -7,13 +7,7 @@ import {
   TERMINAL_STATES,
 } from "@malves/protocol";
 import type { EventLog } from "../events/log.js";
-import type {
-  Clock,
-  Ids,
-  JobVerifier,
-  PullRequestOpener,
-  WorkspaceProvisioner,
-} from "../ports.js";
+import type { Clock, Ids, JobVerifier, PullRequestOpener, WorkspaceProvisioner } from "../ports.js";
 import type { Questions } from "../questions/questions.js";
 import type { Task, Tasks } from "../tasks/tasks.js";
 import type { Workspaces } from "../workspaces/workspaces.js";
@@ -111,7 +105,10 @@ export class Jobs {
         }
         case "task.updated": {
           if (TERMINAL_STATES.includes(event.data.state)) {
-            void this.onTaskEnded(event.data.task_id, event.data.state as "done" | "failed" | "stopped");
+            void this.onTaskEnded(
+              event.data.task_id,
+              event.data.state as "done" | "failed" | "stopped",
+            );
           }
           break;
         }

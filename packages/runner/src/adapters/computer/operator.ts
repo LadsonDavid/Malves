@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
+import type { Policy } from "@malves/core";
 import type { Desktop } from "../assistant/desktop.js";
 import { OFF_LIMITS } from "../assistant/desktop.js";
 import { DEFAULT_HASH_THRESHOLD, hashDistance, perceptualHash } from "./hash.js";
 import type { Act, ActResult, Computer, Rect, UiElement } from "./types.js";
-import type { Policy } from "@malves/core";
 
 export type StoredFrame = {
   frameId: string;
@@ -139,7 +139,9 @@ export class ComputerOperator implements Computer {
       /confirm|delete|remove|send|pay|buy|install/i.test(activeTitle);
 
     if (isDestructive && this.askUser) {
-      const allowed = await this.askUser(`Action "${a.kind}" in "${activeTitle}" requires confirmation.`);
+      const allowed = await this.askUser(
+        `Action "${a.kind}" in "${activeTitle}" requires confirmation.`,
+      );
       if (!allowed) {
         return { ok: false, frameId, error: "Action declined by user." };
       }

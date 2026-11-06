@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -18,6 +19,7 @@ import { Handover } from "../src/adapters/assistant/handover.js";
 import type { ChatMessage, Llm, ToolCall } from "../src/adapters/assistant/llm.js";
 import { Memory } from "../src/adapters/assistant/memory.js";
 import { Profile } from "../src/adapters/assistant/profile.js";
+import { SemanticDesktop } from "../src/adapters/assistant/semantic-desktop.js";
 import { SkillLibrary } from "../src/adapters/assistant/skills.js";
 import { SqliteStore } from "../src/adapters/sqlite/store.js";
 import { randomIds, systemClock } from "../src/system.js";
@@ -131,6 +133,337 @@ function setup(script: Turn[], agents?: AgentInfo[], extra: Partial<AssistantDep
 }
 
 describe("Malves, the assistant", () => {
+  it("stops observation at the six-round budget", async () => {
+    let reads = 0;
+    const chats = Array.from({ length: 10 }, (_, i) => ({
+      tool: "codex" as const,
+      id: `chat-${i}`,
+      title: `Chat ${i}`,
+      updatedAt: 1,
+      how: "resume" as const,
+    }));
+    const script = chats.map((chat) => ({
+      calls: [["desktop_read_chat", { tool: "codex", session_id: chat.id }]] as Array<
+        [string, Record<string, unknown>]
+      >,
+    }));
+    const s = setup(script, undefined, {
+      desktopChats: {
+        list: async () => chats,
+        read: async () => {
+          reads++;
+          return [];
+        },
+        changes: async () => "",
+        send: async () => {
+          throw new Error("must not send");
+        },
+      },
+    });
+    expect((await s.assistant.say("bounded", "Inspect desktop chats")).reply).toContain(
+      "step limit",
+    );
+    expect(reads).toBe(6);
+    expect(s.brain.seen).toHaveLength(6);
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("does not let a stale confirmation erase a newer pending action", async () => {
+    const s = setup([
+      { calls: [["start_task", { agent: "claude", request: "First" }]] },
+      { calls: [["start_task", { agent: "claude", request: "Second" }]] },
+    ]);
+    const first = await s.assistant.say("confirm-race", "Start the first task");
+    const second = await s.assistant.say("confirm-race", "Actually start the second task");
+    await s.assistant.confirm("confirm-race", first.pending?.id ?? "", true);
+    await s.assistant.confirm("confirm-race", second.pending?.id ?? "", true);
+    expect(s.core.tasks.list()).toHaveLength(1);
+    expect(s.core.tasks.list()[0]?.prompt).toBe("Second");
+  });
+  it("cancels a pending voice action without dispatch when the owner stops planning", async () => {
+    const s = setup([
+      { calls: [["start_task", { agent: "claude", request: "cancel this task" }]] },
+    ]);
+    const waiting = await s.assistant.say("cancel-voice", "Start Claude");
+    s.assistant.cancel("cancel-voice");
+    expect(
+      (await s.assistant.confirm("cancel-voice", waiting.pending?.id ?? "", true)).reply,
+    ).toContain("isn't waiting");
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("invalidates a selected chat and its pending send when the phone changes conversations", async () => {
+    let sent = false;
+    const chat = {
+      tool: "codex" as const,
+      id: "observed",
+      title: "Observed",
+      updatedAt: 1,
+      how: "resume" as const,
+      desktop: "codex-queue" as const,
+    };
+    const s = setup(
+      [
+        { calls: [["desktop_read_chat", { tool: "codex", session_id: chat.id }]] },
+        { calls: [["desktop_send_chat", { message: "Hello" }]] },
+        { content: "Choose the new chat first." },
+      ],
+      undefined,
+      {
+        desktopChats: {
+          list: async () => [chat],
+          read: async () => [],
+          changes: async () => "",
+          send: async () => {
+            sent = true;
+            return { result: "should not send" };
+          },
+        },
+      },
+    );
+    const waiting = await s.assistant.say(
+      "focus",
+      "Send hello to this chat",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      { tool: "codex", session_id: chat.id },
+    );
+    expect(waiting.pending).toBeDefined();
+    await s.assistant.say("focus", "yes", [], undefined, undefined, undefined, {
+      tool: "codex",
+      session_id: "different",
+    });
+    expect(sent).toBe(false);
+    expect((await s.assistant.confirm("focus", waiting.pending?.id ?? "", true)).reply).toContain(
+      "isn't waiting",
+    );
+  });
+  it("does not dispatch an older voice turn after a newer request supersedes it", async () => {
+    const s = setup([]);
+    let release: ((value: { content: string; toolCalls: ToolCall[] }) => void) | undefined;
+    let started: () => void = () => {};
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let calls = 0;
+    s.brain.llm.chat = async () => {
+      calls++;
+      if (calls === 1) {
+        started();
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return { content: "New request handled.", toolCalls: [] };
+    };
+    const old = s.assistant.say("same-voice", "Start a task");
+    await entered;
+    await s.assistant.say("same-voice", "Never mind, just tell me the status");
+    release?.({
+      content: "",
+      toolCalls: [
+        {
+          id: "old-call",
+          type: "function",
+          function: {
+            name: "start_task",
+            arguments: JSON.stringify({ agent: "claude", request: "old work" }),
+          },
+        },
+      ],
+    });
+    expect((await old).reply).toContain("interrupted");
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("answers a declared clarification by voice only after read-back confirmation", async () => {
+    const s = setup([
+      { calls: [["answer_question_text", { question_id: "placeholder", text: "Use index.ts" }]] },
+    ]);
+    const answer = s.core.questions.ask({
+      taskId: "clarify",
+      kind: "agent_question",
+      text: "Which file?",
+      choices: [{ id: "text", label: "Send answer" }],
+      textChoiceId: "text",
+      risk: "low",
+      timeoutMs: 60000,
+    });
+    const question = s.core.questions.pending()[0]!;
+    s.brain.llm.chat = async () => ({
+      content: "",
+      toolCalls: [
+        {
+          id: "clarify",
+          type: "function",
+          function: {
+            name: "answer_question_text",
+            arguments: JSON.stringify({ question_id: question.question_id, text: "Use index.ts" }),
+          },
+        },
+      ],
+    });
+    expect(
+      (await s.assistant.say("clarification-voice", "Tell it to use index.ts")).pending,
+    ).toBeDefined();
+    expect(s.core.questions.pending()).toHaveLength(1);
+    await s.assistant.say("clarification-voice", "yes");
+    await expect(answer).resolves.toMatchObject({ outcome: "answered", text: "Use index.ts" });
+  });
+  it("handles one spoken desktop request through list, read and confirmed send without a CLI task", async () => {
+    const sent: unknown[] = [];
+    const chat = {
+      tool: "codex" as const,
+      id: "native-existing",
+      title: "Review desktop work",
+      folder: "D:\\Work",
+      how: "resume" as const,
+      desktop: "codex-queue" as const,
+      updatedAt: 1,
+    };
+    const s = setup(
+      [
+        { calls: [["desktop_chats", { tool: "codex" }]] },
+        { calls: [["desktop_read_chat", { tool: "codex", session_id: chat.id }]] },
+        { calls: [["desktop_send_chat", { message: "Explain your changes" }]] },
+      ],
+      undefined,
+      {
+        desktopChats: {
+          list: async () => [chat],
+          read: async () => [{ who: "agent", text: "I changed the tests." }],
+          changes: async () => "No changes.",
+          send: async (...args) => {
+            sent.push(args);
+            return { result: "Queued in the existing desktop conversation; reply unverified." };
+          },
+        },
+      },
+    );
+    const answer = await s.assistant.say(
+      "voice-desktop",
+      "Ask the existing Codex chat to explain its changes",
+    );
+    expect(answer.pending?.summary).toContain(chat.title);
+    expect(sent).toEqual([]);
+    expect(s.core.tasks.list()).toEqual([]);
+    expect((await s.assistant.say("voice-desktop", "yes")).reply).toContain("reply unverified");
+    expect(sent).toEqual([
+      ["codex", chat.id, "Explain your changes", expect.stringMatching(/^voice-/)],
+    ]);
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("refuses silent CLI fallback and cannot send an unobserved desktop conversation", async () => {
+    const chats = {
+      list: async () => [],
+      read: async () => [],
+      changes: async () => "",
+      send: async () => {
+        throw new Error("must not send");
+      },
+    };
+    const s = setup(
+      [
+        { calls: [["start_task", { agent: "claude", request: "fix desktop work" }]] },
+        { calls: [["desktop_send_chat", { session_id: "guessed", message: "do work" }]] },
+      ],
+      undefined,
+      { desktopChats: chats },
+    );
+    expect((await s.assistant.say("voice-a", "Fix it in the desktop app")).reply).toContain(
+      "Desktop conversations are the default",
+    );
+    expect((await s.assistant.say("voice-b", "Send to that chat")).reply).toContain(
+      "Read and select",
+    );
+    expect(s.core.tasks.list()).toEqual([]);
+  });
+  it("stops a repeated observation loop instead of retrying blindly", async () => {
+    const s = setup([{ calls: [["list_tasks", {}]] }, { calls: [["list_tasks", {}]] }]);
+    expect((await s.assistant.say("repeat", "Check work")).reply).toContain(
+      "Repeated tool request refused",
+    );
+    expect(s.brain.seen).toHaveLength(2);
+  });
+  it("requires confirmation before semantic desktop actions and preserves unverified delivery", async () => {
+    const h = new Handover({ onChange: () => {} });
+    h.start();
+    const calls: string[] = [];
+    const semantic = new SemanticDesktop({
+      program: command(process.execPath, []),
+      allowed: () => h.state.active && !h.state.paused,
+      revision: () => h.revision,
+      run: async (cmd) => {
+        calls.push(cmd.args[0] ?? "");
+        return JSON.stringify(
+          cmd.args[0] === "snapshot"
+            ? {
+                version: "2.6",
+                ok: true,
+                data: {
+                  complete: true,
+                  snapshot_id: "s1",
+                  tree: {
+                    role: "window",
+                    name: "Document",
+                    children: [
+                      {
+                        role: "button",
+                        name: "Save",
+                        ref_id: "@s1:e1",
+                        available_actions: ["Click"],
+                      },
+                    ],
+                  },
+                },
+              }
+            : {
+                version: "2.6",
+                ok: true,
+                data: { disposition: { delivery: "delivered_unverified", retry: "unsafe" } },
+              },
+        );
+      },
+    });
+    const s = setup(
+      [
+        { calls: [["desktop_observe", { app: "Notepad", window_id: "w-1" }]] },
+        { content: "Save is available." },
+        { calls: [["desktop_click", { ref: "@s1:e1" }]] },
+      ],
+      undefined,
+      { handover: h, semantic },
+    );
+    await s.assistant.say("semantic-chat", "look at Notepad");
+    expect((await s.assistant.say("semantic-chat", "click Save")).pending).toBeDefined();
+    expect(calls).toEqual(["snapshot"]);
+    expect((await s.assistant.say("semantic-chat", "yes")).reply).toContain("delivered_unverified");
+    expect(calls).toEqual(["snapshot", "click"]);
+    h.stop("test done");
+  });
+  it("shows code-recorded research sources and steps alongside the answer", async () => {
+    const s = setup(
+      [
+        { calls: [["research_context", { question: "What is on this page?" }]] },
+        { content: "The page describes a project [S1]." },
+      ],
+      undefined,
+      {
+        browser: {
+          connected: true,
+          call: async () => ({
+            url: "https://example.test/project",
+            title: "Project page",
+            text: "A project description.",
+          }),
+        } as AssistantDeps["browser"],
+      },
+    );
+    const reply = await s.assistant.say("c1", "Research this page");
+    expect(reply.reply).toContain("Sources inspected:");
+    expect(reply.reply).toContain("https://example.test/project");
+    expect(reply.reply).toContain("Read the current Chrome page");
+    expect(reply.reply).toContain("No web search");
+  });
   it("uses the screen in handover: looks freely, clicks only on yes, says so in editors, not if the window changed", async () => {
     let title = "Notepad";
     const clicks: string[] = [];
@@ -153,13 +486,15 @@ describe("Malves, the assistant", () => {
       desktop: async () => desktop,
       pollMs: 60_000,
     });
+    const saveArgs = { x: "120", y: "40", what: "Save", observation_ref: "" };
+    const acceptArgs = { x: "300", y: "300", what: "Accept", observation_ref: "" };
     const s = setup(
       [
         { calls: [["look_at_screen", { question: "where is Save" }]] },
         { content: "Save is at the top." },
-        { calls: [["click_screen", { x: "120", y: "40", what: "Save" }]] },
-        { calls: [["click_screen", { x: "120", y: "40", what: "Save" }]] },
-        { calls: [["click_screen", { x: "300", y: "300", what: "Accept" }]] },
+        { calls: [["click_screen", saveArgs]] },
+        { calls: [["click_screen", saveArgs]] },
+        { calls: [["click_screen", acceptArgs]] },
       ],
       undefined,
       { handover },
@@ -170,6 +505,8 @@ describe("Malves, the assistant", () => {
     await s.assistant.say("c1", "find the save button");
     const looked = s.brain.seen.at(-1)?.map((m) => ("content" in m ? m.content : "")) ?? [];
     expect(looked.some((c) => c?.includes("Save button at (120, 40)"))).toBe(true);
+    saveArgs.observation_ref =
+      /Observation reference: ([a-f0-9-]+)/.exec(looked.join("\n"))?.[1] ?? "";
 
     const ask = await s.assistant.say("c1", "click save");
     expect(ask.pending?.summary).toBe('Click Save at (120, 40) in "Notepad"?');
@@ -184,6 +521,10 @@ describe("Malves, the assistant", () => {
     expect(clicks).toHaveLength(1);
 
     title = "agent.ts - malves - Visual Studio Code";
+    acceptArgs.observation_ref = handover.observe(
+      title,
+      createHash("sha256").update("AAAA").digest("hex"),
+    );
     const ide = await s.assistant.say("c1", "accept that in vs code");
     expect(ide.pending?.summary).toContain(
       "your editor: this may accept or reject its AI's change",
@@ -191,6 +532,21 @@ describe("Malves, the assistant", () => {
     await s.assistant.say("c1", "yes");
     expect(clicks).toEqual(["120,40", "300,300"]);
     handover.stop("test over");
+  });
+
+  it("does not execute a previously confirmed request after the human takes and returns control", async () => {
+    const h = new Handover({ onChange: () => {} });
+    const s = setup(
+      [{ calls: [["start_task", { request: "test ownership", agent: "claude" }]] }],
+      undefined,
+      { handover: h },
+    );
+    const ask = await s.assistant.say("c1", "start Claude");
+    expect(ask.pending).toBeDefined();
+    h.control(true);
+    h.control(false);
+    expect((await s.assistant.say("c1", "yes")).reply).toContain("Control changed");
+    expect(s.core.tasks.list()).toEqual([]);
   });
 
   it("takes over only on yes; then runs looking commands alone, asks for the rest, never types passwords", async () => {

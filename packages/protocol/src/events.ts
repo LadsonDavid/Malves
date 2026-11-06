@@ -82,6 +82,35 @@ const TaskResult = z.object({
   }),
 });
 
+export const MAX_TASK_OUTPUT_CHARS = 100_000;
+
+/** Same bounded transcript on the runner and phone, including after event replay. */
+export function appendTaskOutput(previous: string, delta: string): string {
+  const text = previous + delta;
+  return text.length > MAX_TASK_OUTPUT_CHARS
+    ? `…${text.slice(-(MAX_TASK_OUTPUT_CHARS - 1))}`
+    : text;
+}
+
+const TaskOutput = z.object({
+  type: z.literal("task.output"),
+  data: z.object({ task_id: z.string(), text: z.string().min(1).max(8000) }),
+});
+
+export const ToolProgress = z.object({
+  kind: z.enum(["read", "search", "command", "edit", "other"]).optional(),
+  id: z.string().min(1),
+  title: z.string().max(500),
+  status: z.enum(["pending", "in_progress", "completed", "failed"]),
+  text: z.string().max(16_000).optional(),
+});
+export type ToolProgress = z.infer<typeof ToolProgress>;
+
+const TaskTool = z.object({
+  type: z.literal("task.tool"),
+  data: z.object({ task_id: z.string(), tool: ToolProgress }),
+});
+
 /** The model now answering for this task (logged at the start and at every switch, R8). */
 const TaskModel = z.object({
   type: z.literal("task.model"),
@@ -275,6 +304,7 @@ const QuestionOpened = z.object({
     kind: QuestionKind,
     text: z.string(),
     choices: z.array(Choice).min(1),
+    text_choice_id: z.string().optional(),
     risk: Risk,
     expires_at: z.number().int(),
   }),
@@ -287,6 +317,7 @@ const QuestionClosed = z.object({
     task_id: z.string(),
     outcome: QuestionOutcome,
     choice_id: z.string().optional(),
+    text: z.string().max(4000).optional(),
     command_id: z.string().optional(),
   }),
 });
@@ -445,6 +476,8 @@ export const EventBody = z.discriminatedUnion("type", [
   TaskCreated,
   TaskUpdated,
   TaskResult,
+  TaskOutput,
+  TaskTool,
   TaskSession,
   TaskModel,
   TaskUsage,

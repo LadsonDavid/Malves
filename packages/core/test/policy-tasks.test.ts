@@ -21,8 +21,18 @@ const permission = (action: Action): Decision => ({
   allowChoice: "allow",
 });
 
-const read: Action = { source: "agent", kind: "read", paths: [path.join(root, "a.ts")], summary: "Read a.ts" };
-const edit: Action = { source: "agent", kind: "edit", paths: [path.join(root, "a.ts")], summary: "Edit a.ts" };
+const read: Action = {
+  source: "agent",
+  kind: "read",
+  paths: [path.join(root, "a.ts")],
+  summary: "Read a.ts",
+};
+const edit: Action = {
+  source: "agent",
+  kind: "edit",
+  paths: [path.join(root, "a.ts")],
+  summary: "Edit a.ts",
+};
 const push: Action = { source: "agent", kind: "execute", command: "git push", summary: "git push" };
 const wipe: Action = { source: "agent", kind: "execute", command: "rm -rf /", summary: "rm -rf /" };
 
@@ -76,7 +86,9 @@ describe("policy in front of questions", () => {
     expect((await c.tasks.whenFinished(id)).state).toBe("done");
     expect(c.answers).toEqual(["allow"]);
     expect(types(c.store)).not.toContain("question.opened");
-    expect(c.store.events.some((e) => e.type === "policy.decided" && e.data.outcome === "allow")).toBe(true);
+    expect(
+      c.store.events.some((e) => e.type === "policy.decided" && e.data.outcome === "allow"),
+    ).toBe(true);
   });
 
   it("a hard deny is refused with no question at all, even when trusting", async () => {
@@ -101,7 +113,9 @@ describe("policy in front of questions", () => {
     expect(c.answers).toEqual(["allow", "allow"]);
     expect(c.store.events.filter((e) => e.type === "question.opened")).toHaveLength(1);
 
-    const third = await c.go([{ ...push, command: "git push origin other", summary: "git push origin other" }]);
+    const third = await c.go([
+      { ...push, command: "git push origin other", summary: "git push origin other" },
+    ]);
     expect(c.questions.pending()).toHaveLength(1);
     c.answerOpen("reject");
     await c.tasks.whenFinished(third);

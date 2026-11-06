@@ -9,7 +9,13 @@ import { z } from "zod";
 import type { Browser } from "./bridge.js";
 import { BrowserVault, normalizeOrigin } from "./vault.js";
 
-export { BrowserVault, generateTotp, normalizeOrigin, type VaultHandle, type VaultSecret } from "./vault.js";
+export {
+  BrowserVault,
+  generateTotp,
+  normalizeOrigin,
+  type VaultHandle,
+  type VaultSecret,
+} from "./vault.js";
 
 /** The tool server's name, as agents see it (e.g. `mcp__malves-browser__browser_click`). */
 export const TOOL_SERVER_NAME = "malves-browser";
@@ -274,7 +280,10 @@ export class BrowserTools {
           browsing.labels = new Map(
             snap.elements.map((e) => [e.ref, `${e.role} "${clip(e.label, 60)}"`]),
           );
-          browsing.lastSnapshotHash = createHash("sha256").update(snap.text).digest("hex").slice(0, 16);
+          browsing.lastSnapshotHash = createHash("sha256")
+            .update(snap.text)
+            .digest("hex")
+            .slice(0, 16);
           return describe(snap);
         }),
     );
@@ -469,7 +478,9 @@ export class BrowserTools {
           const handles = this.vault.list();
           if (handles.length === 0) return "The vault is empty.";
           return handles
-            .map((h) => `- ${h.handle} (${h.origin})${h.username ? ` username: ${h.username}` : ""}`)
+            .map(
+              (h) => `- ${h.handle} (${h.origin})${h.username ? ` username: ${h.username}` : ""}`,
+            )
             .join("\n");
         }),
     );
@@ -522,7 +533,10 @@ export class BrowserTools {
           instruction: z
             .string()
             .describe("What to extract, e.g. 'table of invoices with date, amount, vendor'"),
-          fields: z.array(z.string()).optional().describe("Expected field names in each extracted record"),
+          fields: z
+            .array(z.string())
+            .optional()
+            .describe("Expected field names in each extracted record"),
         },
       },
       ({ instruction, fields }) =>

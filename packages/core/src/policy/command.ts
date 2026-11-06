@@ -33,9 +33,7 @@ function leaves(arg: string, root: string): boolean {
   const value = arg.startsWith("-") ? arg.slice(arg.indexOf("=") + 1) : arg;
   if (arg.startsWith("-") && !arg.includes("=")) return false;
   return (
-    isSecretPath(value) ||
-    !insideRoot(value, root) ||
-    /(^|[\\/])\.\.([\\/]|$)/.test(value) // climbing out is refused even if it lands back inside
+    isSecretPath(value) || !insideRoot(value, root) || /(^|[\\/])\.\.([\\/]|$)/.test(value) // climbing out is refused even if it lands back inside
   );
 }
 
@@ -156,7 +154,9 @@ export function classifyCommand(command: string, root: string): Classification {
   const text = command.trim();
   if (!text) return t3("An empty command can't be judged.");
   if (!PLAIN.test(text)) {
-    return t3("It has chaining, redirection, quotes or substitution, which can hide a second command.");
+    return t3(
+      "It has chaining, redirection, quotes or substitution, which can hide a second command.",
+    );
   }
   const words = text.split(/\s+/);
   const first = words[0] ?? "";
@@ -167,7 +167,8 @@ export function classifyCommand(command: string, root: string): Classification {
   }
   const verb = first.toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, "");
 
-  if (DANGEROUS.has(verb)) return t3(`\`${verb}\` changes the machine or reaches out; it always asks.`);
+  if (DANGEROUS.has(verb))
+    return t3(`\`${verb}\` changes the machine or reaches out; it always asks.`);
   if (verb === "git") return git(args);
   if (verb === "gh") return gh(args);
   if (verb === "pnpm" || verb === "npm" || verb === "yarn" || verb === "bun") {
@@ -175,14 +176,17 @@ export function classifyCommand(command: string, root: string): Classification {
   }
   if (READ.has(verb)) {
     // `rg --pre cmd` runs a program on every file.
-    return args.some((a) => /^--pre\b/i.test(a)) ? unknown("`--pre` runs a program.") : t1("It only looks.");
+    return args.some((a) => /^--pre\b/i.test(a))
+      ? unknown("`--pre` runs a program.")
+      : t1("It only looks.");
   }
   return tool(verb, args);
 }
 
 function git(args: string[]): Classification {
   // `git -C other`, `git -c core.x=y`, `--git-dir`: the repository or behaviour is not the project's.
-  if (args[0]?.startsWith("-")) return t3("A git option before the command changes where or how it runs.");
+  if (args[0]?.startsWith("-"))
+    return t3("A git option before the command changes where or how it runs.");
   const sub = (args[0] ?? "").toLowerCase();
   const rest = args.slice(1).map((a) => a.toLowerCase());
   const has = (...flags: string[]) => rest.some((a) => flags.includes(a));
@@ -208,25 +212,37 @@ function git(args: string[]): Classification {
       return t2("A new branch is easy to remove.");
     }
     case "remote":
-      return rest.length === 0 || (rest.length === 1 && has("-v")) ? t1("It only lists remotes.") : t3("It changes remotes.");
+      return rest.length === 0 || (rest.length === 1 && has("-v"))
+        ? t1("It only lists remotes.")
+        : t3("It changes remotes.");
     case "tag":
-      return rest.length === 0 || has("-l", "--list") ? t1("It only lists tags.") : t3("It creates or deletes a tag.");
+      return rest.length === 0 || has("-l", "--list")
+        ? t1("It only lists tags.")
+        : t3("It creates or deletes a tag.");
     case "stash":
       if (rest[0] === "list" || rest[0] === "show") return t1("It only lists stashes.");
-      return rest.length === 0 || rest[0] === "push" ? t2("A stash can be popped again.") : t3("It drops or applies a stash.");
+      return rest.length === 0 || rest[0] === "push"
+        ? t2("A stash can be popped again.")
+        : t3("It drops or applies a stash.");
     case "add":
       return t2("Staging can be undone.");
     case "commit":
       return has("--amend") ? t3("`--amend` rewrites a commit.") : t2("A commit can be reverted.");
     case "switch":
-      return has("-c", "--create") ? t2("A new branch is easy to remove.") : t3("It changes the working files.");
+      return has("-c", "--create")
+        ? t2("A new branch is easy to remove.")
+        : t3("It changes the working files.");
     case "checkout":
-      return rest[0] === "-b" ? t2("A new branch is easy to remove.") : t3("It can overwrite working files.");
+      return rest[0] === "-b"
+        ? t2("A new branch is easy to remove.")
+        : t3("It can overwrite working files.");
     case "fetch":
       return t2("It downloads; no working file changes.");
     case "worktree":
       if (rest[0] === "add") return t2("A worktree can be removed.");
-      return rest[0] === "list" ? t1("It only lists worktrees.") : t3("It removes or moves a worktree.");
+      return rest[0] === "list"
+        ? t1("It only lists worktrees.")
+        : t3("It removes or moves a worktree.");
     case "push":
     case "pull":
     case "reset":
@@ -269,11 +285,22 @@ const GH_READ = new Set([
 
 function gh(args: string[]): Classification {
   const key = `${args[0] ?? ""} ${args[1] ?? ""}`.toLowerCase();
-  return GH_READ.has(key) ? t1("It only reads from GitHub.") : t3("`gh` changes things on GitHub, or can't be judged.");
+  return GH_READ.has(key)
+    ? t1("It only reads from GitHub.")
+    : t3("`gh` changes things on GitHub, or can't be judged.");
 }
 
 /** Flags whose next word is their value (so it isn't taken for the command). */
-const PM_VALUE_FLAGS = new Set(["--filter", "-f", "-c", "--dir", "--prefix", "--workspace", "-w", "--cwd"]);
+const PM_VALUE_FLAGS = new Set([
+  "--filter",
+  "-f",
+  "-c",
+  "--dir",
+  "--prefix",
+  "--workspace",
+  "-w",
+  "--cwd",
+]);
 const PM_LISTING = new Set(["ls", "list", "outdated", "why", "view", "info", "-v", "--version"]);
 const PM_CHANGES = new Set([
   "install",
@@ -324,7 +351,8 @@ function packageManager(verb: string, args: string[]): Classification {
   }
   const script = cmd === "run" || cmd === "run-script" ? (words[1] ?? "") : cmd;
   if (!script) return unknown("No script named.");
-  if (RISKY_SCRIPT.test(script)) return t3(`The script "${script}" sounds like it changes something outside the project.`);
+  if (RISKY_SCRIPT.test(script))
+    return t3(`The script "${script}" sounds like it changes something outside the project.`);
   if (SAFE_SCRIPT.test(script)) return t2("Tests, lint and builds can be re-run.");
   return unknown(`The script "${script}" isn't one of the known safe ones.`);
 }
@@ -346,11 +374,15 @@ function tool(verb: string, args: string[]): Classification {
     case "python":
     case "python3":
     case "py":
-      return first === "-m" && (args[1] ?? "").toLowerCase() === "pytest" ? build : unknown("It runs a script.");
+      return first === "-m" && (args[1] ?? "").toLowerCase() === "pytest"
+        ? build
+        : unknown("It runs a script.");
     case "tsc":
       return build;
     case "biome":
-      return ["check", "format", "lint", "ci"].includes(first) ? build : unknown("Unknown biome command.");
+      return ["check", "format", "lint", "ci"].includes(first)
+        ? build
+        : unknown("Unknown biome command.");
     case "cargo":
       if (["test", "build", "check", "clippy", "fmt", "doc", "bench"].includes(first)) return build;
       return ["install", "publish", "login", "yank"].includes(first)
@@ -358,14 +390,18 @@ function tool(verb: string, args: string[]): Classification {
         : unknown("Unknown cargo command.");
     case "go":
       if (["test", "build", "vet", "fmt"].includes(first)) return build;
-      return ["list", "version"].includes(first) ? t1("It only lists.") : unknown("Unknown go command.");
+      return ["list", "version"].includes(first)
+        ? t1("It only lists.")
+        : unknown("Unknown go command.");
     case "dotnet":
       return ["test", "build"].includes(first) ? build : unknown("Unknown dotnet command.");
     case "mvn":
     case "mvnw":
     case "gradle":
     case "gradlew":
-      return ["test", "verify", "build", "check", "compile"].includes(first) ? build : unknown("Unknown build goal.");
+      return ["test", "verify", "build", "check", "compile"].includes(first)
+        ? build
+        : unknown("Unknown build goal.");
     default:
       return unknown(`\`${verb}\` isn't in the known list.`);
   }

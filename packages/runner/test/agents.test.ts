@@ -190,7 +190,10 @@ describe("Cursor profile", () => {
   const exe = process.platform === "win32" ? "agent.exe" : "agent";
   function withPath(files: string[]) {
     const dir = mkdtempSync(path.join(tmpdir(), "malves-path-"));
-    for (const f of files) writeFileSync(path.join(dir, f), "");
+    for (const f of files) {
+      mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      writeFileSync(path.join(dir, f), "");
+    }
     // Also a home folder of its own, so a real ~/.local/bin on this machine doesn't count.
     const saved = {
       PATH: process.env.PATH,
@@ -221,4 +224,43 @@ describe("Cursor profile", () => {
   it.runIf(process.platform === "win32")("never starts a .cmd wrapper, and says so", () => {
     expect(withPath(["agent.cmd"]).cursor?.missing).toContain("can't start without a shell");
   });
+
+  it.runIf(process.platform === "win32")(
+    "starts Cursor's versioned Windows installation without executing its shim",
+    () => {
+      const version = "versions/2026.10.01-e373342";
+      const { dir, cursor } = withPath(["agent.ps1", `${version}/node.exe`, `${version}/index.js`]);
+      expect(cursor?.command).toEqual({
+        program: path.join(dir, version, "node.exe"),
+        args: [path.join(dir, version, "index.js"), "acp"],
+      });
+      expect(cursor?.missing).toBeUndefined();
+    },
+  );
+
+  it.runIf(process.platform === "win32")("supports a shim beside Cursor's bundled runtime", () => {
+    const { dir, cursor } = withPath(["agent.cmd", "node.exe", "index.js"]);
+    expect(cursor?.command).toEqual({
+      program: path.join(dir, "node.exe"),
+      args: [path.join(dir, "index.js"), "acp"],
+    });
+  });
+
+  it.runIf(process.platform === "win32")(
+    "selects the newest complete Cursor version, ignoring unfinished installs",
+    () => {
+      const version = "versions/2026.10.02-12-30-00-abc123";
+      const { dir, cursor } = withPath([
+        "agent.cmd",
+        "versions/2026.9.30-abc123/node.exe",
+        "versions/2026.9.30-abc123/index.js",
+        `${version}/node.exe`,
+        `${version}/index.js`,
+        "versions/2026.11.01-abc123/node.exe",
+        "versions/not-a-version/node.exe",
+        "versions/not-a-version/index.js",
+      ]);
+      expect(cursor?.command.program).toBe(path.join(dir, version, "node.exe"));
+    },
+  );
 });

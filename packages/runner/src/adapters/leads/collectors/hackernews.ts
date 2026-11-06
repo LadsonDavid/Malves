@@ -15,7 +15,11 @@ export type HnHiringPost = {
  * Example HN format:
  * "Company Name | Senior TypeScript Engineer | Remote (US) | https://example.com"
  */
-export function parseHnComment(id: number, text: string, time = Date.now()): HnHiringPost | undefined {
+export function parseHnComment(
+  id: number,
+  text: string,
+  time = Date.now(),
+): HnHiringPost | undefined {
   const clean = text
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x27;/g, "'")

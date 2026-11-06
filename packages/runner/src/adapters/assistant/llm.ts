@@ -222,7 +222,9 @@ export function modelRolesFromEnv(): ModelRoles {
     planner: process.env.MALVES_MODEL_PLANNER,
     reviewer: process.env.MALVES_MODEL_REVIEWER,
     vision: process.env.MALVES_MODEL_VISION
-      ? process.env.MALVES_MODEL_VISION.split(",").map((s) => s.trim()).filter(Boolean)
+      ? process.env.MALVES_MODEL_VISION.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
       : undefined,
   };
 }
@@ -243,4 +245,3 @@ export function modelForRole(
       return envRoles.vision?.[0] ?? VISION_MODELS[0] ?? "auto:fast";
   }
 }
-

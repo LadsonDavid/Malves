@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Core } from "@malves/core";
@@ -42,6 +42,153 @@ function pb(fields: Pb): Buffer {
 }
 
 describe("sessions across tools", () => {
+  it("uses the desktop's public title index, including renamed chats, for voice selection", async () => {
+    const root = temp();
+    const index = path.join(root, "index.jsonl");
+    writeFileSync(
+      path.join(root, "rollout-title.jsonl"),
+      jsonl([
+        { type: "session_meta", payload: { id: "title-chat", cwd: root } },
+        {
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Original prompt" }],
+          },
+        },
+      ]),
+    );
+    writeFileSync(
+      index,
+      jsonl([{ id: "title-chat", thread_name: "Review and push desktop work" }]),
+    );
+    const source = codexSessions(root, index);
+    expect((await source.list())[0]?.title).toBe("Review and push desktop work");
+    appendFileSync(index, jsonl([{ id: "title-chat", thread_name: "Renamed desktop chat" }]));
+    expect((await source.list())[0]?.title).toBe("Renamed desktop chat");
+  });
+  it("refreshes a Codex transcript when the rollout grows and ignores an incomplete tail", async () => {
+    const root = temp();
+    const file = path.join(root, "rollout-test.jsonl");
+    const message = (text: string) => ({
+      type: "response_item",
+      payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+    });
+    writeFileSync(
+      file,
+      jsonl([{ type: "session_meta", payload: { id: "polling-chat", cwd: root } }, message("one")]),
+    );
+    const source = codexSessions(root);
+    expect(await source.read("polling-chat", 40)).toEqual([{ who: "agent", text: "one" }]);
+    appendFileSync(file, `${jsonl([message("two")])}{unfinished`);
+    expect(await source.read("polling-chat", 40)).toEqual([
+      { who: "agent", text: "one" },
+      { who: "agent", text: "two" },
+    ]);
+    expect(await source.read("polling-chat", 1)).toEqual([{ who: "agent", text: "two" }]);
+  });
+  it("refuses workspace review for an unknown chat rather than accepting a phone path", async () => {
+    const sessions = new Sessions({} as Core, []);
+    await expect(sessions.changes("codex", "unknown-chat")).rejects.toThrow(/workspace folder/);
+  });
+  it("advertises and queues to an existing Codex conversation through the desktop sender only", async () => {
+    const thread = "11111111-1111-4111-8111-111111111111";
+    const sent: unknown[] = [];
+    const source = {
+      tool: "codex" as const,
+      list: async () => [
+        {
+          tool: "codex" as const,
+          id: thread,
+          title: "Desktop chat",
+          updatedAt: 1,
+          how: "resume" as const,
+        },
+      ],
+      read: async () => [],
+    };
+    const desktop = {
+      send: async (id: string, text: string, commandId: string) => {
+        sent.push({ id, text, commandId });
+        return "Queued in the existing Codex conversation.";
+      },
+    };
+    const sessions = new Sessions({} as Core, [source], undefined, desktop);
+    expect((await sessions.list())[0]?.desktop).toBe("codex-queue");
+    await expect(
+      sessions.continue("codex", thread, "hello", () => false, "desktop", "cmd-desktop"),
+    ).resolves.toEqual({ result: "Queued in the existing Codex conversation." });
+    expect(sent).toEqual([{ id: thread, text: "hello", commandId: "cmd-desktop" }]);
+    await expect(
+      sessions.continue("codex", thread, "hello", () => false, "desktop"),
+    ).rejects.toThrow(/command id/);
+  });
+  it("never substitutes a CLI session when the user requests an existing desktop conversation", async () => {
+    const created: unknown[] = [];
+    const core = {
+      tasks: {
+        create: (input: unknown) => {
+          created.push(input);
+          return "unexpected";
+        },
+      },
+    } as unknown as Core;
+    const sources = (["claude", "codex", "cursor", "antigravity"] as const).map((tool) => ({
+      tool,
+      list: async () => [
+        {
+          tool,
+          id: `${tool}-desktop`,
+          title: "Desktop work",
+          updatedAt: 1,
+          how: "resume" as const,
+        },
+      ],
+      read: async () => [],
+    }));
+    const sessions = new Sessions(core, sources);
+    for (const tool of ["claude", "codex", "cursor", "antigravity"] as const) {
+      await expect(
+        sessions.continue(tool, `${tool}-desktop`, "continue here", () => true, "desktop"),
+      ).rejects.toThrow(/desktop control isn't connected/);
+    }
+    expect(created).toEqual([]);
+  });
+
+  it("sends to the same Cursor desktop conversation without starting a CLI, and checks the bridge again", async () => {
+    let connected = true;
+    const sent: unknown[] = [];
+    const cursor = {
+      tool: "cursor" as const,
+      list: async () => [
+        {
+          tool: "cursor" as const,
+          id: "cursor-chat",
+          title: "Open chat",
+          updatedAt: 1,
+          how: "bridge" as const,
+          source: "editor",
+        },
+      ],
+      read: async () => [],
+      bridgeOn: () => connected,
+      send: async (id: string, text: string) => {
+        sent.push({ id, text });
+        return "Sent to Cursor.";
+      },
+    };
+    const sessions = new Sessions({} as Core, [cursor], cursor);
+    await expect(
+      sessions.continue("cursor", "cursor-chat", "review the edits", () => false, "desktop"),
+    ).resolves.toEqual({ result: "Sent to Cursor." });
+    expect(sent).toEqual([{ id: "cursor-chat", text: "review the edits" }]);
+    connected = false;
+    await expect(
+      sessions.continue("cursor", "cursor-chat", "again", () => true, "desktop"),
+    ).rejects.toThrow(/desktop control isn't connected/);
+    expect(sent).toHaveLength(1);
+  });
   it("reads Claude Code sessions: folder, your latest title, messages; skips side-chains and stubs", async () => {
     const root = temp();
     const dir = path.join(root, "D--work-site");

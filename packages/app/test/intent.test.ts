@@ -77,6 +77,18 @@ describe("answering a question by voice", () => {
 });
 
 describe("confirming", () => {
+  it("does not approve an older action from a sentence giving a new instruction", () => {
+    for (const text of [
+      "Actually start the second task",
+      "yes but change another file",
+      "go to the other conversation",
+    ]) {
+      expect(interpret(text, ctx("confirm")).kind).not.toBe("confirm");
+      expect(answer(text)).not.toBe("allow");
+    }
+    expect(answer("option one and delete the other file")).not.toBe("allow");
+    expect(answer("allow a different command")).not.toBe("allow");
+  });
   it("yes confirms, any no cancels", () => {
     expect(interpret("confirm", ctx("confirm")).kind).toBe("confirm");
     expect(interpret("உறுதி", ctx("confirm")).kind).toBe("confirm");

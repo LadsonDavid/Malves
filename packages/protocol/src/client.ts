@@ -16,6 +16,7 @@ import {
   RunnerMessage,
   type ScreenInput,
   SealedFrame,
+  type SessionFocus,
   type Speak,
   type Welcome,
 } from "./link.js";
@@ -92,6 +93,7 @@ export type LinkClientOptions = {
     done: boolean;
     note?: string | undefined;
   }) => void;
+  onProgress?: (commandId: string, text: string) => void;
   /** Handover mode started or ended. */
   onHandover?: (state: HandoverState) => void;
   /** This week's leads arrived (after `refreshLeads`). */
@@ -198,8 +200,20 @@ export class LinkClient {
     return this.send({ type: "answer", question_id: input.questionId, choice_id: input.choiceId });
   }
 
+  answerText(input: { questionId: string; choiceId: string; text: string }): Promise<Ack> {
+    return this.send({
+      type: "answer.text",
+      question_id: input.questionId,
+      choice_id: input.choiceId,
+      text: input.text,
+    });
+  }
+
   stopTask(taskId: string): Promise<Ack> {
     return this.send({ type: "task.stop", task_id: taskId });
+  }
+  desktopControl(owner: "human" | "malves"): Promise<Ack> {
+    return this.send({ type: "handover.control", owner });
   }
 
   /**
@@ -229,6 +243,7 @@ export class LinkClient {
     speak: Speak = false,
     commandId?: string,
     where?: string,
+    focus?: SessionFocus,
   ): Promise<Ack> {
     return this.send(
       {
@@ -238,9 +253,13 @@ export class LinkClient {
         ...(alternatives.length ? { alternatives: alternatives.slice(0, 5) } : {}),
         ...(speak ? { speak } : {}),
         ...(where ? { where: where.slice(0, 500) } : {}),
+        ...(focus ? { focus } : {}),
       },
       commandId,
     );
+  }
+  cancelAssistant(conversationId: string): Promise<Ack> {
+    return this.send({ type: "assistant.cancel", conversation_id: conversationId });
   }
 
   /** Shows Malves a photo (JPEG, base64) and asks about it; the answer is in `ack.assistant`. */
@@ -389,13 +408,47 @@ export class LinkClient {
     return this.send({ type: "session.read", tool, session_id: sessionId });
   }
 
+  /** Current tracked edits in this session's folder, in `ack.result`. */
+  inspectSession(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    sessionId: string,
+  ): Promise<Ack> {
+    return this.send({ type: "session.inspect", tool, session_id: sessionId });
+  }
+
+  /** Current tracked edits in this session's folder, in `ack.result`. */
+  sessionDelivery(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    sessionId: string,
+  ): Promise<Ack> {
+    return this.send({ type: "session.delivery", tool, session_id: sessionId });
+  }
+
+  /** Current tracked edits in this session's folder, in `ack.result`. */
+  sessionChanges(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    sessionId: string,
+  ): Promise<Ack> {
+    return this.send({ type: "session.changes", tool, session_id: sessionId });
+  }
+
   /** Continues a session; a new task's id is in `ack.task_id`, what happened in `ack.result`. */
   continueSession(
     tool: "claude" | "codex" | "cursor" | "antigravity",
     sessionId: string,
     text: string,
+    target?: "desktop" | "agent",
   ): Promise<Ack> {
-    return this.send({ type: "session.continue", tool, session_id: sessionId, text });
+    if (target === "desktop") {
+      return this.send({ type: "session.desktop_continue", tool, session_id: sessionId, text });
+    }
+    return this.send({
+      type: "session.continue",
+      tool,
+      session_id: sessionId,
+      text,
+      ...(target ? { target } : {}),
+    });
   }
 
   /** Takes the computer back from Malves (ends handover mode). */
@@ -445,6 +498,7 @@ export class LinkClient {
         challenge = first.data.challenge;
         const hello: Hello = {
           type: "hello",
+          ...(this.o.onProgress ? { progress: true } : {}),
           v: LINK_VERSION,
           challenge,
           since_seq: this.seq,
@@ -509,6 +563,9 @@ export class LinkClient {
         break;
       case "handover":
         this.o.onHandover?.(message.state);
+        break;
+      case "assistant.progress":
+        this.o.onProgress?.(message.command_id, message.text);
         break;
       case "assistant.audio":
         this.o.onAudio?.({
