@@ -1,9 +1,11 @@
 import type { Ack, LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
 import { Alert, ScrollView, Share, Text, TextInput, View } from "react-native";
+import { DiffReview } from "../components/DiffReview";
 import { Markdown } from "../components/Markdown";
 import { QuestionCard } from "../components/QuestionCard";
 import { StateChip } from "../components/TaskRow";
+import { ToolOperations } from "../components/ToolOperations";
 import { Speaker, Stop } from "../icons";
 import {
   duration,
@@ -54,6 +56,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
 
   const finished = isFinished(task);
   const activity = model.activity[task.id] ?? [];
+  const tools = task.tools ?? [];
   const questions = questionsFor(model, task.id);
   const line = modelLine(task, model.agents);
   const offlineNote = status !== "online" ? " (queued until your computer is back)" : "";
@@ -112,13 +115,32 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
         </Text>
         {task.reason ? <Text style={styles.muted}>{task.reason}</Text> : null}
         {line ? <Text style={styles.muted}>{line}</Text> : null}
+        {!finished && status !== "online" ? (
+          <Banner tone="warn">
+            Disconnected. This is the last known task state; the agent may still be running.
+            Reconnect before repeating an action.
+          </Banner>
+        ) : null}
+        {!finished &&
+        status === "online" &&
+        task.state !== "waiting" &&
+        now - Math.max(task.updatedAt, activity.at(-1)?.at ?? 0) > 90_000 ? (
+          <Banner tone="warn">
+            No task update for over 90 seconds. It may still be working. Check the computer or stop
+            it before starting the same work again.
+          </Banner>
+        ) : null}
       </View>
 
       {questions.map((q) => (
         <QuestionCard key={q.id} question={q} model={model} client={client} status={status} />
       ))}
 
-      {!finished || activity.length > 0 ? (
+      {tools.length > 0 ? (
+        <Section title={finished ? "Operations" : "Agent operations"}>
+          <ToolOperations operations={tools.slice(-15)} finished={finished} />
+        </Section>
+      ) : !finished || activity.length > 0 ? (
         <Section title={finished ? "What it did" : "Now"}>
           <Card>
             {activity.length === 0 ? (
@@ -147,7 +169,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
 
       {task.result ? (
         <Section
-          title="Result"
+          title={finished ? "Result" : "Live response"}
           action={{
             label: "Share",
             onPress: () => void Share.share({ message: task.result ?? "" }),
@@ -197,13 +219,7 @@ export function TaskScreen({ taskId, model, client, status, onBack, onOpenTask, 
                 }
               />
             ))}
-            {diff !== undefined ? (
-              <ScrollView horizontal style={{ maxHeight: 420 }}>
-                <Text style={styles.mono} selectable>
-                  {diff}
-                </Text>
-              </ScrollView>
-            ) : null}
+            {diff !== undefined ? <DiffReview text={diff} /> : null}
           </Card>
         </Section>
       ) : null}

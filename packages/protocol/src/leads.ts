@@ -31,3 +31,28 @@ export type Lead = z.infer<typeof Lead>;
 
 /** signalstack's `GET /api/leads` response. */
 export const LeadsResponse = z.object({ generated_at: z.string(), leads: z.array(Lead) });
+
+export const LeadStatus = z.enum(["new", "contacted", "replied", "won", "lost"]);
+export type LeadStatus = z.infer<typeof LeadStatus>;
+
+export const LeadDossier = z.object({
+  domain: z.string(),
+  company_name: z.string(),
+  summary: z.string(),
+  key_people: z.array(z.string()),
+  recent_signals: z.array(z.string()),
+  sources: z.array(z.string()),
+  generated_at: z.number(),
+});
+export type LeadDossier = z.infer<typeof LeadDossier>;
+
+export const OutreachDraft = z.object({
+  domain: z.string(),
+  recipient_email: z.string(),
+  recipient_name: z.string(),
+  subject: z.string(),
+  body: z.string(),
+  opener: z.string(),
+  status: z.enum(["draft", "approved", "rejected", "sent"]),
+});
+export type OutreachDraft = z.infer<typeof OutreachDraft>;

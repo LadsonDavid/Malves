@@ -3,6 +3,7 @@
  * tool keeps them: Claude Code, Codex, Cursor and Antigravity. One list, newest
  * first, so the phone needs no "projects": the folders come from the sessions.
  */
+import type { RecordedSession } from "@malves/protocol";
 export type Tool = "claude" | "codex" | "cursor" | "antigravity";
 
 /**
@@ -14,6 +15,7 @@ export type Tool = "claude" | "codex" | "cursor" | "antigravity";
 export type ContinueHow = "resume" | "bridge" | "new";
 
 export type SessionInfo = {
+  recorded?: boolean;
   tool: Tool;
   id: string;
   title: string;
@@ -24,11 +26,14 @@ export type SessionInfo = {
   how: ContinueHow;
   /** e.g. "editor" for Cursor's and Antigravity's own chats. */
   source?: string | undefined;
+  /** A verified vendor control command, separate from resuming a CLI agent. */
+  desktop?: "codex-queue";
 };
 
 export type SessionMessage = { who: "you" | "agent"; text: string };
 
 export interface SessionSource {
+  inspect?(id: string): Promise<RecordedSession>;
   readonly tool: Tool;
   list(): Promise<SessionInfo[]>;
   /** The conversation, oldest first (the last `limit` messages). */

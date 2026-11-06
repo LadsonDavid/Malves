@@ -1,5 +1,16 @@
-import type { Choice, DataOf, EventBody, LoggedEvent, QuestionKind, Risk } from "@malves/protocol";
+import type {
+  Choice,
+  DataOf,
+  EventBody,
+  Importance,
+  LoggedEvent,
+  MonitorSource,
+  QuestionKind,
+  Risk,
+  ToolProgress,
+} from "@malves/protocol";
 import type { Command } from "./command.js";
+import type { Action } from "./policy/types.js";
 
 /**
  * Interfaces the core owns (§3). Adapters implement them; the core never knows
@@ -40,10 +51,20 @@ export interface Notifier {
 
 /** Something an agent needs a person to decide. */
 export type Decision = {
+  /** Only agent clarifications may accept text through this explicitly named choice. */
+  textChoiceId?: string;
   kind: QuestionKind;
   text: string;
   choices: Choice[];
   risk: Risk;
+  /**
+   * What is being asked for, in structured form. With a policy on, the policy
+   * judges this first: tier 1 (and tier 2 when the project's autonomy allows) is
+   * allowed without a question, a hard deny is refused, everything else is asked.
+   */
+  action?: Action;
+  /** The choice that means "yes, once", used when the policy allows without asking. */
+  allowChoice?: string;
 };
 
 export type AgentRun = {
@@ -68,6 +89,8 @@ export type AgentCallbacks = {
   session(id: string): void;
   /** Text the agent wants to show the user. */
   output(text: string): void;
+  /** Display-only tool status/results, never an authorization to execute. */
+  tool?(progress: ToolProgress): void;
   /** Resolves a path the agent asked for, or throws if it is outside the workspace. */
   confine(path: string): string;
 };
@@ -83,4 +106,66 @@ export interface AgentSession {
 
 export interface AgentHost {
   start(run: AgentRun, callbacks: AgentCallbacks): AgentSession;
+}
+
+// ── Automations (plan F2) ───────────────────────────────────────────────────
+
+/** Reads what a monitor watches. Throws when the source can't be read. */
+export interface MonitorRunner {
+  read(source: MonitorSource): Promise<string>;
+}
+
+/** What a monitor saw last time: its fingerprint, and its text so a diff can be shown. */
+export type MonitorSnapshot = { hash: string; text: string };
+
+export interface MonitorState {
+  get(ruleId: string): MonitorSnapshot | undefined;
+  set(ruleId: string, snapshot: MonitorSnapshot): void;
+  remove(ruleId: string): void;
+}
+
+export type Alert = { ruleId: string; name: string; text: string; importance: Importance };
+
+/**
+ * Tells the person: a notification, or a call for the important ones. The
+ * adapter decides how; a failure is logged and never stops an automation.
+ */
+export interface Delivery {
+  deliver(alert: Alert): Promise<void>;
+}
+
+// ── Jobs (plan Pillar A) ────────────────────────────────────────────────────
+
+export interface WorkspaceProvisioner {
+  /** Creates an isolated worktree and branch for one step in a job. */
+  create(
+    workspacePath: string,
+    jobId: string,
+    stepId: string,
+  ): Promise<{ root: string; branch: string }>;
+  /** Removes one step's worktree. */
+  remove(workspacePath: string, jobId: string, stepId: string): Promise<void>;
+  /** Merges sourceBranch into targetBranch in the workspace or integration worktree. */
+  merge(
+    workspacePath: string,
+    sourceBranch: string,
+    targetBranch: string,
+  ): Promise<{ success: boolean; conflictFiles?: string[] }>;
+  /** Removes all worktrees and temporary branches created for this job. */
+  cleanup(workspacePath: string, jobId: string): Promise<void>;
+}
+
+export interface JobVerifier {
+  /** Runs tests and lints in the target directory; returns passed boolean and output. */
+  verify(root: string): Promise<{ passed: boolean; output: string }>;
+}
+
+export interface PullRequestOpener {
+  /** Opens a pull request for the integration branch. */
+  createPr(
+    workspacePath: string,
+    branch: string,
+    title: string,
+    body: string,
+  ): Promise<{ url: string }>;
 }

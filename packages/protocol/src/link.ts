@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isKey } from "./crypto.js";
-import { LoggedEvent } from "./events.js";
+import { LoggedEvent, ToolProgress } from "./events.js";
 import { Lead } from "./leads.js";
 
 /**
@@ -75,6 +75,7 @@ export const SealedFrame = z.object({ n: z.string(), c: z.string() });
 // ── Phone → runner, sealed ──────────────────────────────────────────────────
 
 export const Hello = z.object({
+  progress: z.boolean().optional(),
   type: z.literal("hello"),
   v: z.number().int(),
   challenge: Token,
@@ -124,7 +125,26 @@ export const SessionContinue = z.object({
   tool: SessionTool,
   session_id: z.string().regex(/^[\w.:-]{1,128}$/),
   text: z.string().min(1).max(20_000),
+  /** Desktop means the existing desktop conversation only; no CLI fallback. */
+  target: z.enum(["desktop", "agent"]).optional(),
 });
+
+/** A distinct command makes older runners refuse rather than silently launch a CLI. */
+export const DesktopSessionContinue = SessionContinue.omit({ target: true }).extend({
+  type: z.literal("session.desktop_continue"),
+});
+
+/** Read-only workspace review. Never accepts an arbitrary filesystem path. */
+export const SessionChanges = SessionRead.extend({ type: z.literal("session.changes") });
+export const SessionDelivery = SessionRead.extend({ type: z.literal("session.delivery") });
+export const SessionInspect = SessionRead.extend({ type: z.literal("session.inspect") });
+export const RecordedSession = z.object({
+  provenance: z.literal("saved-rollout"),
+  observed_at: z.number(),
+  recorded_state: z.enum(["unknown", "started", "completed", "interrupted"]),
+  operations: z.array(ToolProgress).max(20),
+});
+export type RecordedSession = z.infer<typeof RecordedSession>;
 
 /** Continue a finished task's conversation with the same agent. */
 export const TaskReply = z.object({
@@ -154,6 +174,12 @@ export const AnswerCommand = z.object({
   command_id: Id,
   question_id: Id,
   choice_id: z.string().min(1).max(200),
+});
+
+/** Distinct type: older runners must refuse rather than silently drop the answer text. */
+export const TextAnswerCommand = AnswerCommand.extend({
+  type: z.literal("answer.text"),
+  text: z.string().trim().min(1).max(4000),
 });
 
 export const TaskStop = z.object({
@@ -233,7 +259,13 @@ export const Speak = z.union([
 export type Speak = z.infer<typeof Speak>;
 
 /** Something said to Malves, the assistant. Android's other guesses help it understand. */
+export const SessionFocus = z.object({
+  tool: SessionTool,
+  session_id: z.string().regex(/^[\w.:-]{1,128}$/),
+});
+export type SessionFocus = z.infer<typeof SessionFocus>;
 export const AssistantSay = z.object({
+  focus: SessionFocus.optional(),
   type: z.literal("assistant.say"),
   command_id: Id,
   conversation_id: Id,
@@ -243,6 +275,11 @@ export const AssistantSay = z.object({
   where: z.string().max(500).optional(),
   /** Also speak the reply in Malves' natural voice, sentence by sentence, as `assistant.audio`. */
   speak: Speak.optional(),
+});
+export const AssistantCancel = z.object({
+  type: z.literal("assistant.cancel"),
+  command_id: Id,
+  conversation_id: Id,
 });
 
 /** Yes or no to the action Malves read back (Confirm / Cancel buttons). */
@@ -399,6 +436,11 @@ export const CallTest = z.object({ type: z.literal("call.test"), command_id: Id 
 
 /** Take the computer back from Malves (handover mode). */
 export const HandoverStop = z.object({ type: z.literal("handover.stop"), command_id: Id });
+export const HandoverControl = z.object({
+  type: z.literal("handover.control"),
+  command_id: Id,
+  owner: z.enum(["human", "malves"]),
+});
 
 /** Breakglass: stop every running task now (§8). */
 export const TasksStopAll = z.object({ type: z.literal("tasks.stop_all"), command_id: Id });
@@ -419,12 +461,18 @@ export const Command = z.discriminatedUnion("type", [
   SessionsList,
   SessionsAll,
   SessionRead,
+  SessionChanges,
+  SessionDelivery,
+  SessionInspect,
   SessionContinue,
+  DesktopSessionContinue,
   ChangesDiff,
   AnswerCommand,
+  TextAnswerCommand,
   TaskStop,
   TasksStopAll,
   HandoverStop,
+  HandoverControl,
   ScreenFrame,
   ScreenInput,
   ScreenVideo,
@@ -437,6 +485,7 @@ export const Command = z.discriminatedUnion("type", [
   VoiceChunk,
   VoiceTranscribe,
   AssistantSay,
+  AssistantCancel,
   AssistantConfirm,
   ImageChunk,
   AssistantLook,
@@ -480,6 +529,8 @@ export type IdeInfo = z.infer<typeof IdeInfo>;
 
 /** Whether Malves has the computer (handover mode), since when, until when; or why it ended. */
 export const HandoverState = z.object({
+  control_supported: z.boolean().optional(),
+  paused: z.boolean().optional(),
   active: z.boolean(),
   since: z.number().int().optional(),
   until: z.number().int().optional(),
@@ -517,6 +568,7 @@ export const Welcome = z.object({
   transcribe: z.boolean().optional(),
   /** Whether Malves, the assistant, is set up (its brain reachable). */
   assistant: z.boolean().optional(),
+  assistant_cancel: z.boolean().optional(),
   /** IDE windows open on the computer, with malves' IDE extension. */
   ides: z.array(IdeInfo).max(20).optional(),
   /** The computer's setup check, so the phone can say what isn't working. */
@@ -557,6 +609,11 @@ export const AssistantAudio = z.object({
   done: z.boolean().optional(),
   /** Said once when a voice runs out for the month, e.g. "Cartesia is used up; using ElevenLabs." */
   note: z.string().max(200).optional(),
+});
+export const AssistantProgress = z.object({
+  type: z.literal("assistant.progress"),
+  command_id: Id,
+  text: z.string().max(500),
 });
 
 /** Sent when handover mode starts or ends. */
@@ -600,6 +657,8 @@ export const Ack = z.object({
         updated_at: z.number(),
         how: z.enum(["resume", "bridge", "new"]),
         source: z.string().optional(),
+        desktop: z.literal("codex-queue").optional(),
+        recorded: z.boolean().optional(),
       }),
     )
     .optional(),
@@ -608,6 +667,7 @@ export const Ack = z.object({
     .optional(),
   /** The answer to `session.read`. */
   messages: z.array(z.object({ who: z.enum(["you", "agent"]), text: z.string() })).optional(),
+  recording: RecordedSession.optional(),
   /** A task this command started, e.g. by continuing a session. */
   task_id: z.string().optional(),
   /** The answer to `sessions.list`. */
@@ -661,6 +721,7 @@ export const RunnerMessage = z.discriminatedUnion("type", [
   IdesMessage,
   HandoverMessage,
   AssistantAudio,
+  AssistantProgress,
   ActivityMessage,
   LeadsMessage,
   EventMessage,

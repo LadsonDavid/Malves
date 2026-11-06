@@ -208,3 +208,40 @@ export function openAiCompatible(o: LlmOptions): Llm {
     },
   };
 }
+
+export type ModelRoles = {
+  routine?: string | undefined;
+  planner?: string | undefined;
+  reviewer?: string | undefined;
+  vision?: string[] | undefined;
+};
+
+export function modelRolesFromEnv(): ModelRoles {
+  return {
+    routine: process.env.MALVES_MODEL_ROUTINE,
+    planner: process.env.MALVES_MODEL_PLANNER,
+    reviewer: process.env.MALVES_MODEL_REVIEWER,
+    vision: process.env.MALVES_MODEL_VISION
+      ? process.env.MALVES_MODEL_VISION.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined,
+  };
+}
+
+export function modelForRole(
+  role: "routine" | "planner" | "reviewer" | "vision",
+  roles?: ModelRoles,
+): string {
+  const envRoles = roles ?? modelRolesFromEnv();
+  switch (role) {
+    case "routine":
+      return envRoles.routine ?? process.env.MALVES_ASSISTANT_MODEL ?? "auto:fast";
+    case "planner":
+      return envRoles.planner ?? "auto:best";
+    case "reviewer":
+      return envRoles.reviewer ?? "auto:best";
+    case "vision":
+      return envRoles.vision?.[0] ?? VISION_MODELS[0] ?? "auto:fast";
+  }
+}

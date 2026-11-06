@@ -1,6 +1,7 @@
 import { type KeyPair, LinkClient, type LinkStatus, type Welcome } from "@malves/protocol";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { emptyModel, type Model, reduce } from "./model";
+import { deliverProgress } from "./progress";
 import { deliver } from "./voice/audioInbox";
 
 export type Connection = {
@@ -52,6 +53,7 @@ export function useLink(connection: Connection | null, onWelcome?: (w: Welcome) 
       onChrome: (connected) => dispatch({ type: "chrome", connected }),
       onHandover: (state) => dispatch({ type: "handover", state }),
       onAudio: deliver,
+      onProgress: deliverProgress,
       onIdes: (ides) => dispatch({ type: "ides", ides }),
       onActivity: (taskId, text, at) => dispatch({ type: "activity", taskId, text, at }),
       onLeads: (leads, fetchedAt) => dispatch({ type: "leads", leads, fetchedAt }),

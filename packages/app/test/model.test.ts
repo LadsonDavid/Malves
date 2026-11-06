@@ -68,6 +68,40 @@ const opened = (id: string, taskId: string, expiresAt: number) =>
   });
 
 describe("phone model", () => {
+  it("keeps live text and tool results through replay without duplicating the final response", () => {
+    const actions = [
+      created("live"),
+      state("live", "running"),
+      event({ type: "task.output", data: { task_id: "live", text: "Inspecting. " } }),
+      event({
+        type: "task.tool",
+        data: {
+          task_id: "live",
+          tool: { id: "read", title: "Read test.ts", status: "in_progress" },
+        },
+      }),
+      event({
+        type: "task.tool",
+        data: {
+          task_id: "live",
+          tool: { id: "read", title: "Read test.ts", status: "failed", text: "File not found" },
+        },
+      }),
+    ];
+    const waiting = play(...actions);
+    expect(waiting.tasks.live?.result).toBe("Inspecting. ");
+    expect(waiting.tasks.live?.tools).toEqual([
+      { id: "read", title: "Read test.ts", status: "failed", text: "File not found" },
+    ]);
+    const completed = play(
+      ...actions,
+      event({ type: "task.output", data: { task_id: "live", text: "Done." } }),
+      event({ type: "task.result", data: { task_id: "live", text: "Inspecting. Done." } }),
+      state("live", "done"),
+    );
+    expect(completed.tasks.live?.result).toBe("Inspecting. Done.");
+    expect(completed.tasks.live?.tools?.[0]?.status).toBe("failed");
+  });
   it("follows a task from created to done, keeping its result", () => {
     const m = play(
       created("t1"),

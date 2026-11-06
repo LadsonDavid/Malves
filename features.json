@@ -80,10 +80,146 @@
       "name": "Run Cursor through its CLI",
       "area": "agents",
       "criticality": "hot",
-      "status": "known-issue",
+      "status": "awaiting-real-test",
       "evidence": ["packages/runner/test/agents.test.ts"],
-      "notes": "The CLI installs as agent.cmd, which malves will not start through a shell; malves has to learn the real program behind it.",
-      "real_test": "After the fix, start a small task with Cursor from the phone and answer its question."
+      "notes": "Windows shim installations resolve directly to the bundled node.exe and index.js without a shell. Version, ACP initialize and session/new were checked against the installed CLI; a coding task from the phone remains unverified.",
+      "real_test": "Start a small task with Cursor from the phone and answer its question."
+    },
+    {
+      "id": "desktop-session-target",
+      "name": "Continue an existing desktop conversation without substituting a CLI session",
+      "area": "agents",
+      "criticality": "critical",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/sessions.test.ts",
+        "packages/runner/test/link.test.ts",
+        "packages/runner/test/codex-desktop.test.ts"
+      ],
+      "notes": "Desktop app is the default in Sessions. Cursor Desktop Bridge and opt-in Codex native queue can send directly. Codex acknowledged the authorized test in the same real desktop conversation through the encrypted local client with zero runner tasks. Android remains untested. Structured native questions and edit review are unavailable; human control uses the computer screen.",
+      "real_test": "Configure MALVES_CODEX_DESKTOP_BIN, keep an existing Codex desktop chat open, send a harmless follow-up from Android in Desktop app mode, and refresh to verify its reply in that same chat. Disable the connector and verify no CLI task starts. Separately test Cursor Desktop Bridge. Native structured approval and edit review remain unavailable."
+    },
+    {
+      "id": "session-workspace-review",
+      "name": "Read current workspace changes from an existing desktop conversation",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/session-changes.test.ts",
+        "packages/runner/test/sessions.test.ts",
+        "packages/runner/test/link.test.ts"
+      ],
+      "notes": "Read-only tracked Git diff scoped to the session folder, including staged and unstaged edits. Not attributed to the chat. Known sensitive paths and ladson.md are excluded; untracked contents are omitted. No native accept/reject or commit control. Repositories without commits show staged edits only, explicitly labelled.",
+      "real_test": "Open an existing desktop conversation on Android, tap View workspace changes, compare staged and unstaged edits with Git on the desktop, edit again and refresh. Check offline and non-Git errors. Confirm reviewing changes leaves the files and index unchanged."
+    },
+    {
+      "id": "desktop-conversation-feedback",
+      "name": "Automatic desktop transcript refresh and durable delivery feedback",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/sessions.test.ts",
+        "packages/runner/test/codex-desktop.test.ts",
+        "packages/runner/test/link.test.ts"
+      ],
+      "notes": "Foreground polling, bounded Codex reads, saved native tool-call/result cards, persistent receipts and explicit uncertain delivery. Recorded turn state is not verified runtime status. Queue acceptance never proves an answer. Fresh-client recovery is tested over the encrypted link.",
+      "real_test": "Send to an open Codex desktop chat from Android and verify its reply appears automatically. Background and foreground, disconnect and reconnect, and restart the runner; check catch-up and retained receipts without duplicate sends."
+    },
+    {
+      "id": "typed-questions-inbox",
+      "name": "Runner questions inbox with explicitly declared text clarifications",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "awaiting-real-test",
+      "evidence": ["packages/core/test/questions.test.ts", "packages/runner/test/link.test.ts"],
+      "notes": "Only agent_question with a declared text choice accepts text. Permission prompts cannot accept arbitrary text. Native desktop questions are not connected; production adapters must explicitly declare typed clarification support.",
+      "real_test": "Open Work > Questions on Android with a runner text clarification pending. Send a typed answer, race another client, and verify first-answer-wins, timeout stopping and reconnect replay."
+    },
+    {
+      "id": "explicit-desktop-ownership",
+      "name": "Explicit take and return desktop control with fresh handover observations",
+      "area": "agents",
+      "criticality": "critical",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/core/test/tasks.test.ts",
+        "packages/runner/test/handover.test.ts",
+        "packages/runner/test/assistant.test.ts",
+        "packages/runner/test/link.test.ts"
+      ],
+      "notes": "Taking control stops runner tasks and tracked handover command process trees, blocks new/background input and persists ownership across restart. Native agents and unrelated/detached processes may continue. Returning invalidates pending confirmations and references. Optional semantic targets require the separately installed native provider.",
+      "real_test": "Take control on Android, verify runner tasks stop and new/background tasks are blocked. Return control and verify old confirmations cannot act. During explicit handover, change the observed screen/window and verify stale references refuse input."
+    },
+    {
+      "id": "bounded-research-evidence",
+      "name": "Research context with actual sources and completed steps",
+      "area": "assistant",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/research-context.test.ts",
+        "packages/runner/test/assistant.test.ts"
+      ],
+      "notes": "Bounded relevant work notes and the current Chrome page only. Code appends source locations and steps; no web search or multi-page research is claimed. Personal profile excluded; URLs with credentials, query strings or fragments are not used as citations.",
+      "real_test": "Ask Malves to research a relevant current Chrome page. Compare displayed sources and steps with the page and work notes; disconnect Chrome and verify it does not invent a web source."
+    },
+    {
+      "id": "semantic-desktop-provider",
+      "name": "Handover-only semantic window and element references with delivery evidence",
+      "area": "assistant",
+      "criticality": "critical",
+      "status": "verified-real",
+      "evidence": [
+        "packages/runner/test/semantic-desktop.test.ts",
+        "packages/runner/test/assistant.test.ts",
+        "packages/runner/test/ownership.test.ts"
+      ],
+      "notes": "Agent Desktop 1.2.0 installed from a checksum-verified official Windows release, envelope 2.6; executable hash pinned locally. Actual Windows Forms fixture passed named field input, button activation and verified application read-back under exact process/window binding. Real coding-app/Android handover tests remain. Adapter refuses incomplete, ambiguous, sensitive, stale or control-invalidated refs, preserves delivery evidence and never substitutes for native Codex approval RPC.",
+      "real_test": "Install a compatible native provider, configure MALVES_AGENT_DESKTOP_BIN and explicitly start handover. Observe a known harmless window, select a unique ref, confirm a harmless action and compare delivery/postcondition reports. Change windows, duplicate targets and take control to verify refusal."
+    },
+    {
+      "id": "voice-desktop-partner",
+      "name": "Mobile voice drives bounded existing-chat and handover workflows",
+      "area": "assistant",
+      "criticality": "critical",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/assistant.test.ts",
+        "packages/runner/test/link.test.ts",
+        "packages/runner/test/sessions.test.ts",
+        "packages/runner/test/semantic-desktop.test.ts"
+      ],
+      "notes": "Six planning rounds/twelve tool calls, exact chat selection and phone focus, confirmed native sends, workspace review, typed clarification read-back, repeated-call refusal and server cancellation. Phone and server require whole confirmation phrases; changed instructions cannot approve old actions. Local fallback requires explicit CLI intent. Agent Desktop 1.2.0 is hash-verified and a real Windows fixture passed field input, button activation and postcondition read-back. Native Codex approval RPC remains unavailable; Android acceptance remains pending.",
+      "real_test": "Use Android voice to find/read a named Codex desktop chat, propose a message, confirm it and verify the same chat receives it. Change chats and stop planning to check stale actions cannot execute. Explicitly start handover and discover an app/window, observe a unique harmless control and confirm a test action."
+    },
+    {
+      "id": "web-research-sources",
+      "name": "Bounded multi-page web research in real Chrome with live progress",
+      "area": "assistant",
+      "criticality": "standard",
+      "status": "awaiting-real-test",
+      "evidence": [
+        "packages/runner/test/research-web.test.ts",
+        "packages/runner/test/link.test.ts",
+        "packages/extension/test/research.test.ts"
+      ],
+      "notes": "Google search and at most three read public source pages through temporary background tabs in the owner's real Chrome profile. Failed pages/search snippets are not cited as read sources. Live progress is negotiated and encrypted. No forms, clicks or separate automation browser.",
+      "real_test": "Build/reload the extension and ask Malves for public web research. Verify the active tab stays intact, temporary tabs close, progress arrives, actual source pages support the answer and failures/CAPTCHAs produce no fabricated sources."
+    },
+    {
+      "id": "live-task-transcript",
+      "name": "Live task text and tool status/results survive reconnection",
+      "area": "agents",
+      "criticality": "hot",
+      "status": "automated-only",
+      "evidence": [
+        "packages/core/test/tasks.test.ts",
+        "packages/runner/test/link.test.ts",
+        "packages/app/test/model.test.ts"
+      ],
+      "real_test": "Start a demo task, read its response before answering its question, disconnect and reconnect the phone, then verify the response and completed tool result remain visible. Update both the runner and APK for the new event types."
     },
     {
       "id": "notifications",

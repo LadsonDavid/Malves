@@ -3,9 +3,18 @@ import path from "node:path";
 import { type Core, createCore, type Notifier } from "@malves/core";
 import type { AgentSessionInfo } from "@malves/protocol";
 import { AcpHost, type Launch } from "./adapters/acp/host.js";
+import type { Caller } from "./adapters/assistant/caller.js";
+import { openAiCompatible } from "./adapters/assistant/llm.js";
+import { humanHasControl } from "./adapters/assistant/ownership.js";
+import { RunnerDelivery } from "./adapters/automations/delivery.js";
+import { SystemMonitors } from "./adapters/automations/monitors.js";
 import { type BrowserTools, TOOL_SERVER_NAME } from "./adapters/browser/tools.js";
 import type { BudgetGuard } from "./adapters/budget/guard.js";
 import { GitChanges } from "./adapters/git/changes.js";
+import { GitHubPrOpener } from "./adapters/git/pr.js";
+import { ProjectVerifier } from "./adapters/git/verifier.js";
+import { GitWorktrees } from "./adapters/git/worktrees.js";
+import type { NtfyPush } from "./adapters/push/ntfy.js";
 import { SqliteStore } from "./adapters/sqlite/store.js";
 import { noPush } from "./adapters/terminal/terminal.js";
 import { AgentStatus } from "./agent-status.js";
@@ -25,6 +34,8 @@ export type Runner = Core & {
   useBrowserTools(tools: BrowserTools): void;
   /** Also notifies through this (`malves serve` with Tailscale). */
   usePush(push: Notifier): void;
+  /** Routes phone calls for high-importance automations. */
+  useCaller?(caller: Caller): void;
   /** A finished task's changes as a diff, for "View changes". */
   diff(taskId: string): string;
   /** A finished task's changed files and their repo, for "Open in IDE". */
@@ -50,6 +61,8 @@ export function openRunner(o: RunnerOptions): Runner {
     let status: AgentStatus | undefined;
     let browserTools: BrowserTools | undefined;
     let push: Notifier | undefined;
+    let ntfyPush: NtfyPush | undefined;
+    let caller: Caller | undefined;
     let guard: BudgetGuard | undefined;
     const activity = new Set<(taskId: string, text: string) => void>();
     const host = new AcpHost({
@@ -72,6 +85,37 @@ export function openRunner(o: RunnerOptions): Runner {
     status = new AgentStatus(profiles, (_name, p) =>
       host.probe(p.command, tmpdir(), launchOf(p), p.startupMs),
     );
+    const delivery = new RunnerDelivery(
+      () => ntfyPush,
+      () => caller,
+    );
+    const monitors = new SystemMonitors();
+    const advisor =
+      process.env.MALVES_MODELS_URL && process.env.MALVES_MODELS_KEY
+        ? {
+            async judge(system: string, user: string): Promise<string> {
+              const llm = openAiCompatible({
+                url: process.env.MALVES_MODELS_URL!,
+                key: process.env.MALVES_MODELS_KEY!,
+                model: process.env.MALVES_MODEL_ROUTINE ?? "auto:fast",
+                timeoutMs: 10_000,
+              });
+              const res = await llm.chat(
+                [
+                  { role: "system", content: system },
+                  { role: "user", content: user },
+                ],
+                [],
+              );
+              return res.content;
+            },
+          }
+        : undefined;
+
+    const provisioner = new GitWorktrees();
+    const verifier = new ProjectVerifier();
+    const prOpener = new GitHubPrOpener();
+
     const core = createCore({
       store,
       clock: systemClock,
@@ -93,7 +137,22 @@ export function openRunner(o: RunnerOptions): Runner {
       host,
       agents,
       questionTimeoutMs: o.questionTimeoutMs,
+      policy: {
+        advisor,
+      },
+      automations: {
+        monitors,
+        state: store.monitorState,
+        delivery,
+      },
+      jobs: {
+        provisioner,
+        verifier,
+        prOpener,
+      },
     });
+    if (humanHasControl(o.dir))
+      core.tasks.blockInput("You have desktop control. Return control before starting agent work.");
     const changes = new GitChanges(core, { questionTimeoutMs: o.questionTimeoutMs });
     const opened = store;
     return {
@@ -104,6 +163,10 @@ export function openRunner(o: RunnerOptions): Runner {
       },
       usePush(notifier) {
         push = notifier;
+        if ("notify" in notifier) ntfyPush = notifier as NtfyPush;
+      },
+      useCaller(c) {
+        caller = c;
       },
       useGuard(g) {
         guard = g;

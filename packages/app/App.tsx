@@ -264,6 +264,7 @@ function Main() {
         client={client}
         status={status}
         onBack={back}
+        onWatchScreen={() => open({ kind: "screen" })}
         onOpenTask={(id) => setStack((s) => [...s.slice(0, -1), { kind: "task", id }])}
         say={say}
       />
@@ -326,6 +327,9 @@ function Main() {
       lastAgent={lastAgent}
       onCall={openMalves}
       where={where}
+      focus={
+        top?.kind === "session" ? { tool: top.session.tool, session_id: top.session.id } : undefined
+      }
     >
       <View style={{ flex: 1, backgroundColor: color.page, paddingTop: insets.top }}>
         <StatusBar style={isDark ? "light" : "dark"} />

@@ -19,6 +19,88 @@ function ask(q: ReturnType<typeof setup>["questions"], timeoutMs = 1000) {
 }
 
 describe("questions.ask", () => {
+  it("routes declared text clarifications, preserves them in the log, and lets the first answer win", async () => {
+    const c = setup();
+    const answer = c.questions.ask({
+      taskId: "t1",
+      kind: "agent_question",
+      text: "Which name?",
+      choices: [
+        { id: "reply", label: "Reply" },
+        { id: "cancel", label: "Cancel" },
+      ],
+      textChoiceId: "reply",
+      risk: "low",
+      timeoutMs: 1000,
+    });
+    const id = c.questions.pending()[0]!.question_id;
+    expect(c.questions.answer({ questionId: id, choiceId: "reply", commandId: "empty" })).toBe(
+      "invalid_choice",
+    );
+    expect(
+      c.questions.answer({
+        questionId: id,
+        choiceId: "reply",
+        text: "  example name  ",
+        commandId: "first",
+      }),
+    ).toBe("applied");
+    expect(
+      c.questions.answer({
+        questionId: id,
+        choiceId: "reply",
+        text: "different",
+        commandId: "other",
+      }),
+    ).toBe("closed");
+    await expect(answer).resolves.toEqual({
+      outcome: "answered",
+      choiceId: "reply",
+      text: "example name",
+    });
+    expect(c.store.events.at(-1)).toMatchObject({
+      type: "question.closed",
+      data: { text: "example name" },
+    });
+  });
+  it("refuses arbitrary text on permissions and rejects blank or oversized clarification", () => {
+    const c = setup();
+    void ask(c.questions);
+    const id = c.questions.pending()[0]!.question_id;
+    expect(
+      c.questions.answer({
+        questionId: id,
+        choiceId: "yes",
+        text: "approve",
+        commandId: "injected",
+      }),
+    ).toBe("invalid_choice");
+    expect(() =>
+      c.questions.ask({
+        taskId: "t1",
+        kind: "permission",
+        text: "Run?",
+        choices,
+        textChoiceId: "yes",
+        risk: "high",
+        timeoutMs: 1000,
+      }),
+    ).toThrow(/Text answers/);
+    void c.questions.ask({
+      taskId: "t2",
+      kind: "agent_question",
+      text: "Name?",
+      choices,
+      textChoiceId: "yes",
+      risk: "low",
+      timeoutMs: 1000,
+    });
+    const q = c.questions.pending().find((q) => q.task_id === "t2")!;
+    for (const text of ["  ", "x".repeat(4001), "x\0y"])
+      expect(
+        c.questions.answer({ questionId: q.question_id, choiceId: "yes", text, commandId: "bad" }),
+      ).toBe("invalid_choice");
+  });
   it("logs the question before sending the push", async () => {
     const c = setup();
     void ask(c.questions);

@@ -21,6 +21,7 @@ import {
   randomToken,
   type ScreenInput,
   SealedFrame,
+  type SessionFocus,
   type Speak,
   seal,
 } from "@malves/protocol";
@@ -79,6 +80,7 @@ export type LinkServerOptions = {
     | undefined;
   /** Ends handover mode (the phone's Stop button). */
   stopHandover?: (() => void) | undefined;
+  desktopControl?: ((owner: "human" | "malves") => Promise<void>) | undefined;
   /** IDE windows with malves' extension, and what the phone may ask of them. */
   ide?: IdeControl | undefined;
   /** Precise dictation through Whisper, when freellmapi is set up. */
@@ -99,6 +101,12 @@ export type LinkServerOptions = {
 
 /** Malves, the assistant (see `Assistant`), and its memory. */
 export interface SessionsPort {
+  inspect?(
+    tool: "claude" | "codex" | "cursor" | "antigravity",
+    id: string,
+  ): Promise<NonNullable<Ack["recording"]>>;
+  delivery?(tool: "claude" | "codex" | "cursor" | "antigravity", id: string): Promise<string>;
+  changes?(tool: "claude" | "codex" | "cursor" | "antigravity", id: string): Promise<string>;
   list(
     tool?: "claude" | "codex" | "cursor" | "antigravity",
   ): Promise<NonNullable<Ack["all_sessions"]>>;
@@ -111,17 +119,22 @@ export interface SessionsPort {
     tool: "claude" | "codex" | "cursor" | "antigravity",
     id: string,
     text: string,
+    target?: "desktop" | "agent",
+    commandId?: string,
   ): Promise<{ taskId?: string | undefined; result: string }>;
   workspaceFor(folder: string): Promise<string>;
 }
 
 export interface AssistantPort {
+  cancel?(conversationId: string): void;
   say(
     conversationId: string,
     text: string,
     alternatives: string[],
     onText?: (delta: string) => void,
     where?: string,
+    onProgress?: (text: string) => void,
+    focus?: SessionFocus,
   ): Promise<NonNullable<Ack["assistant"]>>;
   confirm(
     conversationId: string,
@@ -330,8 +343,8 @@ export class LinkServer {
 
   /** Tells every phone whether Malves has the computer (and every phone that connects later). */
   setHandover(state: HandoverState): void {
-    this.handover = state;
-    for (const s of this.sessions) s.send({ type: "handover", state });
+    this.handover = { ...state, control_supported: !!this.o.desktopControl };
+    for (const s of this.sessions) s.send({ type: "handover", state: this.handover });
   }
 
   /** Tells every phone whether Chrome is connected (and every phone that connects later). */
@@ -469,6 +482,7 @@ export class LinkServer {
       ...(this.o.transcriber ? { transcribe: true } : {}),
       ...(this.o.ide ? { ides: this.o.ide.list() } : {}),
       ...(this.o.assistant ? { assistant: true } : {}),
+      ...(this.o.assistant?.cancel ? { assistant_cancel: true } : {}),
       ...(this.o.health ? { health: this.o.health.list() } : {}),
     };
   }
@@ -507,6 +521,21 @@ export class LinkServer {
       ...detail,
     });
     try {
+      if (
+        this.handover?.paused &&
+        [
+          "task.create",
+          "task.reply",
+          "session.continue",
+          "session.desktop_continue",
+          "ide.agent",
+          "answer",
+          "answer.text",
+        ].includes(command.type)
+      )
+        return ack(false, {
+          error: "You have control. Return control before sending new agent input.",
+        });
       switch (command.type) {
         case "task.create": {
           // A folder (from the Sessions list) becomes a project on first use, if it's one you've worked in.
@@ -516,6 +545,10 @@ export class LinkServer {
               ? await this.o.sessions.workspaceFor(command.folder)
               : undefined);
           if (!workspaceId) return ack(false, { error: "Pick a folder to work in." });
+          if (this.handover?.paused)
+            return ack(false, {
+              error: "You took control while resolving the folder. No agent was started.",
+            });
           const id = this.core.tasks.create({
             workspaceId,
             agent: command.agent,
@@ -534,8 +567,10 @@ export class LinkServer {
           const sessions = await this.o.listSessions(command.agent, command.workspace_id);
           return ack(true, { sessions });
         }
-        case "answer": {
+        case "answer":
+        case "answer.text": {
           const result = this.core.questions.answer({
+            ...(command.type === "answer.text" ? { text: command.text } : {}),
             questionId: command.question_id,
             choiceId: command.choice_id,
             commandId: command.command_id,
@@ -575,13 +610,34 @@ export class LinkServer {
           return ack(true, {
             messages: await this.o.sessions.read(command.tool, command.session_id),
           });
-        case "session.continue": {
+        case "session.inspect":
+          if (!this.o.sessions?.inspect)
+            return ack(false, { error: "Recorded operations aren't available on this runner." });
+          return ack(true, {
+            recording: await this.o.sessions.inspect(command.tool, command.session_id),
+          });
+        case "session.delivery":
+          if (!this.o.sessions?.delivery)
+            return ack(false, { error: "Delivery history isn't available on this runner." });
+          return ack(true, {
+            result: await this.o.sessions.delivery(command.tool, command.session_id),
+          });
+        case "session.changes":
+          if (!this.o.sessions?.changes)
+            return ack(false, { error: "Workspace review isn't available on this runner." });
+          return ack(true, {
+            result: await this.o.sessions.changes(command.tool, command.session_id),
+          });
+        case "session.continue":
+        case "session.desktop_continue": {
           if (!this.o.sessions)
             return ack(false, { error: "Sessions aren't available on this computer." });
           const done = await this.o.sessions.continue(
             command.tool,
             command.session_id,
             command.text,
+            command.type === "session.desktop_continue" ? "desktop" : command.target,
+            command.command_id,
           );
           return ack(true, {
             result: done.result,
@@ -603,6 +659,13 @@ export class LinkServer {
           if (command.speak) this.speaker(command.command_id, command.speak).finish(seen.reply);
           return ack(true, { assistant: seen });
         }
+        case "assistant.cancel":
+          if (!this.o.assistant?.cancel)
+            return ack(false, { error: "Assistant cancellation isn't available on this runner." });
+          this.o.assistant.cancel(command.conversation_id);
+          return ack(true, {
+            result: "Planning cancelled. Work already dispatched to a native app may continue.",
+          });
         case "assistant.say":
         case "assistant.confirm": {
           const assistant = this.o.assistant;
@@ -618,6 +681,11 @@ export class LinkServer {
                   command.alternatives ?? [],
                   speaker?.text,
                   command.where,
+                  (text) => {
+                    for (const session of this.sessions)
+                      session.progress(command.command_id, text.slice(0, 500));
+                  },
+                  command.focus,
                 )
               : await assistant.confirm(command.conversation_id, command.pending_id, command.yes);
           speaker?.finish(answer.reply, answer.pending !== undefined);
@@ -704,6 +772,16 @@ export class LinkServer {
           return ack(true, {
             result: await this.o.caller.call("This is Malves' test call. Calls work.", true),
           });
+        case "handover.control":
+          if (!this.o.desktopControl)
+            return ack(false, { error: "Desktop ownership control isn't available." });
+          await this.o.desktopControl(command.owner);
+          return ack(true, {
+            result:
+              command.owner === "human"
+                ? "You have control. Runner tasks stopped and new agent input blocked. Native desktop agents may still run; pause them in their own app."
+                : "Control returned. Malves must look again before desktop input.",
+          });
         case "handover.stop":
           if (!this.o.stopHandover) return ack(false, { error: ASSISTANT_OFF });
           this.o.stopHandover();
@@ -740,6 +818,11 @@ export class LinkServer {
 
 /** One phone's connection, after a successful handshake. */
 class Session {
+  private progressEnabled = false;
+  progress(commandId: string, text: string): void {
+    if (this.progressEnabled)
+      this.send({ type: "assistant.progress", command_id: commandId, text });
+  }
   private readonly unsubscribe: () => void;
   private readonly unsubscribeAgents: () => void;
   private readonly unsubscribeHealth: () => void;
@@ -753,6 +836,7 @@ class Session {
     core: Core,
     private readonly server: LinkServer,
   ) {
+    this.progressEnabled = hello.progress === true;
     this.wish = hello.wish ? new Set(hello.wish) : undefined;
     this.send(server.welcome(device));
 

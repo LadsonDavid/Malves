@@ -385,6 +385,80 @@ fixed rules above stay as the fallback when it's off or unreachable.
 
 ### Desktop IDEs
 
+**Priority (Nov 6, 2026):** continue the existing desktop conversation, answer
+its questions and review its edits, with Codex desktop as the first integration
+target (see [current investigation](docs/codex-desktop-investigation.md)). The Sessions screen defaults to a desktop
+target. A `session.desktop_continue` command must never launch an
+ACP/CLI agent or substitute a new conversation. Cursor's Desktop Bridge and an
+opt-in Codex native queue have direct message paths. Set
+`MALVES_CODEX_DESKTOP_BIN` to the absolute installed Codex executable; its queue
+command addresses the existing chat without `--resume`. Keep that chat open,
+then refresh its transcript to see the answer. An encrypted local-client test
+received an acknowledgement in the same real desktop chat with zero runner tasks;
+Android remains untested. Native approvals and edit review use the
+computer screen; structured controls remain disabled. Reading stored conversations or reopening a CLI is not proof
+of native desktop control. The IDE companion forwards runner questions into the
+IDE; it does not capture that IDE agent's own questions. Complete native
+integration remains unverified and needs a supported per-application interface.
+The desktop command has its own type so an older runner rejects it rather than
+ignoring a new target field and accidentally starting a CLI task.
+
+`session.changes` provides a separate read-only workspace review: the runner
+resolves the session's folder locally, then reads its tracked Git diff relative
+to HEAD within that folder. No phone-supplied path is accepted. Known sensitive
+paths and `ladson.md` are excluded; untracked contents are omitted. Reviews are
+bounded in size and time, disable external diff/text conversion, and are labelled
+as workspace edits rather than attributed to one chat. An unborn repository
+shows staged edits only, explicitly labelled. This never stages, commits,
+accepts or rejects an edit and does not replace native approval integration.
+
+Desktop transcripts poll only while the phone is active; Codex polling uses
+bounded rollout reads and caches unchanged files. Codex delivery receipts can be
+read after restart and are distinct from an observed reply. The questions inbox
+accepts text only through an explicitly declared `agent_question` text choice;
+`answer.text` is a distinct command so old runners cannot discard its text.
+
+Explicit human ownership stops runner tasks and blocks new input at the core
+task producer, Sessions, phone and assistant boundaries. It does not stop native
+desktop agents; tracked handover commands are cancelled separately. Returning control
+invalidates pending assistant actions and all desktop observations. Handover
+input requires a single-use screenshot/window reference, valid for 30 seconds;
+the exact screenshot and active title are checked again before input. Dispatch
+and visible screen change are reported separately from semantic verification.
+This is not a semantic accessibility reference provider.
+
+An optional separate Agent Desktop executable now supplies semantic references
+under `MALVES_AGENT_DESKTOP_BIN` (JSON envelope 2.6). Only explicit handover may
+list windows, observe one exact app/window, and propose clicks/field replacements.
+Input still requires the owner's confirmation. Incomplete observations,
+duplicate/sensitive targets, expired refs and control changes are refused.
+Delivery/retry dispositions are preserved; no provider-suggested command or
+automatic mutation retry is executed. This does not connect native Codex approvals.
+Human ownership is persisted before control changes and restored before task
+producers start. Taking control also cancels tracked handover command process
+trees; a real Windows cancellation test passes. Native apps/unrelated processes
+remain outside that cancellation scope.
+
+Research context is bounded to relevant work-vault notes and the current Chrome
+page. Sources and completed steps are appended by code. No web search is implied.
+The separate `research_web` tool searches Google and reads at most three public
+pages in temporary background tabs of the same real Chrome profile. It performs
+no clicks/forms and uses the extension's bundled `research_read` operation.
+Source pages are cited only after a successful read. Public URL checks apply
+before DOM extraction and after navigation; tabs close in `finally`. Progress is
+encrypted and sent only to clients that advertised support; completed steps and
+sources remain in the final answer. Real-service verification remains pending.
+See [implementation status](docs/mobile-desktop-progress.md) for remaining work.
+
+Mobile voice uses the same desktop-conversation service as Sessions, rather than
+substituting runner tasks. It lists/reads exact chats before proposing a confirmed
+send or workspace review. Planning is bounded to six model rounds/twelve tool
+calls and stops on a human decision, repeated tool request, failure or budget.
+Structured phone focus binds "this chat"; changing focus invalidates old selection
+and confirmation. Superseded turns cannot continue planning. Negotiated
+`assistant.cancel` cancels pending planning and owned handover commands/provider
+calls, without pretending to stop an already-running native agent.
+
 malves runs the agents' headless forms (ACP over stdio). The desktop IDEs —
 VS Code, Cursor, Antigravity, Windsurf, all VS Code forks — are reached by one
 companion extension (`packages/ide`, installed from `malves.vsix`) through
@@ -648,9 +722,9 @@ Each step ends in something demoable:
    says "incoming" and the computer opens a connection that the link server
    adopts like a direct one. Frames and close codes pass unchanged. Limit:
    notifications still need Tailscale.
-8. Lead engine endpoint. R7. **Built** (§7): signalstack `GET /api/leads`,
-   `malves serve --leads <url>`, the app's Leads screen with "Research in
-   browser". Awaiting a test against real signalstack data.
+8. Lead engine. R7. **Built** (§7): embedded in-process `LocalLeadEngine`
+   (SQLite accounts & signals, read-time scoring, polite zero-login collectors)
+   with optional `malves serve --leads <url>` fallback to external signalstack.
 9. Voice (English India/US, Tamil), hands-free, Whisper dictation. **Built.**
 10. Desktop IDE companion extension. **Built;** connects in VS Code and
     Antigravity; the phone side awaits a real test.

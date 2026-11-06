@@ -4,6 +4,7 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  Action,
   AgentCallbacks,
   AgentEnd,
   AgentHost,
@@ -12,6 +13,7 @@ import type {
   Command,
   Decision,
 } from "@malves/core";
+import type { ToolProgress } from "@malves/protocol";
 
 export type AcpHostOptions = {
   /** Progress the agent reports (tool calls), for display only. Not logged. */
@@ -214,16 +216,48 @@ export class AcpHost implements AgentHost {
     const inWorkspace = async (requested: string) => realConfine(callbacks, requested);
     let sessionId = "";
     let replaying = false;
+    const tools = new Map<string, ToolProgress>();
 
     return acp
       .client({ name: "malves" })
       .onNotification(acp.methods.client.session.update, ({ params }) => {
-        if (replaying || params.sessionId !== sessionId) return;
+        if (isStopped() || replaying || params.sessionId !== sessionId) return;
         const update = params.update;
         if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
           callbacks.output(update.content.text);
-        } else if (update.sessionUpdate === "tool_call") {
-          this.options.onActivity?.(run.taskId, update.title);
+        } else if (
+          update.sessionUpdate === "tool_call" ||
+          update.sessionUpdate === "tool_call_update"
+        ) {
+          const previous = tools.get(update.toolCallId);
+          const text =
+            update.content == null
+              ? previous?.text
+              : update.content
+                  .flatMap((block) =>
+                    block.type === "content" && block.content.type === "text"
+                      ? [block.content.text]
+                      : [],
+                  )
+                  .join("\n")
+                  .slice(-16_000);
+          const progress: ToolProgress = {
+            kind:
+              update.kind === "read" || update.kind === "search"
+                ? update.kind
+                : update.kind === "execute"
+                  ? "command"
+                  : update.kind === "edit" || update.kind === "delete" || update.kind === "move"
+                    ? "edit"
+                    : (previous?.kind ?? "other"),
+            id: update.toolCallId,
+            title: (update.title ?? previous?.title ?? "Agent tool").slice(0, 500),
+            status: update.status ?? previous?.status ?? "pending",
+            ...(text === undefined ? {} : { text }),
+          };
+          tools.set(progress.id, progress);
+          callbacks.tool?.(progress);
+          this.options.onActivity?.(run.taskId, `${progress.title} (${progress.status})`);
         }
       })
       .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
@@ -414,14 +448,54 @@ export function permissionDecision(params: acp.RequestPermissionRequest): Decisi
   const call = params.toolCall;
   const where = (call.locations ?? []).map((l) => l.path).join(", ");
   const title = call.title ?? "The agent wants to use a tool";
+  const once = params.options.find((o) => o.kind === "allow_once");
+  const text = where ? `${title}\n${where}` : title;
   return {
     kind: "permission",
-    text: where ? `${title}\n${where}` : title,
+    text,
     choices: params.options
       .filter((o) => o.kind !== "allow_always")
       .map((o) => ({ id: o.optionId, label: o.name })),
     risk: riskOf(call.kind ?? undefined),
+    action: actionOf(call, title),
+    // Without a plain "allow once" the policy has nothing to answer with, so a person is asked.
+    ...(once ? { allowChoice: once.optionId } : {}),
   };
+}
+
+/**
+ * What a tool call is, in the policy's terms. A shell call carries its command
+ * in `rawInput`; the title is only for people and is never taken for a command.
+ */
+export function actionOf(call: acp.ToolCallUpdate, title: string): Action {
+  const paths = (call.locations ?? []).map((l) => l.path);
+  const raw = typeof call.rawInput === "object" && call.rawInput !== null ? call.rawInput : {};
+  const field = (name: string): unknown => (raw as Record<string, unknown>)[name];
+  const base = { source: "agent", summary: title } as const;
+  switch (call.kind ?? undefined) {
+    case "read":
+    case "search":
+    case "think":
+      return { ...base, kind: call.kind === "search" ? "search" : "read", paths };
+    case "edit":
+      return { ...base, kind: "edit", paths };
+    case "delete":
+      return { ...base, kind: "delete", paths };
+    case "move":
+      return { ...base, kind: "move", paths };
+    case "fetch": {
+      const url = field("url");
+      return { ...base, kind: "network", ...(typeof url === "string" ? { url } : {}) };
+    }
+    case "execute": {
+      const cmd = field("command") ?? field("cmd");
+      const command = Array.isArray(cmd) ? cmd.join(" ") : cmd;
+      return { ...base, kind: "execute", ...(typeof command === "string" ? { command } : {}) };
+    }
+    default:
+      // switch_mode, other, or no kind: nothing is known about it, so it is a question.
+      return { ...base, kind: "execute" };
+  }
 }
 
 function riskOf(kind: acp.ToolKind | undefined): Decision["risk"] {

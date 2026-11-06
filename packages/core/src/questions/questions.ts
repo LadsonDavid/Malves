@@ -8,7 +8,7 @@ export type Ask = Decision & {
 };
 
 export type Answer =
-  | { outcome: "answered"; choiceId: string }
+  | { outcome: "answered"; choiceId: string; text?: string }
   | { outcome: "timed_out" }
   | { outcome: "cancelled" };
 
@@ -73,6 +73,11 @@ export class Questions {
     if (input.choices.length === 0 || choiceIds.size !== input.choices.length) {
       throw new Error("ask: choices must be non-empty with unique ids");
     }
+    if (
+      input.textChoiceId &&
+      (input.kind !== "agent_question" || !choiceIds.has(input.textChoiceId))
+    )
+      throw new Error("Text answers require an agent question and a declared text choice.");
 
     const questionId = this.ids.next("q");
     const data: OpenQuestion = {
@@ -81,6 +86,7 @@ export class Questions {
       kind: input.kind,
       text: input.text,
       choices: input.choices,
+      ...(input.textChoiceId ? { text_choice_id: input.textChoiceId } : {}),
       risk: input.risk,
       expires_at: this.clock.now() + input.timeoutMs,
     };
@@ -127,13 +133,29 @@ export class Questions {
     return answer;
   }
 
-  answer(input: { questionId: string; choiceId: string; commandId: string }): AnswerResult {
+  answer(input: {
+    questionId: string;
+    choiceId: string;
+    commandId: string;
+    text?: string;
+  }): AnswerResult {
     if (this.commands.get(input.commandId) === input.questionId) return "duplicate";
 
     const question = this.open.get(input.questionId);
     if (!question) return this.seen.has(input.questionId) ? "closed" : "unknown_question";
 
     if (!question.choices.some((c) => c.id === input.choiceId)) return "invalid_choice";
+    if (
+      input.text !== undefined &&
+      (question.kind !== "agent_question" ||
+        question.text_choice_id !== input.choiceId ||
+        !input.text.trim() ||
+        input.text.length > 4000 ||
+        input.text.includes("\0"))
+    )
+      return "invalid_choice";
+    if (input.choiceId === question.text_choice_id && input.text === undefined)
+      return "invalid_choice";
 
     if (this.clock.now() >= question.expires_at) {
       this.close(input.questionId, { outcome: "timed_out" });
@@ -142,7 +164,11 @@ export class Questions {
 
     this.close(
       input.questionId,
-      { outcome: "answered", choiceId: input.choiceId },
+      {
+        outcome: "answered",
+        choiceId: input.choiceId,
+        ...(input.text !== undefined ? { text: input.text.trim() } : {}),
+      },
       input.commandId,
     );
     return "applied";
@@ -201,6 +227,9 @@ export class Questions {
         task_id: question.task_id,
         outcome: answer.outcome,
         ...(answer.outcome === "answered" ? { choice_id: answer.choiceId } : {}),
+        ...(answer.outcome === "answered" && answer.text !== undefined
+          ? { text: answer.text }
+          : {}),
         ...(commandId ? { command_id: commandId } : {}),
       },
     });

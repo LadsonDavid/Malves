@@ -218,3 +218,40 @@ export function scrollPage(direction: "up" | "down"): { error?: string } {
   window.scrollBy({ top: (direction === "down" ? 1 : -1) * window.innerHeight * 0.8 });
   return {};
 }
+
+/**
+ * Fills a secret into a field.
+ * CRITICAL SAFETY INVARIANT: The page's origin MUST match expectedOrigin, checked inside the page.
+ */
+export function fillSecret(
+  ref: string,
+  secret: string,
+  expectedOrigin: string,
+): { error?: string; filled?: boolean } {
+  const pageOrigin = (location.origin || "").toLowerCase();
+  const targetOrigin = (expectedOrigin || "").toLowerCase();
+  if (pageOrigin !== targetOrigin) {
+    return {
+      error: `Refused: page origin "${pageOrigin}" does not match secret origin "${targetOrigin}".`,
+    };
+  }
+
+  const el = document.querySelector(`[data-malves-ref="${CSS.escape(ref)}"]`);
+  if (!(el instanceof HTMLElement)) {
+    return { error: "That field isn't on the page any more. Take a new snapshot." };
+  }
+
+  el.focus();
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const proto =
+      el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, secret);
+  } else if (el.isContentEditable) {
+    el.textContent = secret;
+  } else {
+    return { error: "That element can't be typed into." };
+  }
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { filled: true };
+}

@@ -1,4 +1,13 @@
-import { clickRef, pressKey, scrollPage, selectRef, snapshotPage, typeRef } from "./page.js";
+import {
+  clickRef,
+  fillSecret,
+  pressKey,
+  scrollPage,
+  selectRef,
+  snapshotPage,
+  typeRef,
+} from "./page.js";
+import { researchAddress } from "./research.js";
 
 /**
  * malves' Chrome extension (§5). Connects to malves on this computer only, and
@@ -123,6 +132,27 @@ function loaded(tabId: number): Promise<void> {
 
 async function run(op: string, args: Record<string, unknown>): Promise<unknown> {
   switch (op) {
+    case "research_read": {
+      const url = researchAddress(String(args.url ?? ""));
+      const tab = await chrome.tabs.create({ url: url.href, active: false });
+      if (tab.id === undefined) throw new Error("Could not open a research tab.");
+      const id = tab.id;
+      try {
+        const deadline = Date.now() + 15_000;
+        while ((await chrome.tabs.get(id)).status !== "complete") {
+          if (Date.now() > deadline) throw new Error("Research page took too long.");
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        researchAddress((await chrome.tabs.get(id)).url ?? "");
+        const [result] = await chrome.scripting.executeScript({
+          target: { tabId: id },
+          func: snapshotPage,
+        });
+        return result?.result;
+      } finally {
+        await chrome.tabs.remove(id).catch(() => {});
+      }
+    }
     case "info": {
       const tab = await activeTab();
       return { url: tab.url ?? "", title: tab.title ?? "" };
@@ -156,6 +186,26 @@ async function run(op: string, args: Record<string, unknown>): Promise<unknown> 
       return inPage(pressKey, String(args.key));
     case "scroll":
       return inPage(scrollPage, args.direction === "up" ? "up" : "down");
+    case "fill_secret":
+      return inPage(
+        fillSecret,
+        String(args.ref),
+        String(args.secret ?? ""),
+        String(args.origin ?? ""),
+      );
+    case "dialog_action": {
+      const tab = await activeTab();
+      const accept = args.accept !== false;
+      try {
+        await chrome.debugger.sendCommand({ tabId: tab.id }, "Page.handleJavaScriptDialog", {
+          accept,
+          ...(typeof args.promptText === "string" ? { promptText: args.promptText } : {}),
+        });
+      } catch {
+        // Debugger may not be attached in this context
+      }
+      return {};
+    }
     default:
       throw new Error(`Unknown operation: ${op}`);
   }

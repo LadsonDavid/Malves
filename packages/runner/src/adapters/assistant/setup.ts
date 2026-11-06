@@ -4,12 +4,13 @@ import type { Core } from "@malves/core";
 import type { AgentInfo, IdeInfo, Lead } from "@malves/protocol";
 import type { Browser } from "../browser/bridge.js";
 import type { AssistantPort, IdeControl } from "../link/server.js";
-import { Assistant } from "./assistant.js";
+import { Assistant, type AssistantDeps } from "./assistant.js";
 import type { Caller } from "./caller.js";
 import type { Handover } from "./handover.js";
 import { openAiCompatible } from "./llm.js";
 import { Memory } from "./memory.js";
 import { Profile } from "./profile.js";
+import type { SemanticDesktop } from "./semantic-desktop.js";
 import { SkillLibrary } from "./skills.js";
 
 /**
@@ -28,6 +29,8 @@ export function assistantFromEnv(o: {
   handover?: Handover | undefined;
   browser?: Browser | undefined;
   caller?: Caller | undefined;
+  semantic?: SemanticDesktop | undefined;
+  desktopChats?: AssistantDeps["desktopChats"];
 }): { port: AssistantPort; close: () => void; reviewProfile: () => Promise<number> } | undefined {
   const url = process.env.MALVES_MODELS_URL;
   const key = process.env.MALVES_MODELS_KEY;
@@ -58,6 +61,8 @@ export function assistantFromEnv(o: {
   const ides: (() => IdeInfo[]) | undefined = o.ide ? () => o.ide?.list() ?? [] : undefined;
   const assistant = new Assistant({
     core: o.core,
+    semantic: o.semantic,
+    ...(o.desktopChats ? { desktopChats: o.desktopChats } : {}),
     llm,
     memory,
     agents: o.agents,
@@ -76,8 +81,9 @@ export function assistantFromEnv(o: {
   });
   return {
     port: {
-      say: (conversation, text, alternatives, onText, where) =>
-        assistant.say(conversation, text, alternatives, onText, where),
+      cancel: (conversation) => assistant.cancel(conversation),
+      say: (conversation, text, alternatives, onText, where, onProgress, focus) =>
+        assistant.say(conversation, text, alternatives, onText, where, onProgress, focus),
       confirm: (conversation, pending, yes) => assistant.confirm(conversation, pending, yes),
       look: (conversation, photo, question) => assistant.look(conversation, photo, question),
       memories: async () =>

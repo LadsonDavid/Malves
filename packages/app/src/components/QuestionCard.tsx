@@ -1,6 +1,6 @@
 import type { LinkClient, LinkStatus } from "@malves/protocol";
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import { Mic, Speaker } from "../icons";
 import { countdown, type Model, type Question, workspaceName } from "../model";
 import { Banner, Button, buzz, Card, Chip, color, font, styles } from "../ui";
@@ -37,6 +37,7 @@ export function QuestionCard({
   const [queued, setQueued] = useState<string>();
   const [problem, setProblem] = useState<string>();
   const [diff, setDiff] = useState<string>();
+  const [answerText, setAnswerText] = useState("");
   const task = model.tasks[question.taskId];
   const left = question.expiresAt - now;
 
@@ -54,7 +55,10 @@ export function QuestionCard({
     // Offline: the answer waits in the queue and goes when the computer is back.
     if (status !== "online") setQueued(label);
     try {
-      const ack = await client.answer({ questionId: question.id, choiceId });
+      const ack =
+        choiceId === question.textChoiceId
+          ? await client.answerText({ questionId: question.id, choiceId, text: answerText.trim() })
+          : await client.answer({ questionId: question.id, choiceId });
       if (ack.ok) buzz();
       else setProblem(TOO_LATE[ack.result ?? ""] ?? ack.error ?? "Not applied.");
     } catch (error) {
@@ -102,6 +106,17 @@ export function QuestionCard({
           </Text>
         </ScrollView>
       ) : null}
+      {question.textChoiceId ? (
+        <TextInput
+          style={styles.input}
+          value={answerText}
+          onChangeText={setAnswerText}
+          multiline
+          maxLength={4000}
+          placeholder="Type your clarification"
+          editable={sending === undefined && left > 0}
+        />
+      ) : null}
       <View style={styles.row}>
         {question.choices.map((c) => (
           <Button
@@ -109,7 +124,11 @@ export function QuestionCard({
             title={c.label}
             kind={/reject|skip|deny|no|don't|leave|stop/i.test(c.label) ? "plain" : "primary"}
             busy={sending === c.id && !queued}
-            disabled={sending !== undefined}
+            disabled={
+              sending !== undefined ||
+              left <= 0 ||
+              (c.id === question.textChoiceId && !answerText.trim())
+            }
             onPress={() => void choose(c.id, c.label)}
           />
         ))}

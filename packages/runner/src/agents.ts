@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -145,6 +145,10 @@ function cursor(): AgentProfile {
   if (found.program) {
     return { label: "Cursor", command: command(found.program, ["acp"]), signInHint: hint };
   }
+  if (found.script) {
+    const bundled = cursorBundle(path.dirname(found.script));
+    if (bundled) return { label: "Cursor", command: bundled, signInHint: hint };
+  }
   return {
     label: "Cursor",
     command: command("agent", ["acp"]),
@@ -153,6 +157,39 @@ function cursor(): AgentProfile {
       ? `Cursor's CLI is installed as a script (${found.script}), which malves can't start without a shell. Please report this; malves needs to learn its real program.`
       : "Cursor's CLI isn't installed. Install it (Windows PowerShell: irm 'https://cursor.com/install?win32=true' | iex), then run `agent login`.",
   };
+}
+
+/** Resolve Cursor's known Windows install layout; never parse or execute a shell shim. */
+function cursorBundle(root: string): Command | undefined {
+  const bundle = (dir: string) => {
+    const program = path.join(dir, "node.exe");
+    const script = path.join(dir, "index.js");
+    try {
+      return statSync(program).isFile() && statSync(script).isFile()
+        ? command(program, [script, "acp"])
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const direct = bundle(root);
+  if (direct) return direct;
+  try {
+    const versions = readdirSync(path.join(root, "versions"), { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          /^\d{4}\.\d{1,2}\.\d{1,2}(-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/.test(entry.name),
+      )
+      .sort((a, b) => b.name.localeCompare(a.name, "en", { numeric: true }));
+    for (const version of versions) {
+      const found = bundle(path.join(root, "versions", version.name));
+      if (found) return found;
+    }
+  } catch {
+    // Unknown/incomplete installations retain the actionable missing-CLI message.
+  }
+  return undefined;
 }
 
 /** The first real executable with one of these names on PATH or in ~/.local/bin. */

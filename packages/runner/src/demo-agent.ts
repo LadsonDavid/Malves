@@ -96,6 +96,8 @@ acp
     save(session);
     if (session.turns > 1) await say(`Turn ${session.turns} of this conversation. `);
     const path = isAbsolute(target) ? target : join(cwd, target);
+    if (process.env.MALVES_DEMO_PROGRESS === "1")
+      await say("Inspecting the workspace before editing.");
 
     await client.notify(acp.methods.client.session.update, {
       sessionId,
@@ -125,6 +127,20 @@ acp
 
     if (permission.outcome.outcome === "cancelled") return { stopReason: "cancelled" };
     if (permission.outcome.optionId !== "allow") {
+      await client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "write-1",
+          status: "failed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "Permission declined; no file was written." },
+            },
+          ],
+        },
+      });
       await say("Skipped writing the file.");
       return { stopReason: "end_turn" };
     }
@@ -133,6 +149,15 @@ acp
       sessionId,
       path,
       content: `Written by the malves demo agent.\nTask: ${prompt}\n`,
+    });
+    await client.notify(acp.methods.client.session.update, {
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "write-1",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: `Saved ${target}.` } }],
+      },
     });
     await say(`Wrote ${target}.`);
     return { stopReason: "end_turn" };

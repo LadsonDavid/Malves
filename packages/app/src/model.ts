@@ -10,9 +10,10 @@ import type {
   QuestionKind,
   Risk,
   TaskState,
+  ToolProgress,
   Welcome,
 } from "@malves/protocol";
-import { readPairing } from "@malves/protocol";
+import { appendTaskOutput, readPairing } from "@malves/protocol";
 
 /**
  * What the phone knows, rebuilt from the runner's event stream. `reduce` is a
@@ -21,6 +22,7 @@ import { readPairing } from "@malves/protocol";
  */
 
 export type Question = {
+  textChoiceId?: string;
   id: string;
   taskId: string;
   kind: QuestionKind;
@@ -38,6 +40,8 @@ export type Task = {
   state: TaskState;
   reason?: string;
   result?: string;
+  /** Latest status/result per tool, retained through reconnection and log replay. */
+  tools?: ToolProgress[];
   /** The earlier conversation this task continued. */
   resume?: string;
   /** The conversation it ran in; Reply continues it. */
@@ -55,6 +59,7 @@ export type Task = {
 };
 
 export type Model = {
+  assistantCancel: boolean;
   computer: string | null;
   workspaces: Array<{ id: string; name: string }>;
   /** Each agent and whether it can take a task right now. */
@@ -104,6 +109,7 @@ export type Action =
   | { type: "reset" };
 
 export const emptyModel: Model = {
+  assistantCancel: false,
   computer: null,
   workspaces: [],
   agents: [],
@@ -150,6 +156,7 @@ export function reduce(model: Model, action: Action): Model {
       return {
         ...model,
         computer: action.welcome.computer,
+        assistantCancel: action.welcome.assistant_cancel === true,
         workspaces: action.welcome.workspaces,
         agents: action.welcome.agents,
         push: action.welcome.push?.subscribe ?? null,
@@ -237,6 +244,19 @@ function apply(model: Model, event: LoggedEvent): Model {
         ...task,
         commit: event.data.commit,
       }));
+    case "task.output":
+      return updateTask(model, event.data.task_id, (task) => ({
+        ...task,
+        result: appendTaskOutput(task.result ?? "", event.data.text),
+      }));
+    case "task.tool":
+      return updateTask(model, event.data.task_id, (task) => {
+        const tools = [...(task.tools ?? [])];
+        const index = tools.findIndex((tool) => tool.id === event.data.tool.id);
+        if (index < 0) tools.push(event.data.tool);
+        else tools[index] = event.data.tool;
+        return { ...task, tools: tools.slice(-50) };
+      });
     case "task.result":
       return updateTask(model, event.data.task_id, (task) => ({
         ...task,
@@ -250,6 +270,7 @@ function apply(model: Model, event: LoggedEvent): Model {
         kind: q.kind,
         text: q.text,
         choices: q.choices,
+        ...(q.text_choice_id ? { textChoiceId: q.text_choice_id } : {}),
         risk: q.risk,
         expiresAt: q.expires_at,
       };

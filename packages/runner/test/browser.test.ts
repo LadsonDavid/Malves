@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { flush, setup, TIMEOUT } from "../../core/test/fakes.js";
 import { type Browser, BrowserBridge } from "../src/adapters/browser/bridge.js";
-import { BrowserTools, siteOf } from "../src/adapters/browser/tools.js";
+import { BrowserTools, BrowserVault, generateTotp, siteOf } from "../src/adapters/browser/tools.js";
+import { redact } from "../src/redact.js";
 
 const cleanup: Array<() => unknown> = [];
 
@@ -32,7 +33,7 @@ class FakeChrome implements Browser {
         return {
           url: this.url,
           title: "Your cart",
-          text: "1 item · £20",
+          text: "1 item · £20\n\n| Item | Price |\n| Laptop | $1200 |\n| Mouse | $40 |",
           elements: [
             { ref: "e1", role: "button", label: "Place order" },
             { ref: "e2", role: "password field", label: "Password", sensitive: true },
@@ -40,6 +41,8 @@ class FakeChrome implements Browser {
         };
       case "type":
         return args?.ref === "e2" ? { refused: "Refused: never types into password fields." } : {};
+      case "fill_secret":
+        return { filled: true };
       default:
         return {};
     }
@@ -60,7 +63,8 @@ async function harness() {
   await flush();
 
   const chrome = new FakeChrome();
-  const tools = new BrowserTools(core, chrome);
+  const vault = new BrowserVault();
+  const tools = new BrowserTools(core, chrome, vault);
   await tools.start();
   cleanup.push(() => tools.close());
 
@@ -88,11 +92,11 @@ async function harness() {
     return q;
   };
 
-  return { core, chrome, tools, taskId, url: server.url, call, textOf, answer };
+  return { core, chrome, tools, vault, taskId, url: server.url, call, textOf, answer };
 }
 
 describe("browser tools, through the phone gate", () => {
-  it("offers the eight browser tools to the agent", async () => {
+  it("offers the twelve browser tools to the agent", async () => {
     const h = await harness();
     const client = new Client({ name: "lister", version: "1.0.0" });
     await client.connect(httpTransport(h.url));
@@ -101,12 +105,16 @@ describe("browser tools, through the phone gate", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "browser_back",
       "browser_click",
+      "browser_extract",
+      "browser_fill_secret",
+      "browser_list_vault",
       "browser_navigate",
       "browser_press",
       "browser_scroll",
       "browser_select",
       "browser_snapshot",
       "browser_type",
+      "browser_wait_for",
     ]);
   });
 
@@ -118,7 +126,7 @@ describe("browser tools, through the phone gate", () => {
     expect(q.text).toContain("Let the agent read https://shop.example?");
     const read = h.textOf(await pending);
     expect(read).toContain('[e1] button "Place order"');
-    expect(read).toContain("password/card field: malves never types here");
+    expect(read).toContain("password/card field: use browser_fill_secret");
 
     // Same site again: no second question.
     const again = await h.call("browser_snapshot");
@@ -200,6 +208,78 @@ describe("browser tools, through the phone gate", () => {
     await h.core.tasks.stop(h.taskId);
     const response = await fetch(h.url, { method: "POST", body: "{}" });
     expect(response.status).toBe(404);
+  });
+
+  it("lists vault handles without revealing secrets", async () => {
+    const h = await harness();
+    await h.vault.add({
+      handle: "shop",
+      origin: "https://shop.example",
+      secret: "super-secret-pass-123",
+    });
+    const res = await h.call("browser_list_vault");
+    expect(h.textOf(res)).toContain("shop (https://shop.example)");
+    expect(h.textOf(res)).not.toContain("super-secret-pass-123");
+  });
+
+  it("fills secret on matching origin with phone approval and redacts secret bytes", async () => {
+    const h = await harness();
+    await h.vault.add({
+      handle: "shop",
+      origin: "https://shop.example",
+      secret: "super-secret-pass-123",
+    });
+    const snap = h.call("browser_snapshot");
+    await h.answer("allow");
+    await snap;
+
+    const fillPending = h.call("browser_fill_secret", { ref: "e2", handle: "shop" });
+    const q = await h.answer("allow");
+    expect(q.text).toContain('Fill saved password for "shop" on https://shop.example?');
+    const res = await fillPending;
+    expect(h.textOf(res)).toBe("Filled. Call browser_snapshot to see the result.");
+    expect(h.chrome.calls).toContainEqual([
+      "fill_secret",
+      { ref: "e2", secret: "super-secret-pass-123", origin: "https://shop.example" },
+    ]);
+    expect(redact("logged text with super-secret-pass-123 inside")).toContain("[hidden]");
+  });
+
+  it("refuses to fill secret on mismatched origin without asking phone", async () => {
+    const h = await harness();
+    await h.vault.add({
+      handle: "stripe",
+      origin: "https://stripe.com",
+      secret: "stripe-secret-token",
+    });
+    const res = await h.call("browser_fill_secret", { ref: "e2", handle: "stripe" });
+    expect(h.textOf(res)).toMatch(/Refused: secret "stripe" is bound to "https:\/\/stripe.com"/);
+    expect(h.core.questions.pending()).toHaveLength(0);
+  });
+
+  it("waits for condition on page", async () => {
+    const h = await harness();
+    const waitRes = await h.call("browser_wait_for", {
+      condition: "text_present",
+      target: "1 item",
+    });
+    expect(h.textOf(waitRes)).toContain('Condition met: text "1 item" is present.');
+  });
+
+  it("extracts structured data from page", async () => {
+    const h = await harness();
+    const snap = h.call("browser_snapshot");
+    await h.answer("allow");
+    await snap;
+
+    const extractRes = await h.call("browser_extract", { instruction: "extract table of items" });
+    expect(h.textOf(extractRes)).toContain('"item": "Laptop"');
+    expect(h.textOf(extractRes)).toContain('"price": "$1200"');
+  });
+
+  it("generates 6-digit TOTP codes", () => {
+    const code = generateTotp("JBSWY3DPEHPK3PXP", 30, 6, 1234567890000);
+    expect(code).toMatch(/^\d{6}$/);
   });
 
   it("siteOf keeps only http(s) origins", () => {

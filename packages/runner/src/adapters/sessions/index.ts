@@ -2,8 +2,10 @@ import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { type Core, samePath } from "@malves/core";
 import { antigravitySessions } from "./antigravity.js";
+import { sessionChanges } from "./changes.js";
 import { claudeSessions } from "./claude.js";
 import { codexSessions } from "./codex.js";
+import type { CodexDesktopSender } from "./codex-desktop.js";
 import { cursorSessions } from "./cursor.js";
 import type { SessionInfo, SessionMessage, SessionSource, Tool } from "./types.js";
 
@@ -16,13 +18,15 @@ export type { SessionInfo, SessionMessage, Tool } from "./types.js";
  * A brand-new folder still has to be added on the computer.
  */
 export class Sessions {
-  private readonly cursor = cursorSessions();
   private readonly sources: SessionSource[];
   private last: SessionInfo[] = [];
 
   constructor(
     private readonly core: Core,
     sources?: SessionSource[],
+    private readonly cursor = cursorSessions(),
+    private readonly codexDesktop?: CodexDesktopSender,
+    private readonly inputAllowed: () => boolean = () => true,
   ) {
     this.sources = sources ?? [
       claudeSessions(),
@@ -41,13 +45,42 @@ export class Sessions {
     return all
       .filter((s) => !tool || s.tool === tool)
       .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((s) => ({
+        ...s,
+        ...(this.sources.find((source) => source.tool === s.tool)?.inspect
+          ? { recorded: true }
+          : {}),
+      }))
+      .map((s) =>
+        s.tool === "codex" && this.codexDesktop ? { ...s, desktop: "codex-queue" as const } : s,
+      );
   }
 
   async read(tool: Tool, id: string, limit = 40): Promise<SessionMessage[]> {
     const source = this.sources.find((s) => s.tool === tool);
     if (!source) throw new Error(`Unknown tool: ${tool}`);
     return source.read(id, limit);
+  }
+  async inspect(tool: Tool, id: string) {
+    const source = this.sources.find((s) => s.tool === tool);
+    if (!source?.inspect)
+      throw new Error("Recorded native operations aren't available for this connector.");
+    return source.inspect(id);
+  }
+
+  /** Resolve the folder on the computer, never from a phone-supplied path. */
+  async changes(tool: Tool, id: string): Promise<string> {
+    const info = (await this.list(tool)).find((s) => s.id === id);
+    if (!info?.folder) throw new Error("That session has no accessible workspace folder.");
+    return sessionChanges(info.folder);
+  }
+  async delivery(tool: Tool, id: string): Promise<string> {
+    if (tool !== "codex" || !this.codexDesktop?.history)
+      return "No persistent desktop delivery receipts are available for this connector.";
+    const info = (await this.list(tool)).find((s) => s.id === id);
+    if (!info) throw new Error("That session isn't on this computer any more.");
+    return this.codexDesktop.history(id);
   }
 
   /** Every folder you can work in from the phone: added ones, then those from sessions. */
@@ -90,14 +123,34 @@ export class Sessions {
     id: string,
     text: string,
     ready: (agent: string) => boolean,
+    target?: "desktop" | "agent",
+    commandId?: string,
   ): Promise<{ taskId?: string; result: string }> {
+    if (!this.inputAllowed())
+      throw new Error("You have control. Return control before sending new agent input.");
     const info = (this.last.length ? this.last : await this.list()).find(
       (s) => s.tool === tool && s.id === id,
     );
     if (!info) throw new Error("That session isn't on this computer any more.");
-    if (info.how === "bridge") return { result: await this.cursor.send(id, text) };
+    if (!this.inputAllowed())
+      throw new Error("Control changed while resolving the conversation. No message was sent.");
+    if (target === "desktop") {
+      if (tool === "codex" && this.codexDesktop) {
+        if (!commandId) throw new Error("A desktop command id is required.");
+        return { result: await this.codexDesktop.send(id, text, commandId) };
+      }
+      if (tool === "cursor" && info.source === "editor" && this.cursor.bridgeOn()) {
+        return { result: await this.cursor.send(id, text) };
+      }
+      throw new Error(
+        `${label(tool)} desktop control isn't connected for this conversation. Use the computer screen to continue it in the desktop app. No CLI session was started.`,
+      );
+    }
+    if (target === undefined && info.how === "bridge")
+      return { result: await this.cursor.send(id, text) };
     if (!info.folder) throw new Error("I don't know which folder that session ran in.");
     const workspaceId = await this.workspaceFor(info.folder);
+    if (!this.inputAllowed()) throw new Error("You have control. No agent was started.");
 
     if (info.how === "resume") {
       if (!ready(tool)) throw new Error(`${label(tool)} isn't ready on the computer.`);
@@ -114,6 +167,7 @@ export class Sessions {
       );
     }
     const history = await this.read(tool, id, 10).catch(() => [] as SessionMessage[]);
+    if (!this.inputAllowed()) throw new Error("You have control. No agent was started.");
     const prompt = continuation(label(tool), info.title, history, text);
     const taskId = this.core.tasks.create({ workspaceId, agent: tool, prompt });
     return {

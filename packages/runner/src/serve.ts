@@ -7,7 +7,12 @@ import { startBackups } from "./adapters/assistant/backup.js";
 import { Caller } from "./adapters/assistant/caller.js";
 import { Handover } from "./adapters/assistant/handover.js";
 import { rollUpWeeks, startJournal } from "./adapters/assistant/journal.js";
+import { humanHasControl, saveControlOwner } from "./adapters/assistant/ownership.js";
 import { startProfileReview } from "./adapters/assistant/profile.js";
+import {
+  type SemanticDesktop,
+  semanticDesktopFromEnv,
+} from "./adapters/assistant/semantic-desktop.js";
 import { assistantFromEnv } from "./adapters/assistant/setup.js";
 import { naturalVoice, warmPiper } from "./adapters/assistant/voice.js";
 import { startWatcher } from "./adapters/assistant/watcher.js";
@@ -16,6 +21,7 @@ import { BrowserTools } from "./adapters/browser/tools.js";
 import { IdeBridge } from "./adapters/ide/bridge.js";
 import { ideControl } from "./adapters/ide/control.js";
 import { startDigest } from "./adapters/leads/digest.js";
+import { LocalLeadEngine } from "./adapters/leads/engine.js";
 import { signalstack } from "./adapters/leads/signalstack.js";
 import { RelayClient } from "./adapters/link/relay-client.js";
 import { LinkServer } from "./adapters/link/server.js";
@@ -24,6 +30,7 @@ import { NtfyPush } from "./adapters/push/ntfy.js";
 import { Outbox } from "./adapters/push/outbox.js";
 import { RemoteScreen, windowsNotice } from "./adapters/screen/remote.js";
 import { forkVideoWorker, VideoProcess } from "./adapters/screen/video-process.js";
+import { codexDesktopFromEnv } from "./adapters/sessions/codex-desktop.js";
 import { Sessions } from "./adapters/sessions/index.js";
 import { startControl } from "./adapters/terminal/control.js";
 import { attachTerminal } from "./adapters/terminal/terminal.js";
@@ -136,7 +143,7 @@ export async function serve(
   }
   const leads = leadsUrl
     ? signalstack({ url: leadsUrl, key: process.env.MALVES_LEADS_KEY })
-    : undefined;
+    : new LocalLeadEngine({ db: path.join(dir, "malves.db") });
   // IDEs (VS Code, Cursor, Antigravity, Windsurf) with malves' extension connect here.
   const profiles = agentProfiles(dir);
   const label = (agent: string) => profiles.get(agent)?.label ?? agent;
@@ -166,14 +173,25 @@ export async function serve(
     : undefined;
   // Malves, the assistant: its brain on your freellmapi, its memory in your Obsidian vault.
   // Handover mode: Malves keeps the computer until Stop, "I'm back", or four hours (not on an unlock).
+  let handoverWasActive = false;
+  let semantic: SemanticDesktop | undefined;
   const handover = new Handover({
+    initialPaused: humanHasControl(dir),
     // Mouse, keyboard and screen through nut.js, loaded only when handover starts.
     desktop:
       process.platform === "win32"
         ? () => import("./adapters/assistant/desktop.js").then((m) => m.nutDesktop())
         : undefined,
     onChange: (state) => {
+      if (state.paused || !state.active) semantic?.cancel();
+      runner.tasks.blockInput(
+        state.paused
+          ? "You have desktop control. Return control before starting agent work."
+          : undefined,
+      );
       server.setHandover(state);
+      if (handoverWasActive === state.active) return;
+      handoverWasActive = state.active;
       runner.log.append(
         state.active
           ? { type: "control.started", data: { kind: "handover" } }
@@ -217,7 +235,26 @@ export async function serve(
         quietHours: process.env.MALVES_QUIET_HOURS,
       })
     : undefined;
+  if (caller) runner.useCaller?.(caller);
+  semantic = await semanticDesktopFromEnv(
+    () => handover.state.active && !handover.state.paused,
+    () => handover.revision,
+    dir,
+  ).catch((error: unknown) => {
+    say(
+      `Semantic desktop control disabled: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return undefined;
+  });
   const malves = assistantFromEnv({
+    desktopChats: {
+      list: (tool) => sessions.list(tool),
+      read: (tool, id) => sessions.read(tool, id, 12),
+      send: (tool, id, text, commandId) =>
+        sessions.continue(tool, id, text, () => false, "desktop", commandId),
+      changes: (tool, id) => sessions.changes(tool, id),
+    },
+    semantic,
     core: runner,
     dataDir: dir,
     agents: () => runner.agents.list(),
@@ -235,7 +272,19 @@ export async function serve(
   });
   // Every session on this computer (Claude Code, Codex, Cursor, Antigravity). The first
   // full read can take minutes after Windows starts: it runs once serve is up (below).
-  const sessions = new Sessions(runner);
+  const codexDesktop = await codexDesktopFromEnv(dir).catch((error: unknown) => {
+    console.log(
+      `Codex desktop queue unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return undefined;
+  });
+  const sessions = new Sessions(
+    runner,
+    undefined,
+    undefined,
+    codexDesktop,
+    () => !handover.state.paused,
+  );
   if (malves) warmPiper(process.env.MALVES_PIPER_URL);
   const ready = (agent: string) =>
     runner.agents.list().some((a) => a.name === agent && a.state === "ready");
@@ -258,6 +307,23 @@ export async function serve(
     ide: ideCtl,
     assistant: malves?.port,
     stopHandover: malves ? () => handover.stop("You took it back.") : undefined,
+    desktopControl: async (owner) => {
+      saveControlOwner(dir, owner);
+      handover.control(owner === "human");
+      runner.log.append(
+        owner === "human"
+          ? { type: "control.started", data: { kind: "screen_control" } }
+          : {
+              type: "control.ended",
+              data: {
+                kind: "screen_control",
+                reason: "Control returned to Malves; a fresh observation is required.",
+              },
+            },
+      );
+      if (owner === "human") await runner.tasks.stopAll("You took desktop control.");
+      if (owner === "human") await handover.commandsIdle();
+    },
     sessions: {
       list: async (tool) =>
         (await sessions.list(tool)).map((s) => ({
@@ -268,6 +334,8 @@ export async function serve(
           updated_at: Math.round(s.updatedAt),
           how: s.how,
           ...(s.source ? { source: s.source } : {}),
+          ...(s.desktop ? { desktop: s.desktop } : {}),
+          ...(s.recorded ? { recorded: true } : {}),
         })),
       folders: async () =>
         (await sessions.folders()).map((f) => ({
@@ -276,7 +344,11 @@ export async function serve(
           last_used: Math.round(f.lastUsed),
         })),
       read: (tool, id) => sessions.read(tool, id),
-      continue: (tool, id, text) => sessions.continue(tool, id, text, ready),
+      inspect: (tool, id) => sessions.inspect(tool, id),
+      changes: (tool, id) => sessions.changes(tool, id),
+      delivery: (tool, id) => sessions.delivery(tool, id),
+      continue: (tool, id, text, target, commandId) =>
+        sessions.continue(tool, id, text, ready, target, commandId),
       workspaceFor: (folder) => sessions.workspaceFor(folder),
     },
     // Your screen on the phone, any time (Windows: nut.js); the computer says when it's watched.
@@ -314,6 +386,7 @@ export async function serve(
   const stopRenewing = runner.log.subscribe((event) => {
     if (event.type === "device.revoked" && push) push.renew(pushTopic(dir, true));
   });
+  server.setHandover(handover.state);
   const url = await server.start();
   const stopActivity = runner.onActivity((taskId, text) => server.activity(taskId, text));
   relay?.start();
@@ -387,6 +460,7 @@ export async function serve(
       : "Malves (assistant): off (set MALVES_MODELS_URL, MALVES_MODELS_KEY and MALVES_VAULT).",
   );
   if (leadsUrl) say(`Leads come from ${new URL(leadsUrl).origin}.`);
+  else say("Leads: embedded local engine active.");
   say(
     pushOn
       ? "Notifications: on (type `push` to set up the phone)."
@@ -397,6 +471,7 @@ export async function serve(
     say("  • install Tailscale on both devices (works anywhere), or");
     for (const ip of lanAddresses()) say(`  • on the same Wi-Fi: malves serve --host ${ip}`);
   }
+  runner.automations?.start();
 
   // Chrome: the extension connects to 127.0.0.1 only; agents get the gated tools.
   let token = extensionToken(dir);
@@ -618,6 +693,7 @@ ${link}`);
   await runner.tasks.stopAll();
   // Open questions (e.g. a commit approval) must not time out into a closed log.
   runner.questions.shutdown();
+  runner.automations?.stop();
   relay?.close();
   await server.close();
   stopRenewing();
