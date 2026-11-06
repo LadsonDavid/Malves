@@ -295,7 +295,7 @@ describe("sessions across tools", () => {
     );
     step.run(2, 23, pb([[30, [[4, "Planning Moderation"]]]]));
     db.prepare("INSERT INTO trajectory_metadata_blob VALUES ('main', ?)").run(
-      pb([[1, [[3, "file:///d%3A/Pavilion/Web"]]]]),
+      pb([[1, [[3, "file:///d%3A/Projects/Web"]]]]),
     );
     db.close();
     const source = antigravitySessions(root);
@@ -306,7 +306,7 @@ describe("sessions across tools", () => {
       how: "new",
       source: "editor",
     });
-    expect(info?.folder?.replace(/\\/g, "/")).toMatch(/Pavilion\/Web$/);
+    expect(info?.folder?.replace(/\\/g, "/")).toMatch(/Projects\/Web$/);
     expect(await source.read("conv-1234-5678", 10)).toEqual([
       { who: "you", text: "plan the moderation feature" },
       { who: "agent", text: "Here is the plan." },

@@ -35,8 +35,9 @@ export function draftOutreach(lead: Lead, dossier?: LeadDossier): OutreachDraft 
       ? `Noticed that ${dossier.recent_signals[0]}.`
       : `Noticed ${lead.name}'s recent work with ${lead.trigger || "developer tooling"}.`);
 
+  const sign = process.env.MALVES_USER_NAME?.trim();
   const subject = `Quick question regarding ${lead.name}`;
-  const body = `Hi ${recipientName},\n\n${opener}\n\nWould love to connect and share a brief thought on your technical roadmap.\n\nBest,\nLadson`;
+  const body = `Hi ${recipientName},\n\n${opener}\n\nWould love to connect and share a brief thought on your technical roadmap.\n\nBest${sign ? `,\n${sign}` : ""}`;
 
   return {
     domain: lead.domain,

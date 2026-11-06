@@ -9,7 +9,7 @@ const healthy = (over: Partial<DoctorEnv> = {}): DoctorEnv => ({
   env: {
     MALVES_MODELS_URL: "http://brain:3001",
     MALVES_VAULT: "C:\\Notes",
-    MALVES_USER_NAME: "Ladson",
+    MALVES_USER_NAME: "Alex",
     CARTESIA_API_KEY: "x",
     MALVES_FCM_KEY: "C:\\fcm.json",
   },
