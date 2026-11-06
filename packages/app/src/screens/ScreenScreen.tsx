@@ -88,17 +88,28 @@ export function ScreenScreen({
     if (!client || !online) return;
     let stopped = false;
     let peer: InstanceType<WebRtc["RTCPeerConnection"]> | undefined;
+    let videoReady = false;
+    let candidateStream: string | undefined;
+    let checking = false;
+    setStreamUrl(undefined);
+    setFrame(undefined);
+    setProblem(undefined);
     const pictures = async () => {
-      while (!stopped) {
+      while (!stopped && !videoReady) {
         try {
           const ack = await client.screenFrame();
-          if (stopped) return;
+          if (stopped || videoReady) return;
           if (ack.ok && ack.frame) {
             setFrame(`data:image/jpeg;base64,${ack.frame.jpeg}`);
             setSize({ width: ack.frame.width, height: ack.frame.height });
+          } else {
+            setProblem(ack.error ?? "The computer returned no screen image.");
           }
-        } catch {
-          // Next round.
+        } catch (error) {
+          if (!stopped)
+            setProblem(
+              error instanceof Error ? error.message : "Couldn't reach the screen capture service.",
+            );
         }
         await new Promise((r) => setTimeout(r, 200));
       }
@@ -107,35 +118,67 @@ export function ScreenScreen({
     // never "Connecting…" forever. Two waits: up to 35 s for the computer to answer (it
     // may be busy, and the phone's own wait used to run out first), then 12 s for the
     // connection itself.
-    let connected = false;
     let fellBack = false;
     const fallBack = (why: string) => {
-      if (stopped || connected || fellBack) return;
+      if (stopped || fellBack) return;
       fellBack = true;
+      const wasVideo = videoReady;
+      videoReady = false;
       peer?.close();
       peer = undefined;
       void client.screenVideoStop().catch(() => {});
       setStreamUrl(undefined);
       setProblem(`Live video didn't connect (${why}). Showing pictures instead.`);
-      void pictures();
+      if (wasVideo) void pictures();
     };
+    // Render video only once the receiver reports decoded frames. A track or
+    // connected peer can exist while the screen remains entirely black.
+    const health = setInterval(() => {
+      if (!peer || checking || stopped || fellBack || videoReady) return;
+      checking = true;
+      void peer
+        .getStats()
+        .then((stats) => {
+          let decoded = false;
+          stats.forEach((report: { type?: string; framesDecoded?: number }) => {
+            if (report.type === "inbound-rtp" && Number(report.framesDecoded) > 0) decoded = true;
+          });
+          if (decoded && candidateStream && !stopped && !fellBack) {
+            videoReady = true;
+            clearTimeout(giveUp);
+            setStreamUrl(candidateStream);
+            setProblem(undefined);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          checking = false;
+        });
+    }, 1000);
     let giveUp = setTimeout(() => fallBack("the computer took too long to answer"), 35_000);
+    void pictures();
     void (async () => {
-      if (!webrtc) return pictures();
+      if (!webrtc) {
+        clearTimeout(giveUp);
+        return;
+      }
       try {
         peer = new webrtc.RTCPeerConnection({ iceServers: [] });
         peer.addTransceiver("video", { direction: "recvonly" });
         peer.onconnectionstatechange = () => {
           const state = peer?.connectionState;
-          if (state === "connected") {
-            connected = true;
-            clearTimeout(giveUp);
-          } else if (state === "failed") fallBack("connection failed");
+          if (state === "failed" || state === "disconnected") fallBack("connection lost");
         };
         peer.ontrack = (event: unknown) => {
-          const { streams } = event as unknown as { streams?: Array<{ toURL: () => string }> };
-          const stream = streams?.[0];
-          if (stream && !stopped) setStreamUrl(stream.toURL());
+          const { streams, track } = event as unknown as {
+            streams?: Array<{ toURL: () => string }>;
+            track?: InstanceType<WebRtc["MediaStreamTrack"]>;
+          };
+          const stream =
+            streams?.[0] ?? (track && webrtc ? new webrtc.MediaStream([track]) : undefined);
+          if (stream && !stopped && !fellBack) {
+            candidateStream = stream.toURL();
+          }
         };
         await peer.setLocalDescription(await peer.createOffer({}));
         await new Promise<void>((resolve) => {
@@ -150,13 +193,14 @@ export function ScreenScreen({
             };
         });
         const ack = await client.screenVideo(peer.localDescription?.sdp ?? "");
+        if (stopped || fellBack || !peer) return;
         if (!ack.ok || !ack.video) throw new Error(ack.error ?? "No video");
         setSize({ width: ack.video.width, height: ack.video.height });
         await peer.setRemoteDescription(
           new webrtc.RTCSessionDescription({ type: "answer", sdp: ack.video.sdp }),
         );
         clearTimeout(giveUp);
-        if (!connected) giveUp = setTimeout(() => fallBack("timed out"), 12_000);
+        if (!videoReady) giveUp = setTimeout(() => fallBack("no decoded video arrived"), 12_000);
       } catch (error) {
         fallBack(error instanceof Error ? error.message : "setup failed");
       }
@@ -164,6 +208,7 @@ export function ScreenScreen({
     return () => {
       stopped = true;
       clearTimeout(giveUp);
+      clearInterval(health);
       if (peer) {
         peer.close();
         void client.screenVideoStop().catch(() => {});

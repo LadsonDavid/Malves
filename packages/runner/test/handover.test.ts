@@ -74,7 +74,7 @@ describe("handover", () => {
     // Reading outside the project, or secrets inside it, asks.
     expect(commandRisk("cat src/index.ts")).toBe("look");
     expect(commandRisk("cat .env")).toBe("ask");
-    expect(commandRisk("type C:\\Users\\Snoba\\.ssh\\ssh-key-2026-10-05.key")).toBe("ask");
+    expect(commandRisk("type C:\\Users\\someone\\.ssh\\id_ed25519")).toBe("ask");
     expect(commandRisk("cat ../other/notes.md")).toBe("ask");
     expect(commandRisk("cat ~/.ssh/id_ed25519")).toBe("ask");
     expect(commandRisk("type LLM-keys.txt")).toBe("ask");

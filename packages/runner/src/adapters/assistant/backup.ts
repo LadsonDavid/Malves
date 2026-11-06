@@ -10,7 +10,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
  * and a key that never leaves it (`backup.key` in the malves data folder), then
  * streamed over SSH (Tailscale) into ~/malves-backups. The 14 newest are kept.
  *
- *   MALVES_BACKUP_SSH       e.g. ubuntu@100.69.0.115 (needs key-based SSH login)
+ *   MALVES_BACKUP_SSH       e.g. ubuntu@100.x.y.z (needs key-based SSH login)
  *   MALVES_BACKUP_SSH_KEY   optional: the private key file to log in with
  */
 const MAGIC = Buffer.from("MLVB1");

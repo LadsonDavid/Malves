@@ -14,15 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  isFinished,
-  type Model,
-  needsYou,
-  pickAgent,
-  type Question,
-  running,
-  workspaceName,
-} from "../model";
+import { isFinished, type Model, needsYou, type Question, running, workspaceName } from "../model";
 import { watchProgress } from "../progress";
 import { buzz } from "../ui";
 import { type ReplyAudio, replyAudio } from "./audioInbox";
@@ -402,6 +394,7 @@ export function VoiceProvider({
   /** After Malves spoke: its read-back or its question gets an answer, else carry on. */
   const afterThink = (id: number) => {
     const L = live.current;
+    L.quietSince = Date.now();
     if (L.interrupted) {
       L.interrupted = false;
       return turn("command", undefined, id);
@@ -431,6 +424,7 @@ export function VoiceProvider({
     awaiting: IntentContext["awaiting"],
     question?: Question,
     id = live.current.turn,
+    answerUntil = Date.now() + 30_000,
   ): Promise<void> => {
     if (id !== live.current.turn) return;
     if (!canListen()) {
@@ -438,6 +432,12 @@ export function VoiceProvider({
       setPhase("idle");
       return;
     }
+    // Give a requested answer its own listening window, even after a long reply.
+    // A one-shot mic still needs to hear answers to Malves' follow-up questions.
+    const wantsAnswer =
+      awaiting !== "command" ||
+      !!live.current.brainPending ||
+      live.current.lastSaid.trim().endsWith("?");
     setPhase("listening");
     setHeard("");
     let result: Heard;
@@ -460,10 +460,18 @@ export function VoiceProvider({
     setHeard(result.text);
     if (!result.text) {
       // Silence: hands-free keeps listening for a while; nothing is ever answered by it.
-      if (live.current.mode && Date.now() - live.current.quietSince < IDLE_MS) {
-        return turn(awaiting, question, id);
+      if (
+        (live.current.mode && Date.now() - live.current.quietSince < IDLE_MS) ||
+        (wantsAnswer && Date.now() < answerUntil)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return turn(awaiting, question, id, answerUntil);
       }
       if (live.current.mode) return stopMode();
+      if (wantsAnswer)
+        setProblem(
+          "I didn't hear an answer. Tap the microphone to continue; nothing was approved.",
+        );
       setPhase("idle");
       return;
     }
@@ -528,6 +536,7 @@ export function VoiceProvider({
     await sayIt(
       `${question.risk === "high" ? `${P().highRisk} ` : ""}${P().say(question.choices.map((c) => c.label))}`,
     );
+    live.current.quietSince = Date.now();
     await turn("answer", question, id);
   };
 
@@ -583,10 +592,10 @@ export function VoiceProvider({
     if (r.offset < r.text.length) await sayIt(P().more);
   };
 
-  const lastFinished = () =>
-    Object.values(live.current.model.tasks)
-      .filter(isFinished)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const lastFinished = () => {
+    const finished = Object.values(live.current.model.tasks).filter(isFinished);
+    return finished.length === 1 ? finished[0] : undefined;
+  };
 
   const act = async (
     intent: Intent,
@@ -639,10 +648,12 @@ export function VoiceProvider({
         await sayIt(p.cancelled);
         return next(id);
       case "newTask": {
-        const workspaceId = intent.workspaceId ?? L.model.workspaces[0]?.id;
-        const agent = intent.agent ?? pickAgent(L.model.agents, L.lastAgent);
+        const workspaceId =
+          intent.workspaceId ??
+          (L.model.workspaces.length === 1 ? L.model.workspaces[0]?.id : undefined);
+        const agent = intent.agent;
         if (!workspaceId) await sayIt(p.noProject);
-        else if (!agent) await sayIt(p.noAgent);
+        else if (!agent) await sayIt("Name the CLI agent explicitly. No agent was selected.");
         else {
           L.pending = { kind: "task", workspaceId, agent, prompt: intent.prompt };
           const label = L.model.agents.find((a) => a.name === agent)?.label ?? agent;

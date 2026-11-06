@@ -444,7 +444,7 @@ has the same list with a line of explanation for each.
 | `MALVES_SKILLS` | Your skill library folder (default `~/.claude/skills`) |
 | `MALVES_QUIET_HOURS` | e.g. `22-7`: no "task finished" notifications then. Questions always notify |
 | `CARTESIA_API_KEY`, `ELEVENLABS_API_KEY` | Natural voices. Either may be empty |
-| `MALVES_PIPER_URL` | Piper on your own server, e.g. `http://100.69.0.115:5005` (tailnet only) |
+| `MALVES_PIPER_URL` | Piper on your own server, e.g. `http://100.x.y.z:5005` (tailnet only) |
 | `MALVES_LEADS_URL`, `MALVES_LEADS_KEY` | signalstack, and its `UI_KEY` if it has one (sent as a header, never in the URL) |
 | `MALVES_RELAY_URL`, `MALVES_RELAY_TOKEN` | The relay on your server (`--relay` does the same for the URL) |
 | `MALVES_FCM_KEY` | Path to your Firebase service-account JSON, kept outside the repo. The phone build also needs `packages/app/google-services.json` (git-ignored) |

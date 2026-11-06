@@ -44,7 +44,7 @@ describe("redact", () => {
 
   it("keeps ordinary text, paths and numbers", () => {
     const text =
-      "Video: sent 3 frames, 157613 bytes at D:\\Pavilion\\Malves\\key-notes.txt (1920x1080)";
+      "Video: sent 3 frames, 157613 bytes at D:\\Projects\\app\\key-notes.txt (1920x1080)";
     expect(redact(text)).toBe(text);
   });
 });

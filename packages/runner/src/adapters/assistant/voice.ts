@@ -8,7 +8,7 @@ import { NATURAL_VOICES, type NaturalVoice, type Speak } from "@malves/protocol"
  * skipped until next month, and that's said once.
  *
  *   CARTESIA_API_KEY, ELEVENLABS_API_KEY   (either may be missing)
- *   MALVES_PIPER_URL                       e.g. http://100.69.0.115:5005
+ *   MALVES_PIPER_URL                       e.g. http://100.x.y.z:5005
  */
 export type Lang = "ta" | "en";
 export type Spoken = { mime: string; audio: Buffer; note?: string };

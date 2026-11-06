@@ -140,4 +140,4 @@ Step 1 passed on Linux and broke on Windows. Don't reintroduce these:
 **signalstack** — https://github.com/LadsonDavid/signalstack (Python, Apache-2.0).
 The lead engine (points 1, 7). Stays a separate process reached over HTTP; the
 runner never imports it. Its commits use
-`LadsonDavid <ladsonselvam1998@gmail.com>`.
+`LadsonDavid <your GitHub no-reply address>`.

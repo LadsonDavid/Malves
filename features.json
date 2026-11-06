@@ -475,7 +475,8 @@
       "name": "Review a finished task's changes and commit them from the phone",
       "area": "agents",
       "criticality": "hot",
-      "status": "awaiting-real-test",
+      "status": "known-issue",
+      "notes": "Shared repository snapshot deltas cannot establish task authorship. Automatic task attribution and commit prompts are disabled unless an exclusive task checkout is explicitly proven. The production shared-workspace adapter does not opt in. Workspace review remains read-only; wiring verified isolated-checkout commit review is outstanding.",
       "evidence": ["packages/runner/test/changes.test.ts"],
       "real_test": "Finish a task that edits a file, open its changes on the phone, and approve the commit."
     },
