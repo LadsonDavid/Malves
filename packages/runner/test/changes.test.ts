@@ -21,7 +21,7 @@ afterEach(async () => {
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
 
-function setup({ repo = true } = {}) {
+function setup({ repo = true, exclusive = true } = {}) {
   const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "malves-git-")));
   const site = path.join(dir, "site");
   mkdirSync(site);
@@ -56,7 +56,10 @@ function setup({ repo = true } = {}) {
     agents: new Map([["demo", command("x")]]),
     questionTimeoutMs: 10_000,
   });
-  const changes = new GitChanges(core, { questionTimeoutMs: 10_000 });
+  const changes = new GitChanges(core, {
+    questionTimeoutMs: 10_000,
+    exclusiveWorkspace: () => exclusive,
+  });
   const runner = { ...core, diff: (id: string) => changes.diff(id) };
   cleanup.push(() => {
     changes.close();
@@ -92,6 +95,37 @@ const commitQuestion = (s: ReturnType<typeof setup>) =>
   s.runner.questions.pending().find((q) => q.kind === "commit_approval");
 
 describe("view changes and commit", () => {
+  it("invalidates legacy shared-checkout commit prompts without committing", async () => {
+    const s = setup();
+    await runTask(s);
+    await waitFor(() => commitQuestion(s) !== undefined, "commit prompt");
+    const restarted = new GitChanges(s.runner, { questionTimeoutMs: 10_000 });
+    cleanup.push(() => restarted.close());
+    expect(commitQuestion(s)).toBeUndefined();
+    expect(git(s.site, "log", "--format=%s").trim()).toBe("first");
+  });
+  it("refuses to commit when a reviewed file changes before approval", async () => {
+    const s = setup();
+    await runTask(s);
+    await waitFor(() => commitQuestion(s) !== undefined, "commit prompt");
+    writeFileSync(path.join(s.site, "malves-demo.txt"), "A concurrent editor changed this\n");
+    s.runner.questions.answer({
+      questionId: commitQuestion(s)!.question_id,
+      choiceId: "commit",
+      commandId: "stale-review",
+    });
+    await waitFor(() => s.events.some((e) => e.type === "error"), "stale review refusal");
+    expect(git(s.site, "log", "--format=%s").trim()).toBe("first");
+  });
+  it("never attributes shared checkout edits to a task", async () => {
+    const s = setup({ exclusive: false });
+    const id = await runTask(s);
+    writeFileSync(path.join(s.site, "user.txt"), "Edited by another desktop chat\n");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(commitQuestion(s)).toBeUndefined();
+    expect(s.events.some((e) => e.type === "task.changes")).toBe(false);
+    expect(s.runner.diff(id)).toBe("No changes recorded for this task.");
+  });
   it("shows only the agent's files, and commits only those when you approve", async () => {
     const s = setup();
     const id = await runTask(s);
@@ -124,7 +158,10 @@ describe("view changes and commit", () => {
     const id = await runTask(s);
     await waitFor(() => s.events.some((e) => e.type === "task.changes"), "the changes");
     // A fresh tracker on the same log, as after restarting malves serve.
-    const again = new GitChanges(s.runner, { questionTimeoutMs: 10_000 });
+    const again = new GitChanges(s.runner, {
+      questionTimeoutMs: 10_000,
+      exclusiveWorkspace: () => true,
+    });
     cleanup.push(() => again.close());
     expect(again.files(id)?.files).toEqual(["malves-demo.txt"]);
     expect(again.diff(id)).toContain("+Written by the malves demo agent.");

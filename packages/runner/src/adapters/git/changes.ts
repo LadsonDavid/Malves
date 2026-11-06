@@ -8,9 +8,9 @@ import type { Core } from "@malves/core";
  * After a task in a git project, "what did the agent change?" and "commit it?"
  * (point 3: review and approve from the phone, without a remote desktop).
  *
- * A snapshot of the uncommitted files is taken as the task starts; when it
- * ends, only files that differ from that snapshot count as the task's. So your
- * own unrelated edits are never shown as the agent's, and never committed.
+ * Snapshot differences in a shared checkout do not establish authorship.
+ * Automatic attribution and commit prompts require an explicitly exclusive
+ * task checkout; shared changes must be inspected as workspace changes.
  * Committing is a question like any other: no answer means no commit (R3).
  */
 export type ChangedFile = { path: string; added: number; removed: number };
@@ -27,9 +27,28 @@ export class GitChanges {
 
   constructor(
     private readonly core: Core,
-    private readonly o: { questionTimeoutMs: number },
+    private readonly o: {
+      questionTimeoutMs: number;
+      /** Snapshot deltas prove authorship only in an exclusively task-owned checkout. */
+      exclusiveWorkspace?: (taskId: string, root: string) => boolean;
+    },
   ) {
     this.restore();
+    // Old releases inferred ownership from shared repository snapshots. Never
+    // revive those commit buttons after an upgrade or runner restart.
+    for (const question of core.questions.pending()) {
+      if (question.kind !== "commit_approval") continue;
+      const workspaceId = core.tasks.get(question.task_id)?.workspaceId;
+      const workspace = workspaceId ? core.workspaces.get(workspaceId) : undefined;
+      const root = workspace ? repoRoot(workspace.path) : undefined;
+      if (root && this.o.exclusiveWorkspace?.(question.task_id, root)) continue;
+      if (question.choices.some((choice) => choice.id === "leave"))
+        core.questions.answer({
+          questionId: question.question_id,
+          choiceId: "leave",
+          commandId: `scope-invalidated-${question.question_id}`,
+        });
+    }
     this.unsubscribe = core.log.subscribe((event) => {
       // Synchronous on purpose: this runs before the agent is even started.
       if (event.type === "task.created") this.snapshot(event.data.task_id, event.data.workspace_id);
@@ -67,7 +86,7 @@ export class GitChanges {
         if (!workspace) continue;
         if (!roots.has(workspace.path)) roots.set(workspace.path, repoRoot(workspace.path));
         const root = roots.get(workspace.path);
-        if (root) {
+        if (root && this.o.exclusiveWorkspace?.(event.data.task_id, root)) {
           this.changed.set(event.data.task_id, {
             root,
             files: event.data.files.map((f) => f.path),
@@ -113,6 +132,7 @@ export class GitChanges {
     if (!workspace) return;
     const root = repoRoot(workspace.path);
     if (!root) return;
+    if (!this.o.exclusiveWorkspace?.(taskId, root)) return;
     const scope = path.relative(root, workspace.path) || ".";
     this.before.set(taskId, { root, scope, snapshot: dirty(root, scope) });
   }
@@ -122,9 +142,10 @@ export class GitChanges {
     this.before.delete(taskId);
     if (!start) return;
     const now = dirty(start.root, start.scope);
-    // ponytail: two tasks editing one project at once can see each other's files.
     const files = [...now]
-      .filter(([file, hash]) => start.snapshot.get(file) !== hash)
+      // A dirty file at task start includes pre-existing work, even if this
+      // task subsequently changes it. Never include that whole file in a commit.
+      .filter(([file]) => !start.snapshot.has(file))
       .map(([f]) => f);
     if (files.length === 0) return;
 
@@ -148,6 +169,11 @@ export class GitChanges {
       timeoutMs: this.o.questionTimeoutMs,
     });
     if (answer.outcome !== "answered" || answer.choiceId !== "commit") return;
+    if (!this.o.exclusiveWorkspace?.(taskId, start.root)) return;
+    const latest = dirty(start.root, start.scope);
+    if (files.some((file) => latest.get(file) !== now.get(file))) {
+      throw new Error("Reviewed files changed while waiting for approval; nothing was committed.");
+    }
 
     const task = this.core.tasks.get(taskId);
     const message = (task?.prompt.split("\n")[0] ?? "Changes by malves").slice(0, 72);
