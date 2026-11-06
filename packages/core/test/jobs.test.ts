@@ -1,3 +1,4 @@
+import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EventLog } from "../src/events/log.js";
 import { Jobs } from "../src/jobs/jobs.js";
@@ -117,7 +118,7 @@ describe("Jobs orchestrator", () => {
     verifier = { verify: async () => ({ passed: true, output: "All tests green" }) };
     prOpener = { createPr: async () => ({ url: "https://github.com/org/repo/pull/42" }) };
 
-    workspaces.register("repo", "d:/path/to/repo");
+    workspaces.register("repo", path.resolve("test-workspaces", "repo"));
 
     jobs = new Jobs({
       log,
