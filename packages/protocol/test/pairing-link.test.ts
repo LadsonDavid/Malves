@@ -6,7 +6,7 @@ const offer = () => ({
   url: "ws://100.64.0.1:7717",
   runner: generateKeyPair().publicKey,
   code: "abcdefghijklmnopqrstuvwx",
-  computer: "Ladson's PC / ½ ₹ தமிழ்",
+  computer: "Alex's PC / ½ ₹ தமிழ்",
 });
 
 describe("pairing links", () => {

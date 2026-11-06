@@ -10,7 +10,7 @@ acceptance test; native approval support is still unavailable as described below
 From PowerShell, with Node 22.12 or newer and dependencies already installed:
 
 ```powershell
-Set-Location D:\Pavilion\Malves
+Set-Location <path to your malves checkout>
 node node_modules/typescript/bin/tsc -b
 node node_modules/typescript/bin/tsc -p packages/extension/tsconfig.json
 node --env-file-if-exists=.env scripts/verify-desktop-provider.mjs --fixture

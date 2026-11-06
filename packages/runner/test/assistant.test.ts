@@ -893,7 +893,7 @@ describe("Malves, the assistant", () => {
           [
             "remember",
             {
-              text: "Ladson prefers Claude for frontend work.",
+              text: "Alex prefers Claude for frontend work.",
               kind: "preference",
               title: "Prefers Claude for frontend",
             },
@@ -1038,7 +1038,7 @@ describe("Malves' memory (the Obsidian vault)", () => {
     });
     await m.remember({
       kind: "fact",
-      text: "The Oracle server is malves-brain-a1.",
+      text: "The Oracle server is example-server.",
       title: "Server",
     });
     expect((await m.recall("oracle server name"))[0]?.title).toBe("Server");
@@ -1056,7 +1056,7 @@ describe("Malves' memory (the Obsidian vault)", () => {
     });
     await offline.remember({
       kind: "fact",
-      text: "The Oracle server is malves-brain-a1.",
+      text: "The Oracle server is example-server.",
       title: "Server",
     });
     expect((await offline.recall("which oracle server"))[0]?.title).toBe("Server");
@@ -1079,7 +1079,7 @@ describe("Malves' memory (the Obsidian vault)", () => {
     });
     await m.remember({
       kind: "fact",
-      text: "The Oracle server is malves-brain-a1.",
+      text: "The Oracle server is example-server.",
       title: "Server",
     });
     const vectorOf = () =>
@@ -1100,7 +1100,7 @@ describe("his profile", () => {
   const PROFILE = `<about_me>
 <usage>Load at session start.</usage>
 <identity_context>
-- Ladson, CEO of Malveon.
+- Alex, CEO of Example Co.
 - Early riser (05:40).
 </identity_context>
 <writing_laws>
@@ -1122,7 +1122,7 @@ describe("his profile", () => {
   it("sends its core always, and all of it when he asks for writing", () => {
     const { profile } = withProfile([]);
     const core = profile.forBrain("is codex done?");
-    expect(core).toContain("CEO of Malveon");
+    expect(core).toContain("CEO of Example Co");
     expect(core).not.toContain("em dashes");
     expect(core).not.toContain("Load at session start");
     expect(profile.forBrain("draft a LinkedIn post about the demo")).toContain("em dashes");
