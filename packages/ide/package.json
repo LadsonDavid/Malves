@@ -43,12 +43,12 @@
     "package": "pnpm run build && vsce package --no-dependencies --out malves.vsix"
   },
   "dependencies": {
-    "ws": "8.22.0"
+    "ws": "8.22.1"
   },
   "devDependencies": {
-    "@types/vscode": "1.85.0",
-    "@types/ws": "8.18.1",
-    "@vscode/vsce": "4.0.0",
+    "@types/vscode": "1.145.0",
+    "@types/ws": "8.18.2",
+    "@vscode/vsce": "4.1.0",
     "esbuild": "0.28.2"
   }
 }
